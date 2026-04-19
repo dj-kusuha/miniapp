@@ -13,10 +13,10 @@
             --sheet-height: 297mm;
             --print-page-margin: 8mm;
             --screen-page-padding: 12mm;
-            --print-safe-adjust: 1mm;
-            --print-content-scale: 0.97;
-            --print-content-width: calc(var(--sheet-width) - (var(--print-page-margin) * 2) - var(--print-safe-adjust));
-            --print-content-height: calc(var(--sheet-height) - (var(--print-page-margin) * 2) - var(--print-safe-adjust));
+            --print-safe-width-adjust: 3mm;
+            --print-safe-height-adjust: 5mm;
+            --print-content-width: calc(var(--sheet-width) - (var(--print-page-margin) * 2) - var(--print-safe-width-adjust));
+            --print-content-height: calc(var(--sheet-height) - (var(--print-page-margin) * 2) - var(--print-safe-height-adjust));
         }
 
         .worksheet-preview {
@@ -54,14 +54,6 @@
             transform: none !important;
         }
 
-        body.is-printing .worksheet-page-content {
-            width: calc(100% / var(--print-content-scale));
-            min-height: calc(100% / var(--print-content-scale));
-            margin: 0 auto;
-            transform: scale(var(--print-content-scale));
-            transform-origin: top center;
-        }
-
         /* 印刷時のスタイル調整 */
         @media print {
             @page {
@@ -74,6 +66,14 @@
                 width: auto;
                 margin: 0;
                 padding: 0;
+            }
+
+            html {
+                font-size: 15px;
+            }
+
+            html.is-ios-print-device {
+                font-size: 14px;
             }
 
             body {
@@ -119,33 +119,41 @@
                 break-after: auto;
             }
 
-            .worksheet-page-content {
-                width: calc(100% / var(--print-content-scale));
-                min-height: calc(100% / var(--print-content-scale));
-                margin: 0 auto;
-                transform: scale(var(--print-content-scale));
-                transform-origin: top center;
-            }
-
             .worksheet-header {
-                margin-bottom: 4.5mm;
+                margin-bottom: 4mm;
                 padding-bottom: 2mm;
             }
 
             .worksheet-title {
-                font-size: 18px;
+                font-size: 17px;
                 line-height: 1.25;
             }
 
             .worksheet-grid {
                 display: grid;
                 grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 5.5mm 3.5mm;
+                gap: 4.75mm 3mm;
             }
 
             .worksheet-problem {
                 break-inside: avoid;
                 page-break-inside: avoid;
+            }
+
+            html.is-ios-print-device .worksheet-page {
+                padding: 4.5mm 5mm;
+            }
+
+            html.is-ios-print-device .worksheet-header {
+                margin-bottom: 3.25mm;
+            }
+
+            html.is-ios-print-device .worksheet-title {
+                font-size: 16px;
+            }
+
+            html.is-ios-print-device .worksheet-grid {
+                gap: 4mm 2.25mm;
             }
 
             .worksheet-page.is-multiplication {
@@ -330,6 +338,13 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
+            const isIOSPrintDevice = /iP(hone|ad|od)/.test(window.navigator.userAgent)
+                || (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+
+            if (isIOSPrintDevice) {
+                document.documentElement.classList.add('is-ios-print-device');
+            }
+
             // 状態変数
             let operator = '+';
             let digits1 = 2;
