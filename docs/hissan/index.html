@@ -90,15 +90,6 @@
                 max-width: none !important;
                 height: auto !important;
                 margin: 0 !important;
-                break-inside: avoid;
-                page-break-inside: avoid;
-                page-break-after: always;
-                break-after: page;
-            }
-
-            .worksheet-preview:last-child {
-                page-break-after: auto;
-                break-after: auto;
             }
 
             .worksheet-page {
@@ -110,8 +101,10 @@
                 border-radius: 0;
                 box-shadow: none !important;
                 transform: none !important;
-                page-break-after: auto;
-                break-after: auto;
+                break-inside: avoid;
+                page-break-inside: avoid;
+                page-break-after: always;
+                break-after: page;
             }
 
             .worksheet-page:last-child {
