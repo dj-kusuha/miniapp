@@ -419,15 +419,19 @@
                 });
             };
 
-            const setPrintTarget = (target = 'all') => {
-                activePrintTarget = target;
+            const normalizePrintTarget = (target) => {
+                return target === 'problems' || target === 'answers' ? target : 'all';
+            };
 
-                if (target === 'all') {
+            const setPrintTarget = (target = 'all') => {
+                activePrintTarget = normalizePrintTarget(target);
+
+                if (activePrintTarget === 'all') {
                     delete document.body.dataset.printTarget;
                     return;
                 }
 
-                document.body.dataset.printTarget = target;
+                document.body.dataset.printTarget = activePrintTarget;
             };
 
             const enterPrintLayout = (target = activePrintTarget) => {
@@ -647,7 +651,9 @@
             });
 
             window.addEventListener('resize', updatePreviewScale);
-            window.addEventListener('beforeprint', enterPrintLayout);
+            window.addEventListener('beforeprint', () => {
+                enterPrintLayout();
+            });
             window.addEventListener('afterprint', leavePrintLayout);
 
             const handlePrintMediaChange = (event) => {
