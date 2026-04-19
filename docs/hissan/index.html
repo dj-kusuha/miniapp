@@ -93,6 +93,12 @@
                             <option value="3">3桁</option>
                         </select>
                     </div>
+
+                    <div class="flex flex-col min-w-44">
+                        <label for="title-prefix" class="text-xs text-slate-500 font-semibold mb-1">「○○用」の名前</label>
+                        <input id="title-prefix" type="text" placeholder="例: たろう"
+                            class="bg-white border border-slate-300 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                    </div>
                 </div>
 
                 <div class="flex gap-2">
@@ -132,12 +138,9 @@
         <div
             class="bg-white shadow-2xl mx-auto rounded-sm w-[210mm] min-h-[297mm] p-12 print:shadow-none print:w-auto print:min-h-0 print:p-0 print:m-0">
 
-            <div class="flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-8">
-                <h2 id="title-problems" class="text-2xl font-bold font-sans tracking-wide shrink-0 whitespace-nowrap">
+            <div class="border-b-2 border-slate-800 pb-2 mb-8">
+                <h2 id="title-problems" class="text-2xl font-bold font-sans tracking-wide">
                     たしざんの ひっさん</h2>
-                <div class="text-lg tracking-widest font-serif flex gap-6 shrink-0 whitespace-nowrap ml-4">
-                    <span>なまえ　　　　　　　　　　　　　　　　　　　　　　</span>
-                </div>
             </div>
 
             <div id="problems-grid" class="grid grid-cols-4 gap-x-6 gap-y-12">
@@ -169,12 +172,14 @@
             let operator = '+';
             let digits1 = 2;
             let digits2 = 2;
+            let titlePrefix = '';
             const problemCount = 20;
 
             // DOM要素の取得
             const opRadios = document.querySelectorAll('input[name="operator"]');
             const digits1Select = document.getElementById('digits1');
             const digits2Select = document.getElementById('digits2');
+            const titlePrefixInput = document.getElementById('title-prefix');
             const btnRefresh = document.getElementById('btn-refresh');
             const btnPrint = document.getElementById('btn-print');
 
@@ -193,9 +198,11 @@
             // タイトルを更新する関数
             const updateTitle = () => {
                 const opName = operator === '+' ? 'たしざん' : operator === '-' ? 'ひきざん' : 'かけざん';
-                const titleText = `${opName}の ひっさん （${digits1}けた・${digits2}けた）`;
+                const titleCore = `${opName}の ひっさん （${digits1}けた・${digits2}けた）`;
+                const titleText = titlePrefix ? `${titlePrefix}用 ${titleCore}` : titleCore;
                 titleProblems.textContent = titleText;
                 titleAnswers.textContent = `【こたえ】 ${titleText}`;
+                document.title = titleText;
             };
 
             // 筆算のHTMLを生成する関数
@@ -317,6 +324,11 @@
             digits2Select.addEventListener('change', (e) => {
                 digits2 = Number(e.target.value);
                 generateProblems();
+            });
+
+            titlePrefixInput.addEventListener('input', (e) => {
+                titlePrefix = e.target.value.trim();
+                updateTitle();
             });
 
             btnRefresh.addEventListener('click', generateProblems);
