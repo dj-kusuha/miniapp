@@ -4,7 +4,7 @@
 
 ## Status
 
-in-progress
+completed
 
 ## Background
 
@@ -37,7 +37,11 @@ in-progress
 ## Decision Log
 
 - 2026-04-19: 画面プレビューはそのまま残し、印刷時だけ対象ページを切り替える方針にする
+- 2026-04-19: 既存の 2 ページプレビューは維持し、印刷時だけ `data-print-target` で対象ページを切り替える
 
 ## Validation
 
-- 未実施
+- 既存の lint / test / build 設定は見当たらず、追加の自動実行対象はなし
+- `http://127.0.0.1:8123/docs/hissan/index.html` を開き、問題を印刷ボタンと答えを印刷ボタンが表示されることを確認した
+- `window.print` をスタブ化した状態で各ボタンを押し、問題印刷時は問題プレビューのみ、答え印刷時は解答プレビューのみが印刷対象になることを確認した
+- `afterprint` 発火後に `is-printing` と印刷対象指定が解除され、通常プレビューに戻ることを確認した
