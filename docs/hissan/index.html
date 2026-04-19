@@ -8,10 +8,115 @@
     <!-- Tailwind CSS をCDNから読み込み -->
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
+        :root {
+            --sheet-width: 210mm;
+            --sheet-height: 297mm;
+            --print-page-margin: 8mm;
+            --screen-page-padding: 12mm;
+        }
+
+        .worksheet-preview {
+            width: fit-content;
+            max-width: 100%;
+            margin: 0 auto;
+        }
+
+        .worksheet-page {
+            width: var(--sheet-width);
+            min-height: var(--sheet-height);
+            padding: var(--screen-page-padding);
+            box-sizing: border-box;
+            flex-shrink: 0;
+            transform-origin: top left;
+        }
+
         /* 印刷時のスタイル調整 */
         @media print {
+            @page {
+                size: A4 portrait;
+                margin: var(--print-page-margin);
+            }
+
+            html,
+            body {
+                width: var(--sheet-width);
+                margin: 0;
+                padding: 0;
+            }
+
             body {
                 background-color: white !important;
+            }
+
+            .print-stage {
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+
+            .worksheet-preview {
+                width: auto !important;
+                max-width: none !important;
+                height: auto !important;
+                margin: 0 !important;
+            }
+
+            .worksheet-page {
+                width: calc(var(--sheet-width) - (var(--print-page-margin) * 2));
+                min-height: calc(var(--sheet-height) - (var(--print-page-margin) * 2));
+                margin: 0 auto;
+                padding: 6mm 7mm;
+                border-radius: 0;
+                box-shadow: none !important;
+                transform: none;
+                page-break-after: always;
+                break-after: page;
+            }
+
+            .worksheet-page:last-child {
+                page-break-after: auto;
+                break-after: auto;
+            }
+
+            .worksheet-header {
+                margin-bottom: 5mm;
+                padding-bottom: 2mm;
+            }
+
+            .worksheet-title {
+                font-size: 18px;
+                line-height: 1.25;
+            }
+
+            .worksheet-grid {
+                display: grid;
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+                gap: 6mm 4mm;
+            }
+
+            .worksheet-problem {
+                break-inside: avoid;
+                page-break-inside: avoid;
+            }
+
+            .worksheet-page.is-multiplication {
+                padding: 5mm 6mm;
+            }
+
+            .worksheet-page.is-multiplication .worksheet-header {
+                margin-bottom: 4mm;
+            }
+
+            .worksheet-page.is-multiplication .worksheet-title {
+                font-size: 18px;
+            }
+
+            .worksheet-page.is-multiplication .worksheet-grid {
+                gap: 5mm 3mm;
+            }
+
+            .worksheet-page.is-multiplication .worksheet-problem {
+                transform: scale(0.98);
+                transform-origin: top left;
             }
         }
     </style>
@@ -132,35 +237,40 @@
         </div>
     </div>
 
-    <div class="w-full overflow-x-auto print:overflow-visible p-4 print:p-0">
+    <div class="print-stage w-full overflow-x-auto print:overflow-visible p-4 print:p-0">
 
         <!-- ===== 印刷プレビュー 1枚目（問題） ===== -->
-        <div
-            class="bg-white shadow-2xl mx-auto rounded-sm w-[210mm] min-h-[297mm] p-12 print:shadow-none print:w-auto print:min-h-0 print:p-0 print:m-0">
+        <div class="worksheet-preview">
+            <div id="problem-page"
+                class="worksheet-page bg-white shadow-2xl mx-auto rounded-sm print:shadow-none print:m-0">
 
-            <div class="border-b-2 border-slate-800 pb-2 mb-8">
-                <h2 id="title-problems" class="text-2xl font-bold font-sans tracking-wide">
-                    たしざんの ひっさん</h2>
-            </div>
+                <div class="worksheet-header border-b-2 border-slate-800 pb-2 mb-8">
+                    <h2 id="title-problems" class="worksheet-title text-2xl font-bold font-sans tracking-wide">
+                        たしざんの ひっさん</h2>
+                </div>
 
-            <div id="problems-grid" class="grid grid-cols-4 gap-x-6 gap-y-12">
-                <!-- 問題がここに挿入されます -->
+                <div id="problems-grid" class="worksheet-grid grid grid-cols-4 gap-x-6 gap-y-12">
+                    <!-- 問題がここに挿入されます -->
+                </div>
             </div>
 
         </div>
 
         <!-- ===== 印刷プレビュー 2枚目（解答） ===== -->
-        <div
-            class="bg-white shadow-2xl mx-auto rounded-sm w-[210mm] min-h-[297mm] p-12 mt-12 print:mt-0 print:shadow-none print:w-auto print:min-h-0 print:p-0 print:m-0 print:break-before-page">
+        <div class="worksheet-preview mt-12 print:mt-0">
+            <div id="answer-page"
+                class="worksheet-page bg-white shadow-2xl mx-auto rounded-sm print:shadow-none print:m-0 print:break-before-page">
 
-            <div class="flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-8">
-                <h2 id="title-answers"
-                    class="text-2xl font-bold font-sans tracking-wide text-red-600 shrink-0 whitespace-nowrap">【こたえ】
-                    たしざんの ひっさん</h2>
-            </div>
+                <div class="worksheet-header flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-8">
+                    <h2 id="title-answers"
+                        class="worksheet-title text-2xl font-bold font-sans tracking-wide text-red-600 shrink-0 whitespace-nowrap">
+                        【こたえ】
+                        たしざんの ひっさん</h2>
+                </div>
 
-            <div id="answers-grid" class="grid grid-cols-4 gap-x-6 gap-y-12">
-                <!-- 解答がここに挿入されます -->
+                <div id="answers-grid" class="worksheet-grid grid grid-cols-4 gap-x-6 gap-y-12">
+                    <!-- 解答がここに挿入されます -->
+                </div>
             </div>
 
         </div>
@@ -173,7 +283,6 @@
             let digits1 = 2;
             let digits2 = 2;
             let titlePrefix = '';
-            const problemCount = 20;
 
             // DOM要素の取得
             const opRadios = document.querySelectorAll('input[name="operator"]');
@@ -185,8 +294,13 @@
 
             const titleProblems = document.getElementById('title-problems');
             const titleAnswers = document.getElementById('title-answers');
+            const problemPage = document.getElementById('problem-page');
+            const answerPage = document.getElementById('answer-page');
             const problemsGrid = document.getElementById('problems-grid');
             const answersGrid = document.getElementById('answers-grid');
+            const printStage = document.querySelector('.print-stage');
+            const previewWrappers = document.querySelectorAll('.worksheet-preview');
+            const worksheetPages = document.querySelectorAll('.worksheet-page');
 
             // 乱数生成関数
             const getRandomNumber = (digits) => {
@@ -203,6 +317,46 @@
                 titleProblems.textContent = titleText;
                 titleAnswers.textContent = `【こたえ】 ${titleText}`;
                 document.title = titleText;
+            };
+
+            const getProblemCount = () => operator === '*' ? 16 : 20;
+
+            const updatePreviewScale = () => {
+                if (!printStage) {
+                    return;
+                }
+
+                if (window.matchMedia('print').matches) {
+                    previewWrappers.forEach((wrapper) => {
+                        wrapper.style.width = 'auto';
+                        wrapper.style.height = 'auto';
+                    });
+                    worksheetPages.forEach((page) => {
+                        page.style.transform = 'none';
+                    });
+                    return;
+                }
+
+                const stageStyle = window.getComputedStyle(printStage);
+                const stagePaddingLeft = parseFloat(stageStyle.paddingLeft) || 0;
+                const stagePaddingRight = parseFloat(stageStyle.paddingRight) || 0;
+                const availableWidth = printStage.clientWidth - stagePaddingLeft - stagePaddingRight;
+
+                worksheetPages.forEach((page, index) => {
+                    page.style.transform = 'none';
+
+                    const naturalWidth = page.offsetWidth;
+                    const naturalHeight = page.offsetHeight;
+                    const scale = naturalWidth > 0 ? Math.min(1, availableWidth / naturalWidth) : 1;
+
+                    const wrapper = previewWrappers[index];
+                    if (wrapper) {
+                        wrapper.style.width = `${naturalWidth * scale}px`;
+                        wrapper.style.height = `${naturalHeight * scale}px`;
+                    }
+
+                    page.style.transform = `scale(${scale})`;
+                });
             };
 
             // 筆算のHTMLを生成する関数
@@ -228,15 +382,15 @@
                 const arrA = padToArray(answer, totalCols);
 
                 const len2 = String(num2).length;
-                let emptyLines = 1;
+                let problemEmptyLines = 1;
                 if (operator === '*' && len2 > 1) {
-                    emptyLines = len2 + 1;
+                    problemEmptyLines = len2;
                 }
 
                 let html = `
-          <div class="flex flex-col w-fit break-inside-avoid">
-            <div class="text-slate-500 font-bold mb-1 ml-2 font-sans">(${id})</div>
-            <div class="flex flex-col text-3xl font-mono font-medium leading-none">
+                    <div class="worksheet-problem flex flex-col w-fit break-inside-avoid">
+                        <div class="text-slate-500 font-bold mb-1 ml-2 font-sans">(${id})</div>
+                        <div class="flex flex-col text-3xl font-mono font-medium leading-none">
               
               <div class="flex">
                 ${arr1.map(char => `<div class="w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
@@ -251,16 +405,13 @@
 
                 if (showAnswer) {
                     html += `<div class="flex flex-col">`;
-                    for (let i = 0; i < emptyLines - 1; i++) {
-                        html += `<div class="h-[30px] mt-2 w-full"></div>`;
-                    }
                     html += `
             <div class="flex text-red-600 font-bold mt-2">
               ${arrA.map(char => `<div class="w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
             </div>
           </div>`;
                 } else {
-                    html += `<div style="height: ${emptyLines * 30 + 8}px" class="w-full mt-2"></div>`;
+                    html += `<div style="height: ${problemEmptyLines * 30 + 8}px" class="w-full mt-2"></div>`;
                 }
 
                 html += `
@@ -275,6 +426,11 @@
                 problemsGrid.innerHTML = '';
                 answersGrid.innerHTML = '';
                 updateTitle();
+                const problemCount = getProblemCount();
+                const isMultiplication = operator === '*';
+
+                problemPage.classList.toggle('is-multiplication', isMultiplication);
+                answerPage.classList.toggle('is-multiplication', isMultiplication);
 
                 for (let i = 0; i < problemCount; i++) {
                     let num1 = getRandomNumber(digits1);
@@ -306,6 +462,8 @@
                     problemsGrid.innerHTML += createProblemHTML(problem, false);
                     answersGrid.innerHTML += createProblemHTML(problem, true);
                 }
+
+                updatePreviewScale();
             };
 
             // イベントリスナーの登録
@@ -336,6 +494,10 @@
             btnPrint.addEventListener('click', () => {
                 window.print();
             });
+
+            window.addEventListener('resize', updatePreviewScale);
+            window.addEventListener('beforeprint', updatePreviewScale);
+            window.addEventListener('afterprint', updatePreviewScale);
 
             // 初回生成
             generateProblems();
