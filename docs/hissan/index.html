@@ -446,6 +446,16 @@
                 });
             };
 
+            const flushPrintLayout = () => {
+                if (printStage) {
+                    printStage.getBoundingClientRect();
+                }
+
+                worksheetPages.forEach((page) => {
+                    page.getBoundingClientRect();
+                });
+            };
+
             // 筆算のHTMLを生成する関数
             const createProblemHTML = (problem, showAnswer) => {
                 const { id, num1, num2, answer, opSymbol } = problem;
@@ -579,7 +589,18 @@
             btnRefresh.addEventListener('click', generateProblems);
 
             btnPrint.addEventListener('click', () => {
+                if (printMediaQuery.matches || isPreparingPrint) {
+                    return;
+                }
+
                 enterPrintLayout();
+                flushPrintLayout();
+
+                if (isIOSPrintDevice) {
+                    window.print();
+                    return;
+                }
+
                 requestAnimationFrame(() => {
                     requestAnimationFrame(() => {
                         window.print();
