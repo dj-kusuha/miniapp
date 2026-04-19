@@ -14,6 +14,7 @@
             --print-page-margin: 8mm;
             --screen-page-padding: 12mm;
             --print-safe-adjust: 1mm;
+            --print-content-scale: 0.97;
             --print-content-width: calc(var(--sheet-width) - (var(--print-page-margin) * 2) - var(--print-safe-adjust));
             --print-content-height: calc(var(--sheet-height) - (var(--print-page-margin) * 2) - var(--print-safe-adjust));
         }
@@ -51,6 +52,14 @@
 
         body.is-printing .worksheet-page {
             transform: none !important;
+        }
+
+        body.is-printing .worksheet-page-content {
+            width: calc(100% / var(--print-content-scale));
+            min-height: calc(100% / var(--print-content-scale));
+            margin: 0 auto;
+            transform: scale(var(--print-content-scale));
+            transform-origin: top center;
         }
 
         /* 印刷時のスタイル調整 */
@@ -108,6 +117,14 @@
             .worksheet-page:last-child {
                 page-break-after: auto;
                 break-after: auto;
+            }
+
+            .worksheet-page-content {
+                width: calc(100% / var(--print-content-scale));
+                min-height: calc(100% / var(--print-content-scale));
+                margin: 0 auto;
+                transform: scale(var(--print-content-scale));
+                transform-origin: top center;
             }
 
             .worksheet-header {
@@ -276,14 +293,15 @@
         <div class="worksheet-preview">
             <div id="problem-page"
                 class="worksheet-page bg-white shadow-2xl mx-auto rounded-sm print:shadow-none print:m-0">
+                <div class="worksheet-page-content">
+                    <div class="worksheet-header border-b-2 border-slate-800 pb-2 mb-8">
+                        <h2 id="title-problems" class="worksheet-title text-2xl font-bold font-sans tracking-wide">
+                            たしざんの ひっさん</h2>
+                    </div>
 
-                <div class="worksheet-header border-b-2 border-slate-800 pb-2 mb-8">
-                    <h2 id="title-problems" class="worksheet-title text-2xl font-bold font-sans tracking-wide">
-                        たしざんの ひっさん</h2>
-                </div>
-
-                <div id="problems-grid" class="worksheet-grid grid grid-cols-4 gap-x-6 gap-y-12">
-                    <!-- 問題がここに挿入されます -->
+                    <div id="problems-grid" class="worksheet-grid grid grid-cols-4 gap-x-6 gap-y-12">
+                        <!-- 問題がここに挿入されます -->
+                    </div>
                 </div>
             </div>
 
@@ -293,16 +311,17 @@
         <div class="worksheet-preview mt-12 print:mt-0">
             <div id="answer-page"
                 class="worksheet-page bg-white shadow-2xl mx-auto rounded-sm print:shadow-none print:m-0">
+                <div class="worksheet-page-content">
+                    <div class="worksheet-header flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-8">
+                        <h2 id="title-answers"
+                            class="worksheet-title text-2xl font-bold font-sans tracking-wide text-red-600 shrink-0 whitespace-nowrap">
+                            【こたえ】
+                            たしざんの ひっさん</h2>
+                    </div>
 
-                <div class="worksheet-header flex justify-between items-end border-b-2 border-slate-800 pb-2 mb-8">
-                    <h2 id="title-answers"
-                        class="worksheet-title text-2xl font-bold font-sans tracking-wide text-red-600 shrink-0 whitespace-nowrap">
-                        【こたえ】
-                        たしざんの ひっさん</h2>
-                </div>
-
-                <div id="answers-grid" class="worksheet-grid grid grid-cols-4 gap-x-6 gap-y-12">
-                    <!-- 解答がここに挿入されます -->
+                    <div id="answers-grid" class="worksheet-grid grid grid-cols-4 gap-x-6 gap-y-12">
+                        <!-- 解答がここに挿入されます -->
+                    </div>
                 </div>
             </div>
 
