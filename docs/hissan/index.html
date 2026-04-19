@@ -30,6 +30,26 @@
             transform-origin: top left;
         }
 
+        body.is-printing {
+            background-color: white;
+        }
+
+        body.is-printing .print-stage {
+            padding: 0;
+            overflow: visible;
+        }
+
+        body.is-printing .worksheet-preview {
+            width: auto;
+            max-width: none;
+            height: auto;
+            margin: 0 auto;
+        }
+
+        body.is-printing .worksheet-page {
+            transform: none !important;
+        }
+
         /* 印刷時のスタイル調整 */
         @media print {
             @page {
@@ -67,7 +87,7 @@
                 padding: 6mm 7mm;
                 border-radius: 0;
                 box-shadow: none !important;
-                transform: none;
+                transform: none !important;
                 page-break-after: always;
                 break-after: page;
             }
@@ -301,6 +321,9 @@
             const printStage = document.querySelector('.print-stage');
             const previewWrappers = document.querySelectorAll('.worksheet-preview');
             const worksheetPages = document.querySelectorAll('.worksheet-page');
+            const printMediaQuery = window.matchMedia('print');
+
+            let isPreparingPrint = false;
 
             // 乱数生成関数
             const getRandomNumber = (digits) => {
@@ -321,19 +344,36 @@
 
             const getProblemCount = () => operator === '*' ? 16 : 20;
 
+            const resetPreviewScale = () => {
+                previewWrappers.forEach((wrapper) => {
+                    wrapper.style.width = 'auto';
+                    wrapper.style.height = 'auto';
+                });
+
+                worksheetPages.forEach((page) => {
+                    page.style.transform = 'none';
+                });
+            };
+
+            const enterPrintLayout = () => {
+                isPreparingPrint = true;
+                document.body.classList.add('is-printing');
+                resetPreviewScale();
+            };
+
+            const leavePrintLayout = () => {
+                isPreparingPrint = false;
+                document.body.classList.remove('is-printing');
+                updatePreviewScale();
+            };
+
             const updatePreviewScale = () => {
                 if (!printStage) {
                     return;
                 }
 
-                if (window.matchMedia('print').matches) {
-                    previewWrappers.forEach((wrapper) => {
-                        wrapper.style.width = 'auto';
-                        wrapper.style.height = 'auto';
-                    });
-                    worksheetPages.forEach((page) => {
-                        page.style.transform = 'none';
-                    });
+                if (printMediaQuery.matches || isPreparingPrint) {
+                    resetPreviewScale();
                     return;
                 }
 
@@ -492,12 +532,32 @@
             btnRefresh.addEventListener('click', generateProblems);
 
             btnPrint.addEventListener('click', () => {
-                window.print();
+                enterPrintLayout();
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        window.print();
+                    });
+                });
             });
 
             window.addEventListener('resize', updatePreviewScale);
-            window.addEventListener('beforeprint', updatePreviewScale);
-            window.addEventListener('afterprint', updatePreviewScale);
+            window.addEventListener('beforeprint', enterPrintLayout);
+            window.addEventListener('afterprint', leavePrintLayout);
+
+            const handlePrintMediaChange = (event) => {
+                if (event.matches) {
+                    enterPrintLayout();
+                    return;
+                }
+
+                leavePrintLayout();
+            };
+
+            if (typeof printMediaQuery.addEventListener === 'function') {
+                printMediaQuery.addEventListener('change', handlePrintMediaChange);
+            } else if (typeof printMediaQuery.addListener === 'function') {
+                printMediaQuery.addListener(handlePrintMediaChange);
+            }
 
             // 初回生成
             generateProblems();
