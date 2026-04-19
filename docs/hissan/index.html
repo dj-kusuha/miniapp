@@ -54,6 +54,11 @@
             transform: none !important;
         }
 
+        body.is-printing[data-print-target="problems"] .worksheet-preview[data-print-target="answers"],
+        body.is-printing[data-print-target="answers"] .worksheet-preview[data-print-target="problems"] {
+            display: none;
+        }
+
         /* 印刷時のスタイル調整 */
         @media print {
             @page {
@@ -90,6 +95,11 @@
                 max-width: none !important;
                 height: auto !important;
                 margin: 0 !important;
+            }
+
+            body[data-print-target="problems"] .worksheet-preview[data-print-target="answers"],
+            body[data-print-target="answers"] .worksheet-preview[data-print-target="problems"] {
+                display: none !important;
             }
 
             .worksheet-page {
@@ -257,7 +267,7 @@
                     </div>
                 </div>
 
-                <div class="flex gap-2">
+                <div class="flex flex-wrap gap-2">
                     <button id="btn-refresh"
                         class="flex items-center gap-2 bg-white border border-indigo-200 text-indigo-600 px-4 py-2 rounded-lg font-bold hover:bg-indigo-50 transition-colors shadow-sm">
                         <!-- RefreshCw Icon -->
@@ -270,8 +280,8 @@
                         </svg>
                         <span>再作成</span>
                     </button>
-                    <button id="btn-print"
-                        class="flex items-center gap-2 bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
+                    <button id="btn-print-problems"
+                        class="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm">
                         <!-- Printer Icon -->
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
                             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
@@ -280,7 +290,19 @@
                             <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
                             <rect x="6" y="14" width="12" height="8"></rect>
                         </svg>
-                        <span>印刷する</span>
+                        <span>問題を印刷</span>
+                    </button>
+                    <button id="btn-print-answers"
+                        class="flex items-center gap-2 bg-rose-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-rose-700 transition-colors shadow-sm">
+                        <!-- Printer Icon -->
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"
+                            class="w-5 h-5">
+                            <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                            <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                            <rect x="6" y="14" width="12" height="8"></rect>
+                        </svg>
+                        <span>答えを印刷</span>
                     </button>
                 </div>
 
@@ -291,7 +313,7 @@
     <div class="print-stage w-full overflow-x-auto print:overflow-visible p-4 print:p-0">
 
         <!-- ===== 印刷プレビュー 1枚目（問題） ===== -->
-        <div class="worksheet-preview">
+        <div class="worksheet-preview" data-print-target="problems">
             <div id="problem-page"
                 class="worksheet-page bg-white shadow-2xl mx-auto rounded-sm print:shadow-none print:m-0">
                 <div class="worksheet-page-content">
@@ -309,7 +331,7 @@
         </div>
 
         <!-- ===== 印刷プレビュー 2枚目（解答） ===== -->
-        <div class="worksheet-preview mt-12 print:mt-0">
+        <div class="worksheet-preview mt-12 print:mt-0" data-print-target="answers">
             <div id="answer-page"
                 class="worksheet-page bg-white shadow-2xl mx-auto rounded-sm print:shadow-none print:m-0">
                 <div class="worksheet-page-content">
@@ -350,7 +372,8 @@
             const digits2Select = document.getElementById('digits2');
             const titlePrefixInput = document.getElementById('title-prefix');
             const btnRefresh = document.getElementById('btn-refresh');
-            const btnPrint = document.getElementById('btn-print');
+            const btnPrintProblems = document.getElementById('btn-print-problems');
+            const btnPrintAnswers = document.getElementById('btn-print-answers');
 
             const titleProblems = document.getElementById('title-problems');
             const titleAnswers = document.getElementById('title-answers');
@@ -364,6 +387,7 @@
             const printMediaQuery = window.matchMedia('print');
 
             let isPreparingPrint = false;
+            let activePrintTarget = 'all';
 
             // 乱数生成関数
             const getRandomNumber = (digits) => {
@@ -395,14 +419,27 @@
                 });
             };
 
-            const enterPrintLayout = () => {
+            const setPrintTarget = (target = 'all') => {
+                activePrintTarget = target;
+
+                if (target === 'all') {
+                    delete document.body.dataset.printTarget;
+                    return;
+                }
+
+                document.body.dataset.printTarget = target;
+            };
+
+            const enterPrintLayout = (target = activePrintTarget) => {
                 isPreparingPrint = true;
+                setPrintTarget(target);
                 document.body.classList.add('is-printing');
                 resetPreviewScale();
             };
 
             const leavePrintLayout = () => {
                 isPreparingPrint = false;
+                setPrintTarget('all');
                 document.body.classList.remove('is-printing');
                 updatePreviewScale();
             };
@@ -581,12 +618,12 @@
 
             btnRefresh.addEventListener('click', generateProblems);
 
-            btnPrint.addEventListener('click', () => {
+            const startPrint = (target) => {
                 if (printMediaQuery.matches || isPreparingPrint) {
                     return;
                 }
 
-                enterPrintLayout();
+                enterPrintLayout(target);
                 flushPrintLayout();
 
                 if (isIOSPrintDevice) {
@@ -599,6 +636,14 @@
                         window.print();
                     });
                 });
+            };
+
+            btnPrintProblems.addEventListener('click', () => {
+                startPrint('problems');
+            });
+
+            btnPrintAnswers.addEventListener('click', () => {
+                startPrint('answers');
             });
 
             window.addEventListener('resize', updatePreviewScale);
