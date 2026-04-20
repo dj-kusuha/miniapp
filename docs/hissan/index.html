@@ -597,7 +597,7 @@
                     const pageStyle = window.getComputedStyle(page);
                     const availableWidth = page.clientWidth - (parseFloat(pageStyle.paddingLeft) || 0) - (parseFloat(pageStyle.paddingRight) || 0);
                     const availableHeight = page.clientHeight - (parseFloat(pageStyle.paddingTop) || 0) - (parseFloat(pageStyle.paddingBottom) || 0);
-                    // width は transform 前後で offsetWidth と scrollWidth の出方がぶれやすいため、大きい方を採用する。
+                    // Width measurement can fluctuate between offsetWidth and scrollWidth before and after transform, so use the larger value.
                     const contentWidth = Math.max(content.scrollWidth, content.offsetWidth);
                     const contentHeight = content.scrollHeight;
                     const fittedScale = Math.min(
@@ -631,7 +631,6 @@
                         1
                     );
 
-                    // 最後の候補は縮小し切る前提で採用し、印刷自体がはみ出す状態を避ける。
                     // Accept the last candidate to prevent printed content from overflowing the page.
                     return minimumScale >= MINIMUM_ACCEPTABLE_PRINT_SCALE || index === profileCandidates.length - 1;
                 });
