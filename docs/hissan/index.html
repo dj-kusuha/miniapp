@@ -415,7 +415,6 @@
                     '--print-grid-column-gap': '1.7mm',
                     '--print-grid-row-gap': '3.1mm',
                     '--print-problem-font-size': '8.1mm',
-                    // Slightly reduce the compact digit width to keep 3-digit and multiplication layouts on one page.
                     '--print-digit-cell-width': '8.15mm',
                     '--print-problem-number-font-size': '3.6mm',
                     '--print-problem-row-gap': '1.5mm',
@@ -609,7 +608,7 @@
 
                     const pageStyle = window.getComputedStyle(page);
                     const { availableWidth, availableHeight } = getPageContentBounds(page, pageStyle);
-                    // Width measurement can fluctuate between offsetWidth and scrollWidth before and after the print scale transform, so use the larger value.
+                    // The print scale transform can change whether the browser reports intrinsic width via offsetWidth or scrollWidth, so use the larger value.
                     const contentWidth = Math.max(content.scrollWidth, content.offsetWidth);
                     const contentHeight = content.scrollHeight;
                     const fittedScale = Math.min(
@@ -643,7 +642,7 @@
                         1
                     );
 
-                    // Accept the last candidate as a fallback, even when it still needs extra shrinking, to prevent printed content from overflowing the page.
+                    // Accept the last candidate as a fallback and rely on the computed page scale, even if it still needs more shrinking, so the print layout stays within the page.
                     return minimumScale >= MINIMUM_ACCEPTABLE_PRINT_SCALE || index === profileCandidates.length - 1;
                 });
 
