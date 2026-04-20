@@ -23,6 +23,7 @@
 - docs/ は GitHub Pages 用の公開物に限定し、内部向けの運用文書を置かない。
 - 仕様が曖昧なまま実装を始めない。必要なら repo-docs/product-specs/ に先に整理する。
 - 非自明な変更は repo-docs/exec-plans/active/ に実行計画を作ってから進める。
+- コミットメッセージは Conventional Commits を基本とし、fix:、feat:、chore: などの接頭辞から始める。
 - GitHub の PR タイトルと説明は原則日本語で書く。
 - コード変更と同時に、関連するドキュメントも更新する。
 - 共有抽象化は重複が実際に出るまで作らない。
