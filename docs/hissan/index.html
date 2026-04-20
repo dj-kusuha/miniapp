@@ -70,6 +70,7 @@
 
         body.is-printing {
             background-color: white;
+            min-height: 0;
         }
 
         body.is-printing .print-stage {
@@ -81,12 +82,12 @@
             width: auto;
             max-width: none;
             height: auto;
-            margin: 0 auto;
+            margin: 0;
         }
 
         body.is-printing .worksheet-page {
             width: var(--print-content-width);
-            min-height: var(--print-content-height);
+            min-height: 0;
             height: var(--print-content-height);
             margin: 0 auto;
             padding: var(--print-page-padding-block) var(--print-page-padding-inline);
@@ -178,6 +179,9 @@
 
             body {
                 background-color: white !important;
+                min-height: 0 !important;
+                height: auto !important;
+                overflow: visible !important;
             }
 
             .print-stage {
@@ -198,10 +202,7 @@
             }
 
             .worksheet-page {
-                break-inside: avoid;
-                page-break-inside: avoid;
-                page-break-after: always;
-                break-after: page;
+                min-height: 0 !important;
             }
 
             .worksheet-page:last-child {
@@ -217,7 +218,7 @@
     </style>
 </head>
 
-<body class="min-h-screen bg-slate-100 print:bg-white text-gray-800 font-sans pb-12">
+<body class="min-h-screen bg-slate-100 print:bg-white text-gray-800 font-sans">
 
     <!-- ===== コントロールパネル（印刷時は非表示） ===== -->
     <div class="print:hidden sticky top-0 z-10 bg-white shadow-md border-b border-slate-200">
@@ -344,7 +345,7 @@
         </div>
     </div>
 
-    <div class="print-stage w-full overflow-x-auto print:overflow-visible p-4 print:p-0">
+    <div class="print-stage w-full overflow-x-auto print:overflow-visible p-4 pb-12 print:p-0">
 
         <!-- ===== 印刷プレビュー 1枚目（問題） ===== -->
         <div class="worksheet-preview" data-print-target="problems">
