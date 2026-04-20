@@ -415,6 +415,7 @@
                     '--print-grid-column-gap': '1.7mm',
                     '--print-grid-row-gap': '3.1mm',
                     '--print-problem-font-size': '8.1mm',
+                    // Slightly narrow the compact digit width to keep 3-digit and multiplication layouts on one page.
                     '--print-digit-cell-width': '8.15mm',
                     '--print-problem-number-font-size': '3.6mm',
                     '--print-problem-row-gap': '1.5mm',
@@ -587,6 +588,18 @@
                 });
             };
 
+            const getPageContentBounds = (page, pageStyle) => {
+                const paddingLeft = parseFloat(pageStyle.paddingLeft) || 0;
+                const paddingRight = parseFloat(pageStyle.paddingRight) || 0;
+                const paddingTop = parseFloat(pageStyle.paddingTop) || 0;
+                const paddingBottom = parseFloat(pageStyle.paddingBottom) || 0;
+
+                return {
+                    availableWidth: page.clientWidth - paddingLeft - paddingRight,
+                    availableHeight: page.clientHeight - paddingTop - paddingBottom
+                };
+            };
+
             const measurePrintFitScales = () => {
                 return getVisibleWorksheetPages().map((page) => {
                     const content = page.querySelector('.worksheet-page-content');
@@ -595,8 +608,7 @@
                     }
 
                     const pageStyle = window.getComputedStyle(page);
-                    const availableWidth = page.clientWidth - (parseFloat(pageStyle.paddingLeft) || 0) - (parseFloat(pageStyle.paddingRight) || 0);
-                    const availableHeight = page.clientHeight - (parseFloat(pageStyle.paddingTop) || 0) - (parseFloat(pageStyle.paddingBottom) || 0);
+                    const { availableWidth, availableHeight } = getPageContentBounds(page, pageStyle);
                     // Width measurement can fluctuate between offsetWidth and scrollWidth before and after transform, so use the larger value.
                     const contentWidth = Math.max(content.scrollWidth, content.offsetWidth);
                     const contentHeight = content.scrollHeight;
