@@ -387,7 +387,7 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
-            const COMPACT_PROFILE_MIN_DIGITS = 3;
+            const MIN_DIGITS_FOR_COMPACT_PROFILE = 3;
             const MINIMUM_ACCEPTABLE_PRINT_SCALE = 0.94;
             const PRINT_SCALE_PRECISION = 4;
             const PRINT_PROFILE_VARIABLES = {
@@ -480,7 +480,7 @@
 
             const getPreferredPrintProfile = () => {
                 const needsCompactProfile = operator === '*'
-                    || Math.max(digits1, digits2) >= COMPACT_PROFILE_MIN_DIGITS;
+                    || Math.max(digits1, digits2) >= MIN_DIGITS_FOR_COMPACT_PROFILE;
                 return needsCompactProfile ? 'compact' : 'spacious';
             };
 
@@ -527,8 +527,6 @@
                 isPreparingPrint = true;
                 setPrintTarget(target);
                 document.body.classList.add('is-printing');
-                applyPrintProfile(getPreferredPrintProfile());
-                clearPrintFitScale();
                 resetPreviewScale();
             };
 
@@ -599,6 +597,7 @@
                     const pageStyle = window.getComputedStyle(page);
                     const availableWidth = page.clientWidth - (parseFloat(pageStyle.paddingLeft) || 0) - (parseFloat(pageStyle.paddingRight) || 0);
                     const availableHeight = page.clientHeight - (parseFloat(pageStyle.paddingTop) || 0) - (parseFloat(pageStyle.paddingBottom) || 0);
+                    // width は transform 前後で offsetWidth と scrollWidth の出方がぶれやすいため、大きい方を採用する。
                     const contentWidth = Math.max(content.scrollWidth, content.offsetWidth);
                     const contentHeight = content.scrollHeight;
                     const fittedScale = Math.min(
@@ -622,9 +621,9 @@
 
                 let measuredScales = [];
 
+                clearPrintFitScale();
                 profileCandidates.some((profileName, index) => {
                     applyPrintProfile(profileName);
-                    clearPrintFitScale();
                     flushPrintLayout();
                     measuredScales = measurePrintFitScales();
                     const minimumScale = measuredScales.reduce(
@@ -633,6 +632,7 @@
                     );
 
                     // 最後の候補は縮小し切る前提で採用し、印刷自体がはみ出す状態を避ける。
+                    // Accept the last candidate to prevent printed content from overflowing the page.
                     return minimumScale >= MINIMUM_ACCEPTABLE_PRINT_SCALE || index === profileCandidates.length - 1;
                 });
 
