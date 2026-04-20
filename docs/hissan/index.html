@@ -387,7 +387,7 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
-            const COMPACT_PROFILE_DIGIT_THRESHOLD = 3;
+            const COMPACT_PROFILE_MIN_DIGITS = 3;
             const MINIMUM_ACCEPTABLE_PRINT_SCALE = 0.94;
             const PRINT_SCALE_PRECISION = 4;
             const PRINT_PROFILE_VARIABLES = {
@@ -480,7 +480,7 @@
 
             const getPreferredPrintProfile = () => {
                 const needsCompactProfile = operator === '*'
-                    || Math.max(digits1, digits2) >= COMPACT_PROFILE_DIGIT_THRESHOLD;
+                    || Math.max(digits1, digits2) >= COMPACT_PROFILE_MIN_DIGITS;
                 return needsCompactProfile ? 'compact' : 'spacious';
             };
 
@@ -615,7 +615,8 @@
             };
 
             const optimizePrintLayout = () => {
-                const profileCandidates = getPreferredPrintProfile() === 'spacious'
+                const preferredProfile = getPreferredPrintProfile();
+                const profileCandidates = preferredProfile === 'spacious'
                     ? ['spacious', 'compact']
                     : ['compact'];
 
@@ -626,10 +627,12 @@
                     clearPrintFitScale();
                     flushPrintLayout();
                     measuredScales = measurePrintFitScales();
-                    const minimumScale = measuredScales.length > 0
-                        ? Math.min(...measuredScales.map(({ scale }) => scale))
-                        : 1;
+                    const minimumScale = measuredScales.reduce(
+                        (minimumValue, { scale }) => Math.min(minimumValue, scale),
+                        1
+                    );
 
+                    // 最後の候補は縮小し切る前提で採用し、印刷自体がはみ出す状態を避ける。
                     return minimumScale >= MINIMUM_ACCEPTABLE_PRINT_SCALE || index === profileCandidates.length - 1;
                 });
 
