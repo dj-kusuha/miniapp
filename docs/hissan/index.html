@@ -17,6 +17,21 @@
             --print-safe-height-adjust: 5mm;
             --print-content-width: calc(var(--sheet-width) - (var(--print-page-margin) * 2) - var(--print-safe-width-adjust));
             --print-content-height: calc(var(--sheet-height) - (var(--print-page-margin) * 2) - var(--print-safe-height-adjust));
+            --screen-answer-space-row-height: 30px;
+            --screen-answer-space-extra: 8px;
+            --print-page-padding-block: 4.8mm;
+            --print-page-padding-inline: 5.4mm;
+            --print-header-margin-bottom: 3.4mm;
+            --print-header-padding-bottom: 1.8mm;
+            --print-title-font-size: 18px;
+            --print-grid-column-gap: 2.1mm;
+            --print-grid-row-gap: 3.6mm;
+            --print-problem-font-size: 8.8mm;
+            --print-digit-cell-width: 8.8mm;
+            --print-problem-number-font-size: 3.9mm;
+            --print-problem-row-gap: 1.8mm;
+            --print-answer-space-row-height: 8.1mm;
+            --print-answer-space-extra: 1.8mm;
         }
 
         .worksheet-preview {
@@ -32,6 +47,25 @@
             box-sizing: border-box;
             flex-shrink: 0;
             transform-origin: top left;
+        }
+
+        .worksheet-page-content {
+            width: 100%;
+        }
+
+        .problem-second-row,
+        .problem-rule,
+        .problem-answer-row,
+        .problem-answer-space {
+            margin-top: 0.5rem;
+        }
+
+        .problem-rule {
+            margin-bottom: 0.5rem;
+        }
+
+        .problem-answer-space {
+            height: calc(var(--problem-empty-lines, 1) * var(--screen-answer-space-row-height) + var(--screen-answer-space-extra));
         }
 
         body.is-printing {
@@ -51,7 +85,68 @@
         }
 
         body.is-printing .worksheet-page {
+            width: var(--print-content-width);
+            min-height: var(--print-content-height);
+            height: var(--print-content-height);
+            margin: 0 auto;
+            padding: var(--print-page-padding-block) var(--print-page-padding-inline);
+            border-radius: 0;
+            box-shadow: none !important;
+            overflow: hidden;
             transform: none !important;
+        }
+
+        body.is-printing .worksheet-page-content {
+            width: calc(100% / var(--print-fit-scale, 1));
+            transform: scale(var(--print-fit-scale, 1));
+            transform-origin: top left;
+        }
+
+        body.is-printing .worksheet-header {
+            margin-bottom: var(--print-header-margin-bottom);
+            padding-bottom: var(--print-header-padding-bottom);
+        }
+
+        body.is-printing .worksheet-title {
+            font-size: var(--print-title-font-size);
+            line-height: 1.25;
+        }
+
+        body.is-printing .worksheet-grid {
+            gap: var(--print-grid-row-gap) var(--print-grid-column-gap);
+        }
+
+        body.is-printing .worksheet-problem-number {
+            font-size: var(--print-problem-number-font-size);
+            line-height: 1.1;
+            margin-bottom: 1.2mm;
+            margin-left: 1.8mm;
+        }
+
+        body.is-printing .problem-stack {
+            font-size: var(--print-problem-font-size);
+            line-height: 1;
+        }
+
+        body.is-printing .problem-second-row,
+        body.is-printing .problem-answer-row,
+        body.is-printing .problem-answer-space {
+            margin-top: var(--print-problem-row-gap);
+        }
+
+        body.is-printing .digit-cell {
+            width: var(--print-digit-cell-width);
+        }
+
+        body.is-printing .problem-rule {
+            margin-top: var(--print-problem-row-gap);
+            margin-bottom: var(--print-problem-row-gap);
+            border-bottom-width: 1mm;
+        }
+
+        body.is-printing .problem-answer-space {
+            height: calc(var(--problem-empty-lines, 1) * var(--print-answer-space-row-height) + var(--print-answer-space-extra));
+            margin-top: var(--print-problem-row-gap);
         }
 
         body.is-printing[data-print-target="problems"] .worksheet-preview[data-print-target="answers"],
@@ -103,14 +198,6 @@
             }
 
             .worksheet-page {
-                width: var(--print-content-width);
-                min-height: var(--print-content-height);
-                height: var(--print-content-height);
-                margin: 0 auto;
-                padding: 5.5mm 6.5mm;
-                border-radius: 0;
-                box-shadow: none !important;
-                transform: none !important;
                 break-inside: avoid;
                 page-break-inside: avoid;
                 page-break-after: always;
@@ -122,62 +209,9 @@
                 break-after: auto;
             }
 
-            .worksheet-header {
-                margin-bottom: 4mm;
-                padding-bottom: 2mm;
-            }
-
-            .worksheet-title {
-                font-size: 17px;
-                line-height: 1.25;
-            }
-
-            .worksheet-grid {
-                display: grid;
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-                gap: 4.75mm 3mm;
-            }
-
             .worksheet-problem {
                 break-inside: avoid;
                 page-break-inside: avoid;
-            }
-
-            html.is-ios-print-device .worksheet-page {
-                padding: 4.5mm 5mm;
-            }
-
-            html.is-ios-print-device .worksheet-header {
-                margin-bottom: 3.25mm;
-            }
-
-            html.is-ios-print-device .worksheet-title {
-                font-size: 16px;
-            }
-
-            html.is-ios-print-device .worksheet-grid {
-                gap: 4mm 2.25mm;
-            }
-
-            .worksheet-page.is-multiplication {
-                padding: 4.5mm 5.5mm;
-            }
-
-            .worksheet-page.is-multiplication .worksheet-header {
-                margin-bottom: 3.5mm;
-            }
-
-            .worksheet-page.is-multiplication .worksheet-title {
-                font-size: 18px;
-            }
-
-            .worksheet-page.is-multiplication .worksheet-grid {
-                gap: 4.5mm 2.5mm;
-            }
-
-            .worksheet-page.is-multiplication .worksheet-problem {
-                transform: scale(0.98);
-                transform-origin: top left;
             }
         }
     </style>
@@ -353,6 +387,39 @@
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
+            const PRINT_PROFILE_VARIABLES = {
+                spacious: {
+                    '--print-page-padding-block': '4.8mm',
+                    '--print-page-padding-inline': '5.4mm',
+                    '--print-header-margin-bottom': '3.4mm',
+                    '--print-header-padding-bottom': '1.8mm',
+                    '--print-title-font-size': '18px',
+                    '--print-grid-column-gap': '2.1mm',
+                    '--print-grid-row-gap': '3.6mm',
+                    '--print-problem-font-size': '8.8mm',
+                    '--print-digit-cell-width': '8.8mm',
+                    '--print-problem-number-font-size': '3.9mm',
+                    '--print-problem-row-gap': '1.8mm',
+                    '--print-answer-space-row-height': '8.1mm',
+                    '--print-answer-space-extra': '1.8mm'
+                },
+                compact: {
+                    '--print-page-padding-block': '4.3mm',
+                    '--print-page-padding-inline': '4.8mm',
+                    '--print-header-margin-bottom': '3mm',
+                    '--print-header-padding-bottom': '1.6mm',
+                    '--print-title-font-size': '16.5px',
+                    '--print-grid-column-gap': '1.7mm',
+                    '--print-grid-row-gap': '3.1mm',
+                    '--print-problem-font-size': '8.1mm',
+                    '--print-digit-cell-width': '8.15mm',
+                    '--print-problem-number-font-size': '3.6mm',
+                    '--print-problem-row-gap': '1.5mm',
+                    '--print-answer-space-row-height': '7.4mm',
+                    '--print-answer-space-extra': '1.5mm'
+                }
+            };
+
             const isIOSPrintDevice = /iP(hone|ad|od)/.test(window.navigator.userAgent)
                 || (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
 
@@ -408,6 +475,24 @@
 
             const getProblemCount = () => operator === '*' ? 16 : 20;
 
+            const getPreferredPrintProfile = () => {
+                const needsCompactProfile = operator === '*' || Math.max(digits1, digits2) >= 3;
+                return needsCompactProfile ? 'compact' : 'spacious';
+            };
+
+            const applyPrintProfile = (profileName) => {
+                const profile = PRINT_PROFILE_VARIABLES[profileName] || PRINT_PROFILE_VARIABLES.spacious;
+                Object.entries(profile).forEach(([property, value]) => {
+                    document.documentElement.style.setProperty(property, value);
+                });
+            };
+
+            const clearPrintFitScale = () => {
+                worksheetPages.forEach((page) => {
+                    page.style.removeProperty('--print-fit-scale');
+                });
+            };
+
             const resetPreviewScale = () => {
                 previewWrappers.forEach((wrapper) => {
                     wrapper.style.width = 'auto';
@@ -438,6 +523,8 @@
                 isPreparingPrint = true;
                 setPrintTarget(target);
                 document.body.classList.add('is-printing');
+                applyPrintProfile(getPreferredPrintProfile());
+                clearPrintFitScale();
                 resetPreviewScale();
             };
 
@@ -445,6 +532,7 @@
                 isPreparingPrint = false;
                 setPrintTarget('all');
                 document.body.classList.remove('is-printing');
+                clearPrintFitScale();
                 updatePreviewScale();
             };
 
@@ -490,6 +578,64 @@
                 });
             };
 
+            const getVisibleWorksheetPages = () => {
+                return Array.from(worksheetPages).filter((page) => {
+                    const preview = page.closest('.worksheet-preview');
+                    return preview && preview.offsetParent !== null;
+                });
+            };
+
+            const measurePrintFitScales = () => {
+                return getVisibleWorksheetPages().map((page) => {
+                    const content = page.querySelector('.worksheet-page-content');
+                    if (!content) {
+                        return { page, scale: 1 };
+                    }
+
+                    const pageStyle = window.getComputedStyle(page);
+                    const availableWidth = page.clientWidth - (parseFloat(pageStyle.paddingLeft) || 0) - (parseFloat(pageStyle.paddingRight) || 0);
+                    const availableHeight = page.clientHeight - (parseFloat(pageStyle.paddingTop) || 0) - (parseFloat(pageStyle.paddingBottom) || 0);
+                    const contentWidth = Math.max(content.scrollWidth, content.offsetWidth);
+                    const contentHeight = content.scrollHeight;
+                    const fittedScale = Math.min(
+                        1,
+                        availableWidth > 0 ? availableWidth / contentWidth : 1,
+                        availableHeight > 0 ? availableHeight / contentHeight : 1
+                    );
+
+                    return {
+                        page,
+                        scale: Number.isFinite(fittedScale) && fittedScale > 0 ? fittedScale : 1
+                    };
+                });
+            };
+
+            const optimizePrintLayout = () => {
+                const profileCandidates = getPreferredPrintProfile() === 'spacious'
+                    ? ['spacious', 'compact']
+                    : ['compact'];
+
+                let measuredScales = [];
+
+                profileCandidates.some((profileName, index) => {
+                    applyPrintProfile(profileName);
+                    clearPrintFitScale();
+                    flushPrintLayout();
+                    measuredScales = measurePrintFitScales();
+                    const minimumScale = measuredScales.length > 0
+                        ? Math.min(...measuredScales.map(({ scale }) => scale))
+                        : 1;
+
+                    return minimumScale >= 0.94 || index === profileCandidates.length - 1;
+                });
+
+                measuredScales.forEach(({ page, scale }) => {
+                    page.style.setProperty('--print-fit-scale', Math.min(1, scale).toFixed(4));
+                });
+
+                flushPrintLayout();
+            };
+
             // 筆算のHTMLを生成する関数
             const createProblemHTML = (problem, showAnswer) => {
                 const { id, num1, num2, answer, opSymbol } = problem;
@@ -520,29 +666,29 @@
 
                 let html = `
                     <div class="worksheet-problem flex flex-col w-fit break-inside-avoid">
-                        <div class="text-slate-500 font-bold mb-1 ml-2 font-sans">(${id})</div>
-                        <div class="flex flex-col text-3xl font-mono font-medium leading-none">
-              
-              <div class="flex">
-                ${arr1.map(char => `<div class="w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
+                        <div class="worksheet-problem-number text-slate-500 font-bold mb-1 ml-2 font-sans">(${id})</div>
+                        <div class="problem-stack flex flex-col text-3xl font-mono font-medium leading-none">
+
+              <div class="problem-row flex">
+                ${arr1.map(char => `<div class="digit-cell w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
               </div>
 
-              <div class="flex mt-2">
-                ${arr2.map(char => `<div class="w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
+              <div class="problem-row problem-second-row flex">
+                ${arr2.map(char => `<div class="digit-cell w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
               </div>
 
-              <div class="border-b-4 border-slate-800 w-full mt-2 mb-2"></div>
+              <div class="problem-rule border-b-4 border-slate-800 w-full"></div>
         `;
 
                 if (showAnswer) {
                     html += `<div class="flex flex-col">`;
                     html += `
-            <div class="flex text-red-600 font-bold mt-2">
-              ${arrA.map(char => `<div class="w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
+            <div class="problem-row problem-answer-row flex text-red-600 font-bold">
+              ${arrA.map(char => `<div class="digit-cell w-7 text-center">${char === ' ' ? '&nbsp;' : char}</div>`).join('')}
             </div>
           </div>`;
                 } else {
-                    html += `<div style="height: ${problemEmptyLines * 30 + 8}px" class="w-full mt-2"></div>`;
+                    html += `<div class="problem-answer-space w-full" style="--problem-empty-lines: ${problemEmptyLines};"></div>`;
                 }
 
                 html += `
@@ -628,7 +774,7 @@
                 }
 
                 enterPrintLayout(target);
-                flushPrintLayout();
+                optimizePrintLayout();
 
                 if (isIOSPrintDevice) {
                     window.print();
@@ -653,12 +799,14 @@
             window.addEventListener('resize', updatePreviewScale);
             window.addEventListener('beforeprint', () => {
                 enterPrintLayout();
+                optimizePrintLayout();
             });
             window.addEventListener('afterprint', leavePrintLayout);
 
             const handlePrintMediaChange = (event) => {
                 if (event.matches) {
                     enterPrintLayout();
+                    optimizePrintLayout();
                     return;
                 }
 
