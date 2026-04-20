@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>miniapp | 小さい Web アプリ一覧</title>
+    <meta name="description" content="miniapp で公開している小さい Web アプリの一覧です。公開中のアプリをタイトルと概要つきで確認できます。">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        :root {
+            --page-bg: #f6efe5;
+            --page-bg-strong: #e8d7c5;
+            --ink: #1f2937;
+            --muted: #5b6472;
+            --panel: rgba(255, 252, 247, 0.82);
+            --panel-border: rgba(148, 163, 184, 0.24);
+            --accent: #0f766e;
+            --accent-strong: #115e59;
+            --accent-soft: rgba(15, 118, 110, 0.12);
+            --shadow: 0 18px 50px rgba(31, 41, 55, 0.12);
+        }
+
+        body {
+            color: var(--ink);
+            background:
+                radial-gradient(circle at top left, rgba(253, 230, 138, 0.6), transparent 32%),
+                radial-gradient(circle at top right, rgba(125, 211, 252, 0.38), transparent 26%),
+                linear-gradient(180deg, var(--page-bg) 0%, #fffaf3 45%, #fffdf9 100%);
+        }
+
+        .hero-panel,
+        .app-card {
+            background: var(--panel);
+            backdrop-filter: blur(18px);
+            border: 1px solid var(--panel-border);
+            box-shadow: var(--shadow);
+        }
+
+        .app-card {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .app-card::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.5), transparent 48%);
+            pointer-events: none;
+        }
+
+        .status-chip {
+            background: var(--accent-soft);
+            color: var(--accent-strong);
+        }
+
+        .app-link {
+            background: var(--accent);
+            transition: transform 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+        }
+
+        .app-link:hover,
+        .app-link:focus-visible {
+            background: var(--accent-strong);
+            transform: translateY(-1px);
+            box-shadow: 0 12px 30px rgba(17, 94, 89, 0.22);
+        }
+
+        .app-link:focus-visible,
+        .card-link:focus-visible {
+            outline: 3px solid rgba(15, 118, 110, 0.35);
+            outline-offset: 3px;
+        }
+
+        .card-link {
+            color: var(--accent-strong);
+        }
+    </style>
+</head>
+
+<body class="min-h-screen">
+    <main class="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-8 sm:px-6 lg:px-8">
+        <section class="hero-panel relative overflow-hidden rounded-[2rem] px-6 py-6 sm:px-10 sm:py-8">
+            <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-amber-300 via-teal-500 to-sky-400"></div>
+            <h1 class="text-4xl font-black tracking-tight text-slate-900 sm:text-5xl">miniapp</h1>
+        </section>
+
+        <section class="mt-8" aria-labelledby="miniapp-list-heading">
+            <div class="mb-4">
+                <h2 id="miniapp-list-heading" class="text-2xl font-black tracking-tight text-slate-900">公開中の miniapp</h2>
+            </div>
+
+            <ul class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                <li class="list-none">
+                    <article class="app-card flex h-full flex-col rounded-[1.75rem] p-6">
+                        <div class="relative flex h-full flex-col">
+                            <div class="flex items-start justify-between gap-4">
+                                <div>
+                                    <p class="status-chip inline-flex rounded-full px-3 py-1 text-xs font-semibold tracking-[0.18em]">公開中</p>
+                                    <h3 class="mt-4 text-2xl font-black tracking-tight text-slate-900">筆算ドリルメーカー</h3>
+                                </div>
+                                <div class="rounded-2xl border border-slate-200/80 bg-white/80 p-3 text-teal-700">
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6" aria-hidden="true">
+                                        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path>
+                                        <polyline points="14 2 14 8 20 8"></polyline>
+                                        <line x1="16" y1="13" x2="8" y2="13"></line>
+                                        <line x1="16" y1="17" x2="8" y2="17"></line>
+                                        <line x1="10" y1="9" x2="8" y2="9"></line>
+                                    </svg>
+                                </div>
+                            </div>
+
+                            <p class="mt-4 flex-1 text-sm leading-7 text-slate-600">
+                                足し算や引き算などの筆算問題を設定付きで作り、A4 向けの問題用紙と解答用紙をそのまま印刷できるドリル作成ツールです。
+                            </p>
+
+                            <div class="mt-6 flex flex-wrap items-center gap-3">
+                                <a class="app-link inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold text-white" href="./hissan/">
+                                    アプリを開く
+                                </a>
+                                <a class="card-link inline-flex items-center gap-2 text-sm font-semibold" href="./hissan/">
+                                    詳細を見る
+                                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" aria-hidden="true">
+                                        <path d="M5 12h14"></path>
+                                        <path d="m12 5 7 7-7 7"></path>
+                                    </svg>
+                                </a>
+                            </div>
+                        </div>
+                    </article>
+                </li>
+            </ul>
+        </section>
+
+        <footer class="mt-10 border-t border-slate-200/80 px-1 pt-5 text-sm text-slate-500">
+            <p>
+                author:
+                <a class="card-link font-medium" href="https://kusuha.com/" target="_blank" rel="noreferrer">kusuha.com</a>
+            </p>
+        </footer>
+    </main>
+</body>
+
+</html>

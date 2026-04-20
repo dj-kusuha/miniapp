@@ -7,6 +7,8 @@
 
 公開用の docs/ は GitHub Pages 用に予約し、リポジトリ内部の知識ベースは repo-docs/ に置きます。
 
+公開トップの一覧ページは docs/index.html に置き、公開中の miniapp への入口として使います。
+
 ## 入口
 
 - AGENTS.md: エージェント向けの短い地図
