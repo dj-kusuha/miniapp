@@ -4,7 +4,7 @@
 
 ## Status
 
-in-progress
+completed
 
 ## Background
 
@@ -41,3 +41,5 @@ in-progress
 ## Validation
 
 - 実行前確認として既存の lint / test / build 設定が見当たらないことを確認した
+- `python3` の `html.parser` で `docs/hissan/index.html` の HTML 構文を確認した
+- Node.js の DOM モック検証で、足し算時のみ設定表示・不可能な桁数での無効化・設定有効時の解答 100 以下を確認した
