@@ -295,12 +295,22 @@
                         </select>
                     </div>
 
-                    <div class="flex flex-col min-w-44">
-                        <label for="title-prefix" class="text-xs text-slate-500 font-semibold mb-1">「○○用」の名前</label>
-                        <input id="title-prefix" type="text" placeholder="例: たろう"
-                            class="bg-white border border-slate-300 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
-                    </div>
-                </div>
+                     <div class="flex flex-col min-w-44">
+                         <label for="title-prefix" class="text-xs text-slate-500 font-semibold mb-1">「○○用」の名前</label>
+                         <input id="title-prefix" type="text" placeholder="例: たろう"
+                             class="bg-white border border-slate-300 rounded px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                     </div>
+
+                     <div id="addition-limit-container" class="flex flex-col min-w-56">
+                         <span class="text-xs text-slate-500 font-semibold mb-1">足し算の条件</span>
+                         <label
+                             class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors">
+                             <input id="addition-limit-100" type="checkbox" class="text-indigo-600 rounded" />
+                             <span class="font-semibold text-slate-700">答えが100をこえない</span>
+                         </label>
+                         <p id="addition-limit-hint" class="mt-1 text-xs text-slate-500">合計が100以下になる問題だけを作ります。</p>
+                     </div>
+                 </div>
 
                 <div class="flex flex-wrap gap-2">
                     <button id="btn-refresh"
@@ -442,6 +452,9 @@
             const digits1Select = document.getElementById('digits1');
             const digits2Select = document.getElementById('digits2');
             const titlePrefixInput = document.getElementById('title-prefix');
+            const additionLimitContainer = document.getElementById('addition-limit-container');
+            const additionLimitCheckbox = document.getElementById('addition-limit-100');
+            const additionLimitHint = document.getElementById('addition-limit-hint');
             const btnRefresh = document.getElementById('btn-refresh');
             const btnPrintProblems = document.getElementById('btn-print-problems');
             const btnPrintAnswers = document.getElementById('btn-print-answers');
@@ -460,11 +473,62 @@
             let isPreparingPrint = false;
             let activePrintTarget = 'all';
 
+            const getNumberRange = (digits) => {
+                return {
+                    min: digits === 1 ? 1 : Math.pow(10, digits - 1),
+                    max: Math.pow(10, digits) - 1
+                };
+            };
+
+            const getRandomInteger = (min, max) => {
+                return Math.floor(Math.random() * (max - min + 1)) + min;
+            };
+
             // 乱数生成関数
             const getRandomNumber = (digits) => {
-                const min = digits === 1 ? 1 : Math.pow(10, digits - 1);
-                const max = Math.pow(10, digits) - 1;
-                return Math.floor(Math.random() * (max - min + 1)) + min;
+                const { min, max } = getNumberRange(digits);
+                return getRandomInteger(min, max);
+            };
+
+            const canLimitAdditionToHundred = () => {
+                const range1 = getNumberRange(digits1);
+                const range2 = getNumberRange(digits2);
+                return range1.min + range2.min <= 100;
+            };
+
+            const syncAdditionLimitControls = () => {
+                const isAddition = operator === '+';
+                additionLimitContainer.classList.toggle('hidden', !isAddition);
+
+                if (!isAddition) {
+                    return;
+                }
+
+                const canUseLimit = canLimitAdditionToHundred();
+                additionLimitCheckbox.disabled = !canUseLimit;
+                if (!canUseLimit) {
+                    additionLimitCheckbox.checked = false;
+                }
+
+                additionLimitHint.textContent = canUseLimit
+                    ? '合計が100以下になる問題だけを作ります。'
+                    : 'この桁数では100以下にできないため使えません。';
+                additionLimitHint.classList.toggle('text-slate-500', canUseLimit);
+                additionLimitHint.classList.toggle('text-amber-600', !canUseLimit);
+            };
+
+            const isAdditionLimitedToHundred = () => {
+                return operator === '+' && additionLimitCheckbox.checked && !additionLimitCheckbox.disabled;
+            };
+
+            const createLimitedAdditionOperands = () => {
+                const range1 = getNumberRange(digits1);
+                const range2 = getNumberRange(digits2);
+                const maxNum1 = Math.min(range1.max, 100 - range2.min);
+                const num1 = getRandomInteger(range1.min, maxNum1);
+                const maxNum2 = Math.min(range2.max, 100 - num1);
+                const num2 = getRandomInteger(range2.min, maxNum2);
+                return { num1, num2 };
             };
 
             // タイトルを更新する関数
@@ -720,6 +784,7 @@
             const generateProblems = () => {
                 problemsGrid.innerHTML = '';
                 answersGrid.innerHTML = '';
+                syncAdditionLimitControls();
                 updateTitle();
                 const problemCount = getProblemCount();
                 const isMultiplication = operator === '*';
@@ -728,8 +793,15 @@
                 answerPage.classList.toggle('is-multiplication', isMultiplication);
 
                 for (let i = 0; i < problemCount; i++) {
-                    let num1 = getRandomNumber(digits1);
-                    let num2 = getRandomNumber(digits2);
+                    let num1 = 0;
+                    let num2 = 0;
+
+                    if (isAdditionLimitedToHundred()) {
+                        ({ num1, num2 } = createLimitedAdditionOperands());
+                    } else {
+                        num1 = getRandomNumber(digits1);
+                        num2 = getRandomNumber(digits2);
+                    }
 
                     if (operator === '-') {
                         if (num1 < num2) {
@@ -783,6 +855,8 @@
                 titlePrefix = e.target.value.trim();
                 updateTitle();
             });
+
+            additionLimitCheckbox.addEventListener('change', generateProblems);
 
             btnRefresh.addEventListener('click', generateProblems);
 
