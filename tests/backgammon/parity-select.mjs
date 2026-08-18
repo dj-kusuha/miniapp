@@ -1,9 +1,9 @@
 // AI の着手選択が engine と一致するかを検証する（0-ply と 2-ply）。
 import { readFileSync } from 'node:fs';
-import { Board, WHITE, BLACK, NeuralNet, generateMoves, Agent } from '../src/nn-test-shim.mjs';
+import { Board, WHITE, BLACK, NeuralNet, generateMoves, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url)));
-const net = new NeuralNet(JSON.parse(readFileSync(new URL('../src/model.json', import.meta.url))));
+const net = new NeuralNet(JSON.parse(readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
 const player = (s) => (s === 'WHITE' ? WHITE : BLACK);
 
 for (const plies of [0, 2]) {

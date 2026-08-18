@@ -1,5 +1,5 @@
 // パリティ検証をまとめて走らせる。
-//   node apps/backgammon/test/run.mjs
+//   node tests/backgammon/run.mjs
 //
 // **engine（Python）が正本。** ここが落ちたら JS 側を直す。engine 側の
 // ルールやモデルを変えたときは、engine で
@@ -7,7 +7,7 @@
 // 作り直してからここへコピーする。
 import { execFileSync } from 'node:child_process';
 
-const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'parity-moves.mjs', 'parity-select.mjs'];
+const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'parity-moves.mjs', 'parity-select.mjs', 'parity-game.mjs'];
 let failed = 0;
 for (const spec of specs) {
   try {

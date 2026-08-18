@@ -3,7 +3,7 @@
 // **棋譜表記の集合として比べる。** 順序は問わないが、集合が 1 手でも違えば
 // 不一致とする。engine が正本。
 import { readFileSync } from 'node:fs';
-import { Board, WHITE, BLACK, generateMoves } from '../src/nn-test-shim.mjs';
+import { Board, WHITE, BLACK, generateMoves } from '../../docs/backgammon/src/nn-test-shim.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url)));
 const player = (s) => (s === 'WHITE' ? WHITE : BLACK);

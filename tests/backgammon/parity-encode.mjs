@@ -1,7 +1,7 @@
 // 符号化と推論が engine と一致するかを検証する。
 // 使い方: node apps/backgammon/test/parity-encode.mjs
 import { readFileSync } from 'node:fs';
-import { Board, WHITE, BLACK, encodeBoard } from '../src/nn-test-shim.mjs';
+import { Board, WHITE, BLACK, encodeBoard } from '../../docs/backgammon/src/nn-test-shim.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url)));
 const player = (s) => (s === 'WHITE' ? WHITE : BLACK);

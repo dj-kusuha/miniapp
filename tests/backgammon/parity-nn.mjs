@@ -1,9 +1,9 @@
 // 推論（NeuralNet）が engine と一致するかを検証する。
 import { readFileSync } from 'node:fs';
-import { Board, WHITE, BLACK, encodeBoard, NeuralNet, equity } from '../src/nn-test-shim.mjs';
+import { Board, WHITE, BLACK, encodeBoard, NeuralNet, equity } from '../../docs/backgammon/src/nn-test-shim.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url)));
-const net = new NeuralNet(JSON.parse(readFileSync(new URL('../src/model.json', import.meta.url))));
+const net = new NeuralNet(JSON.parse(readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
 const player = (s) => (s === 'WHITE' ? WHITE : BLACK);
 
 let bad = 0;

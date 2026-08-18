@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>バックギャモン</title>
+<meta name="description" content="勝敗だけを報酬に自己対局で学習したニューラルネットと対戦できるバックギャモン。">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🎲</text></svg>">
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+<header class="site-header">
+  <a class="back-link" href="../">← miniapp</a>
+  <h1>バックギャモン</h1>
+</header>
+
+<main id="app">
+  <section id="setup" class="panel">
+    <h2>対局を始める</h2>
+    <div class="field">
+      <span id="side-label">あなたの色</span>
+      <div class="choices" role="radiogroup" aria-labelledby="side-label">
+        <button type="button" class="choice is-selected" data-side="WHITE" role="radio" aria-checked="true">白</button>
+        <button type="button" class="choice" data-side="BLACK" role="radio" aria-checked="false">黒</button>
+      </div>
+    </div>
+    <div class="field">
+      <span id="level-label">AI の強さ</span>
+      <div class="choices" role="radiogroup" aria-labelledby="level-label">
+        <button type="button" class="choice" data-plies="0" role="radio" aria-checked="false">ふつう</button>
+        <button type="button" class="choice is-selected" data-plies="2" role="radio" aria-checked="true">強い（先読み）</button>
+      </div>
+    </div>
+    <p id="loading" class="note">モデルを読み込んでいます…</p>
+    <button type="button" id="start" class="primary" disabled>開始</button>
+  </section>
+
+  <section id="game" hidden>
+    <div id="board" class="board" role="grid" aria-label="盤面"></div>
+
+    <div class="panel status-panel">
+      <p id="turn" class="turn" aria-live="polite">—</p>
+      <div id="dice" class="dice" aria-live="polite"></div>
+      <p id="hint" class="note"></p>
+    </div>
+
+    <div class="actions">
+      <button type="button" id="roll" class="primary" hidden>サイコロを振る</button>
+      <button type="button" id="undo" hidden>1 手戻す</button>
+      <button type="button" id="again" class="primary" hidden>もう一局</button>
+    </div>
+
+    <details class="panel">
+      <summary>棋譜</summary>
+      <ol id="log" class="log"></ol>
+    </details>
+  </section>
+</main>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
