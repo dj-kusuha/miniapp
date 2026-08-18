@@ -11,7 +11,9 @@ for (const plies of [0, 2]) {
   const key = `selected_${plies}ply`;
   let bad = 0;
   let shown = 0;
-  const t0 = Date.now();
+  // 壁時計（Date.now）は NTP の時刻補正で巻き戻ることがある。
+  // 実際に -888.9 ms/手 という表示が出たので単調時計を使う。
+  const t0 = performance.now();
   // フィクスチャは 2-ply の答えを一部の局面にしか持たない（生成が重いため）
   const entries = fixture.select_move.filter((e) => e[key] !== undefined);
   for (const entry of entries) {
@@ -32,7 +34,7 @@ for (const plies of [0, 2]) {
     }
   }
   const n = entries.length;
-  const ms = Date.now() - t0;
+  const ms = performance.now() - t0;
   console.log(`${plies}-ply の着手: ${n} 件中 ${n - bad} 件一致 / 不一致 ${bad}`
     + `  (${(ms / n).toFixed(1)} ms/手)`);
 }
