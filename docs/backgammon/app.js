@@ -10,6 +10,7 @@ import { NeuralNet } from './src/nn.js';
 import { Agent } from './src/agent.js';
 import { Game, MOVING, ROLLING, GAME_OVER } from './src/game.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
+import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -21,7 +22,7 @@ const state = {
   net: null,
   agent: null,
   game: null,
-  humanSide: WHITE,
+  humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
   plies: 2,
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
@@ -47,21 +48,17 @@ NeuralNet.load('./src/model.json')
     $('loading').classList.add('error');
   });
 
-for (const button of document.querySelectorAll('[data-side]')) {
-  button.addEventListener('click', () => selectChoice(button, 'side'));
-}
 for (const button of document.querySelectorAll('[data-plies]')) {
-  button.addEventListener('click', () => selectChoice(button, 'plies'));
+  button.addEventListener('click', () => selectChoice(button));
 }
 
-function selectChoice(button, kind) {
+function selectChoice(button) {
   const group = button.parentElement;
   for (const sibling of group.children) {
     sibling.classList.toggle('is-selected', sibling === button);
     sibling.setAttribute('aria-checked', String(sibling === button));
   }
-  if (kind === 'side') state.humanSide = button.dataset.side;
-  else state.plies = Number(button.dataset.plies);
+  state.plies = Number(button.dataset.plies);
 }
 
 $('start').addEventListener('click', startGame);
@@ -103,9 +100,11 @@ function startGame() {
 
 function buildBoard() {
   const board = $('board');
-  // ダイスのトレイは盤面の内側（中央の帯）に置くので、作り直す前に退避する
+  // ダイスのトレイと「振る」ボタンは盤面の内側（中央の帯）に置くので、
+  // 作り直す前に退避する
   const dice = $('dice');
   const diceAi = $('dice-ai');
+  const roll = $('roll');
   board.replaceChildren();
 
   // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）。
@@ -153,8 +152,10 @@ function buildBoard() {
   });
   board.appendChild(bar);
   // 中段（行 3）はサイコロの定位置。自分は右半分、AI は左半分。
+  // 「振る」ボタンも自分のダイスと同じ場所に出す（振る前は空いている）。
   board.appendChild(diceAi);
   board.appendChild(dice);
+  board.appendChild(roll);
 
   // 上がった駒を置く右端のトレイ。盤の向き（White は右下がホーム）に合わせて、
   // Black は上段側、White は下段側に積む。
@@ -472,83 +473,17 @@ function renderLog() {
   $('mat').textContent = toMat();
 }
 
-// ── 棋譜の書き出し（gnubg / Jellyfish の .mat 形式） ─────
+// ── 棋譜の書き出し ──────────────────────────────
 //
-// 出力は gnubg 自身の書き出し（import.c の OutputMove / 0 point match ヘッダ）に
-// 合わせてある。**読み込み側の決まりごとが厳しいので、勝手に整形しないこと。**
-// gnubg の import.c を読むと:
-//
-//   - プレイヤー行は `名前 : スコア` の**コロンが必須**。無いと ImportGame が
-//     即 `return 0` して、その対局はまるごと読み飛ばされる
-//   - 手数の区切りは `1)` の**閉じ括弧**。`strchr(szLine, ')')` で左列の開始を
-//     探すので、`1:` にすると列の分割がずれて壊れる
-//   - 着手欄は `65: ...` の形（2 桁の出目 + コロン + 空白）で、出目は 1〜6
-//   - 左列は 27 桁 + 空白 1 つ。右列との間に**必ず空白**が要る
-//   - キューブ無しは `0 point match`（マネーゲーム）で正しい
-//
-// 着手は**指した側から見たポイント番号**で書く（`Move.toString()` がその形）。
-
-const MAT_LEFT = 27;   // 左（White）の列幅。gnubg は "%-27s " で書く
-
-/** ログを「1 手番 = 1 エントリ」に畳む。 */
-function matTurns() {
-  const turns = [];
-  let current = null;
-  for (const event of state.game.log) {
-    if (event.kind === 'roll' || event.kind === 'open') {
-      current = { player: event.player, roll: event.roll, text: '' };
-      turns.push(current);
-    } else if (current && current.player === event.player) {
-      if (event.kind === 'move') current.text = event.text;
-      // 'skip'（ダンス）は出目だけ書いて着手は空にする
-    }
-  }
-  return turns;
-}
+// 形式の細かい決まりごとは src/mat.js に置いてある。
 
 function toMat() {
   const game = state.game;
-  const turns = matTurns();
-  const cell = (turn) => (turn ? `${turn.roll.join('')}: ${turn.text}`.trimEnd() : '');
-
-  // White を左、Black を右の列に置く。ダンスした手番も 1 枠使う。
-  const rows = [];
-  let row = null;
-  for (const turn of turns) {
-    const col = turn.player === WHITE ? 0 : 1;
-    if (!row || row[col]) { row = [null, null]; rows.push(row); }
-    row[col] = turn;
-  }
-
-  // 名前は「どちらが自分か」が分かるようにしておく（スコアのコロンは必須）。
-  const name = (side) =>
-    `${side === WHITE ? 'White' : 'Black'}_${side === state.humanSide ? 'you' : 'gnubg-mini'}`;
-
-  const lines = [
-    '; [Site "miniapp backgammon"]',
-    '; [Variation "Backgammon"]',
-    '',
-    ' 0 point match',
-    '',
-    ' Game 1',
-    // gnubg の書式は " %s : %-22d %s : %d"
-    ` ${name(WHITE)} : ${String(0).padEnd(22)} ${name(BLACK)} : 0`,
-  ];
-
-  rows.forEach((pair, i) => {
-    const left = cell(pair[0]);
-    const right = cell(pair[1]);
-    // gnubg の書式は "%3d) " + "%-27s " + 右列
-    const line = `${String(i + 1).padStart(3)}) ${left.padEnd(MAT_LEFT)} ${right}`;
-    lines.push(line.trimEnd());
+  return buildMat({
+    log: game.log,
+    result: game.state === GAME_OVER ? game.result : null,
+    humanSide: state.humanSide,
   });
-
-  if (game.state === GAME_OVER) {
-    const points = game.result.points;
-    lines.push(`      Wins ${points} point${points === 1 ? '' : 's'}`);
-  }
-
-  return `${lines.join('\n')}\n`;
 }
 
 $('copy-mat').addEventListener('click', async () => {
