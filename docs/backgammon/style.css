@@ -61,6 +61,18 @@ body {
   gap: var(--gap);
 }
 
+#game { display: grid; gap: var(--gap); }
+.play { display: grid; gap: var(--gap); align-content: start; }
+
+/* PC 幅では棋譜を盤の右に並べる（狭い画面では盤の下に折りたたむ）。 */
+@media (min-width: 900px) {
+  #app { max-width: 1140px; }
+  #game { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+  .record { position: sticky; top: var(--gap); }
+  .record > summary { cursor: default; list-style: none; }
+  .record > summary::-webkit-details-marker { display: none; }
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -101,14 +113,29 @@ button:disabled { opacity: .5; cursor: default; }
 /* ── 盤面 ───────────────────────────────────── */
 
 .board {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(6, 1fr) 22px repeat(6, 1fr);
-  grid-template-rows: 1fr 1fr;
+  /* 6 点 / バー / 6 点 / 上がりトレイ */
+  grid-template-columns: repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
+  /* 上ラベル / 上段 / 中央の帯（バーとダイスの定位置） / 下段 / 下ラベル。
+     番号は三角形の外（盤の縁）に出し、実物の盤と同じく三角形は帯に向かって尖る。 */
+  grid-template-rows: 5% 1fr 14% 1fr 5%;
   gap: 2px;
-  aspect-ratio: 13 / 10;
+  /* 駒 5 個を積んでも中央の帯を越えないように、実物より縦長にしてある。 */
+  aspect-ratio: 14 / 12.5;
   background: var(--board-dark);
   border: 6px solid var(--board-dark);
   border-radius: var(--radius);
+}
+
+.point-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #f2e9d5;
+  opacity: .8;
+  pointer-events: none;
 }
 
 .point {
@@ -118,38 +145,30 @@ button:disabled { opacity: .5; cursor: default; }
   align-items: center;
   gap: 1px;
   padding: 2px 0;
-  background: var(--point-a);
+  background: transparent;
   border: none;
   border-radius: 0;
   min-height: 0;
   cursor: pointer;
 }
-.point.odd { background: var(--point-b); }
-.point.bottom { flex-direction: column-reverse; }
-.point:disabled { cursor: default; opacity: 1; }
-.point .num {
-  position: absolute;
-  font-size: 9px;
-  color: var(--muted);
-  opacity: .8;
-  pointer-events: none;
-}
-.point.bottom .num { bottom: 1px; }
-.point:not(.bottom) .num { top: 1px; }
-
-.point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
-.point.selected { box-shadow: inset 0 0 0 3px var(--danger); }
-.point.target::after {
+/* 三角形の色は疑似要素に持たせる。駒や数字はその上（z-index:1）に乗る。 */
+.point::before {
   content: "";
   position: absolute;
-  inset: 30% 35%;
-  border: 3px dashed var(--accent);
-  border-radius: 50%;
-  pointer-events: none;
+  inset: 0;
+  background: var(--point-a);
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
 }
+.point.bottom::before { clip-path: polygon(0 100%, 100% 100%, 50% 0); }
+.point.odd::before { background: var(--point-b); }
+.point > * { position: relative; z-index: 1; }
+.point.bottom { flex-direction: column-reverse; }
+.point:disabled { cursor: default; opacity: 1; }
+
+/* 選択できる駒はマス全体を囲う（三角形に切り取られる ::before ではなく本体に描く）。 */
+.point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
 
 .checker {
-  width: min(80%, 26px);
   aspect-ratio: 1;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, .35);
@@ -157,6 +176,9 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .checker.white { background: var(--white-checker); }
 .checker.black { background: var(--black-checker); }
+/* 駒はマス幅いっぱいに近いサイズの正円で固定する（積んだ数で潰さない）。
+   5 個積んでも収まるように、盤の縦横比の側で高さを確保している。 */
+.point .checker { width: 90%; }
 .stack-count {
   font-size: 10px;
   font-weight: 700;
@@ -167,36 +189,123 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 .bar {
-  grid-row: 1 / 3;
-  background: var(--board-dark);
+  position: relative;
+  background: linear-gradient(180deg, var(--board-dark), var(--board) 50%, var(--board-dark));
+  border-left: 2px solid var(--board);
+  border-right: 2px solid var(--board);
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: 6px 0;
   gap: 2px;
+  cursor: pointer;
 }
+/* width:100% がないと、駒の % 幅がゼロ幅の親に対して解決されて見えなくなる。 */
+.bar-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-height: 1em;
+}
+.bar .checker { width: 78%; }
+.bar.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
 
-.off-area { display: flex; justify-content: space-between; font-size: .8rem; color: var(--muted); }
+/* 上がった駒を置く右端のトレイ。実物と同じく駒は寝かせて積む。 */
+.off-tray {
+  position: relative;
+  background: var(--board-dark);
+  border-left: 2px solid var(--board);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 3px;
+  overflow: hidden;
+}
+.off-tray.black { justify-content: flex-start; }   /* 上段が黒のホーム側 */
+.off-tray.white { justify-content: flex-end; }
+.off-checker {
+  width: 100%;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, .35);
+}
+.off-tray.white .off-checker { background: var(--white-checker); }
+.off-tray.black .off-checker { background: var(--black-checker); }
+.off-count {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #f2e9d5;
+  pointer-events: none;
+}
+.off-tray.black .off-count { bottom: 2px; }
+.off-tray.white .off-count { top: 2px; }
 
 .status-panel { display: grid; gap: 6px; }
 .turn { margin: 0; font-weight: 700; }
-.dice { display: flex; gap: 8px; }
+
+/* 実物の盤と同じく、ダイスは中央の帯に転がす。自分は右半分、相手は
+   （相手から見て右になる）左半分。 */
+.dice {
+  grid-row: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10%;
+}
+#dice { grid-column: 8 / 14; }
+#dice-ai { grid-column: 1 / 7; }
 .die {
-  min-width: 40px;
-  min-height: 40px;
+  width: 16%;
+  aspect-ratio: 1;
   display: grid;
   place-items: center;
   font-weight: 700;
-  border-radius: 8px;
+  border-radius: 6px;
   border: 1px solid var(--line);
   background: var(--panel);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .3);
 }
 .die.used { opacity: .35; text-decoration: line-through; }
+/* 出目の並びはクリックで入れ替えられる（ゾロ目のときは付かない）。 */
+.dice.is-flippable { cursor: pointer; }
+.dice.is-flippable:hover .die:not(.used) { border-color: var(--accent); }
 
-.log { margin: var(--gap) 0 0; padding-left: 1.4em; font-size: .85rem; color: var(--muted); }
+.log {
+  margin: var(--gap) 0 0;
+  padding-left: 1.4em;
+  font-size: .85rem;
+  color: var(--muted);
+  max-height: 34vh;
+  overflow-y: auto;
+}
+
+.record { align-self: start; }
+.record-export { margin-top: var(--gap); border-top: 1px solid var(--line); padding-top: var(--gap); }
+.record-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.record-head h3 { margin: 0; font-size: .85rem; color: var(--muted); font-weight: 600; }
+.record-head button { min-height: 32px; padding: 4px 12px; font-size: .8rem; }
+.mat {
+  margin: 8px 0 0;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: .72rem;
+  line-height: 1.45;
+  max-height: 34vh;
+  overflow: auto;
+  white-space: pre;
+}
 
 @media (max-width: 420px) {
-  .board { grid-template-columns: repeat(6, 1fr) 16px repeat(6, 1fr); }
-  .checker { width: min(85%, 20px); }
+  .board { grid-template-columns: repeat(6, 1fr) 20px repeat(6, 1fr); }
 }

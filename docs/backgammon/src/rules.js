@@ -95,7 +95,7 @@ function singleMovesFor(board, player, die) {
   return moves;
 }
 
-function applySingle(board, player, single) {
+export function applySingle(board, player, single) {
   const sign = player === WHITE ? 1 : -1;
   if (single.from === null) board.bar[player] -= 1;
   else board.points[single.from] -= sign;
@@ -157,7 +157,7 @@ function generateRecursive(board, player, remaining, current, out) {
 }
 
 /** 盤面の同一性を判定する鍵（重複除去に使う）。 */
-function boardKey(board) {
+export function boardKey(board) {
   return `${board.points.join(',')}|${board.bar.WHITE},${board.bar.BLACK}`
     + `|${board.off.WHITE},${board.off.BLACK}`;
 }
@@ -193,4 +193,67 @@ export function generateMoves(board, player, die1, die2) {
     moves.push(new Move(seq.singles, seq.board, player));
   }
   return moves;
+}
+
+/**
+ * `remaining` の出目を使って `allowedKeys` のどれかに到達できるか。
+ * 出目を使い切る必要はない（使えなくなった時点で終わる手順も合法）。
+ */
+function canReach(board, player, remaining, allowedKeys) {
+  if (allowedKeys.has(boardKey(board))) return true;
+  if (remaining.length === 0) return false;
+
+  const tried = new Set();
+  for (let i = 0; i < remaining.length; i += 1) {
+    const die = remaining[i];
+    if (tried.has(die)) continue;
+    tried.add(die);
+
+    const rest = remaining.slice(0, i).concat(remaining.slice(i + 1));
+    for (const single of singleMovesFor(board, player, die)) {
+      applySingle(board, player, single);
+      const ok = canReach(board, player, rest, allowedKeys);
+      undoSingle(board, player, single);
+      if (ok) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * 途中まで指した局面から、次に選べる 1 手を返す。
+ *
+ * **`Move.singles` の並びを操作順として使ってはいけない。** `generateMoves` は
+ * 同じ最終盤面になる手順を 1 つに畳むので、残った 1 つの並びだけを見ると
+ * 「順番が違うだけの合法な手」がクリックできなくなる。ここでは並びに依存せず、
+ * 残りの出目で合法な最終盤面（`allowedKeys`）に到達できるかで判定する。
+ *
+ * @param {Set<string>} allowedKeys ターン開始時の合法手の最終盤面の鍵。
+ *   最大消費・大きい目優先の規則は `generateMoves` が適用済み。
+ */
+export function nextSingles(board, player, remaining, allowedKeys) {
+  const work = board.clone();
+  const out = [];
+  const seen = new Set();
+  const tried = new Set();
+
+  for (let i = 0; i < remaining.length; i += 1) {
+    const die = remaining[i];
+    if (tried.has(die)) continue;
+    tried.add(die);
+
+    const rest = remaining.slice(0, i).concat(remaining.slice(i + 1));
+    for (const single of singleMovesFor(work, player, die)) {
+      applySingle(work, player, single);
+      const reachable = canReach(work, player, rest, allowedKeys);
+      undoSingle(work, player, single);
+      if (!reachable) continue;
+
+      const key = `${single.from}|${single.to}|${single.die}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(single);
+    }
+  }
+  return out;
 }
