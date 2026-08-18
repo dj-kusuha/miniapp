@@ -18,13 +18,6 @@
   <section id="setup" class="panel">
     <h2>対局を始める</h2>
     <div class="field">
-      <span id="side-label">あなたの色</span>
-      <div class="choices" role="radiogroup" aria-labelledby="side-label">
-        <button type="button" class="choice is-selected" data-side="WHITE" role="radio" aria-checked="true">白</button>
-        <button type="button" class="choice" data-side="BLACK" role="radio" aria-checked="false">黒</button>
-      </div>
-    </div>
-    <div class="field">
       <span id="level-label">AI の強さ</span>
       <div class="choices" role="radiogroup" aria-labelledby="level-label">
         <button type="button" class="choice" data-plies="0" role="radio" aria-checked="false">ふつう</button>
@@ -36,23 +29,34 @@
   </section>
 
   <section id="game" hidden>
-    <div id="board" class="board" role="grid" aria-label="盤面"></div>
+    <div class="play">
+      <div id="board" class="board" role="grid" aria-label="盤面">
+        <div id="dice-ai" class="dice" aria-live="polite" aria-label="AI の出目"></div>
+        <div id="dice" class="dice" aria-live="polite" aria-label="あなたの出目"></div>
+        <button type="button" id="roll" class="primary" hidden>サイコロを振る</button>
+      </div>
 
-    <div class="panel status-panel">
-      <p id="turn" class="turn" aria-live="polite">—</p>
-      <div id="dice" class="dice" aria-live="polite"></div>
-      <p id="hint" class="note"></p>
+      <div class="panel status-panel">
+        <p id="turn" class="turn" aria-live="polite">—</p>
+        <p id="hint" class="note"></p>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="undo" hidden>1 手戻す</button>
+        <button type="button" id="again" class="primary" hidden>もう一局</button>
+      </div>
     </div>
 
-    <div class="actions">
-      <button type="button" id="roll" class="primary" hidden>サイコロを振る</button>
-      <button type="button" id="undo" hidden>1 手戻す</button>
-      <button type="button" id="again" class="primary" hidden>もう一局</button>
-    </div>
-
-    <details class="panel">
+    <details id="record" class="panel record">
       <summary>棋譜</summary>
       <ol id="log" class="log"></ol>
+      <div class="record-export">
+        <div class="record-head">
+          <h3>gnubg 用（.mat）</h3>
+          <button type="button" id="copy-mat">コピー</button>
+        </div>
+        <pre id="mat" class="mat"></pre>
+      </div>
     </details>
   </section>
 </main>

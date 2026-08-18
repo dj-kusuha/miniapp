@@ -1,24 +1,38 @@
 // 画面と操作。ゲーム進行と AI はすべてブラウザ内で動く（サーバなし）。
 //
-// 着手は「移動元をクリック → 出目を自動割当」方式。engine の Web フロントと
-// 同じで、ドラッグ&ドロップにはしない（小さい画面で扱いにくいため）。
+// 着手は「駒をクリック → 出目キューの手前側（左）の目を即座に使って動かす」
+// 方式。同じ駒から複数の目が使える場合だけ、左の目を優先する（あいまいさの
+// 解消。両方使える目が無いときはそのまま使える方の目を使う）。1 手ぶん動かす
+// たびに再描画し、次に動かせる駒をハイライトする。
 
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
 import { Agent } from './src/agent.js';
 import { Game, MOVING, ROLLING, GAME_OVER } from './src/game.js';
+import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
+import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
+
+/** AI の進行を目で追えるようにする間合い（ms）。 */
+const DICE_DELAY = 1000;   // 出目を見せてから動かすまで（ダンスもこの間は見える）
+const MOVE_DELAY = 1000;   // 駒 1 個ぶんの着手の間
+
 const state = {
   net: null,
   agent: null,
   game: null,
-  humanSide: WHITE,
+  humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
   plies: 2,
-  selected: null,     // 選択中の移動元（index か 'bar'）
-  history: [],        // 1 手戻す用のスナップショット
+  turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
+  history: [],         // 1 ターン戻す用のスナップショット
+  anim: null,          // AI の着手を 1 手ずつ見せる途中経過
+  danceShow: null,     // 動かせなかった出目を見せている側（手番は既に移っている）
+  runId: 0,            // 対局をまたいで古いアニメーションが動き続けないように
   busy: false,
 };
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── 起動 ──────────────────────────────────────
 
@@ -34,36 +48,46 @@ NeuralNet.load('./src/model.json')
     $('loading').classList.add('error');
   });
 
-for (const button of document.querySelectorAll('[data-side]')) {
-  button.addEventListener('click', () => selectChoice(button, 'side'));
-}
 for (const button of document.querySelectorAll('[data-plies]')) {
-  button.addEventListener('click', () => selectChoice(button, 'plies'));
+  button.addEventListener('click', () => selectChoice(button));
 }
 
-function selectChoice(button, kind) {
+function selectChoice(button) {
   const group = button.parentElement;
   for (const sibling of group.children) {
     sibling.classList.toggle('is-selected', sibling === button);
     sibling.setAttribute('aria-checked', String(sibling === button));
   }
-  if (kind === 'side') state.humanSide = button.dataset.side;
-  else state.plies = Number(button.dataset.plies);
+  state.plies = Number(button.dataset.plies);
 }
 
 $('start').addEventListener('click', startGame);
 $('again').addEventListener('click', startGame);
-$('roll').addEventListener('click', () => {
-  state.game.rollDice();
-  afterChange();
+$('roll').addEventListener('click', async () => {
+  const game = state.game;
+  const before = game.currentPlayer;
+  game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
+  // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
+  if (game.currentPlayer !== before) {
+    state.danceShow = before;
+    render();
+    await sleep(DICE_DELAY);
+    state.danceShow = null;
+  }
+  await afterChange();
 });
 $('undo').addEventListener('click', undo);
+$('dice').addEventListener('click', flipDice);
 
 function startGame() {
   state.agent = new Agent(state.net, state.plies);
   state.game = new Game();
   state.history = [];
-  state.selected = null;
+  state.turn = null;
+  state.anim = null;
+  state.danceShow = null;
+  state.busy = false;
+  state.runId += 1;         // 進行中のアニメーションを打ち切る
   state.game.start();
   $('setup').hidden = true;
   $('game').hidden = false;
@@ -76,23 +100,76 @@ function startGame() {
 
 function buildBoard() {
   const board = $('board');
+  // ダイスのトレイと「振る」ボタンは盤面の内側（中央の帯）に置くので、
+  // 作り直す前に退避する
+  const dice = $('dice');
+  const diceAi = $('dice-ai');
+  const roll = $('roll');
   board.replaceChildren();
 
-  // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）
+  // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）。
+  // バーは 7 列目に固定し、各点の列位置も明示する（auto-flow に任せない）。
   const top = [];
   for (let i = 12; i <= 23; i += 1) top.push(i);
   const bottom = [];
   for (let i = 11; i >= 0; i -= 1) bottom.push(i);
 
+  // 行は 上ラベル / 上段 / 中段（帯） / 下段 / 下ラベル の 5 行。
+  // 番号は盤面（三角形）の外側、専用の帯に出す。
+  const place = (index, isBottom, col) => {
+    const point = makePoint(index, isBottom);
+    point.style.gridColumn = String(col);
+    point.style.gridRow = isBottom ? '4' : '2';
+    board.appendChild(point);
+  };
+  const placeLabel = (index, isBottom, col) => {
+    const label = document.createElement('span');
+    label.className = 'point-label';
+    label.textContent = String(index + 1);
+    label.style.gridColumn = String(col);
+    label.style.gridRow = isBottom ? '5' : '1';
+    board.appendChild(label);
+  };
+  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 1); placeLabel(i, false, k + 1); });
+  top.slice(6).forEach((i, k) => { place(i, false, k + 8); placeLabel(i, false, k + 8); });
+  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 1); placeLabel(i, true, k + 1); });
+  bottom.slice(6).forEach((i, k) => { place(i, true, k + 8); placeLabel(i, true, k + 8); });
+
   const bar = document.createElement('div');
   bar.className = 'bar';
   bar.id = 'bar';
-
-  top.slice(0, 6).forEach((i) => board.appendChild(makePoint(i, false)));
+  bar.style.gridColumn = '7';
+  bar.style.gridRow = '2 / 5';
+  bar.setAttribute('role', 'button');
+  bar.tabIndex = 0;
+  bar.setAttribute('aria-label', 'バー');
+  bar.addEventListener('click', () => handleSourceClick(null));
+  bar.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      handleSourceClick(null);
+    }
+  });
   board.appendChild(bar);
-  top.slice(6).forEach((i) => board.appendChild(makePoint(i, false)));
-  bottom.slice(0, 6).forEach((i) => board.appendChild(makePoint(i, true)));
-  bottom.slice(6).forEach((i) => board.appendChild(makePoint(i, true)));
+  // 中段（行 3）はサイコロの定位置。自分は右半分、AI は左半分。
+  // 「振る」ボタンも自分のダイスと同じ場所に出す（振る前は空いている）。
+  board.appendChild(diceAi);
+  board.appendChild(dice);
+  board.appendChild(roll);
+
+  // 上がった駒を置く右端のトレイ。盤の向き（White は右下がホーム）に合わせて、
+  // Black は上段側、White は下段側に積む。
+  board.appendChild(makeOffTray(BLACK, 2));
+  board.appendChild(makeOffTray(WHITE, 4));
+}
+
+function makeOffTray(player, row) {
+  const tray = document.createElement('div');
+  tray.className = `off-tray ${player === WHITE ? 'white' : 'black'}`;
+  tray.id = `off-${player}`;
+  tray.style.gridColumn = '14';
+  tray.style.gridRow = String(row);
+  return tray;
 }
 
 function makePoint(index, isBottom) {
@@ -101,24 +178,111 @@ function makePoint(index, isBottom) {
   point.className = `point${index % 2 ? ' odd' : ''}${isBottom ? ' bottom' : ''}`;
   point.dataset.index = String(index);
   point.id = `point-${index}`;
-  const num = document.createElement('span');
-  num.className = 'num';
-  num.textContent = String(index + 1);
-  point.appendChild(num);
-  point.addEventListener('click', () => onPointClick(index));
+  point.addEventListener('click', () => handleSourceClick(index));
   return point;
+}
+
+// ── ターンの進行（出目 1 個ぶんずつ確定させる） ─────────
+
+/** 人間の手番で MOVING の間だけ、進行中のターンを用意する。 */
+function syncTurn() {
+  const game = state.game;
+  if (game.state !== MOVING || game.currentPlayer !== state.humanSide
+      || game.legalMoves.length === 0) {
+    state.turn = null;
+    return;
+  }
+  if (!state.turn || state.turn.root !== game.legalMoves) {
+    state.turn = {
+      root: game.legalMoves,
+      // 合法な「ターン終了時の盤面」。着手順ではなくこれで判定する。
+      allowedKeys: new Set(game.legalMoves.map((m) => boardKey(m.resultingBoard))),
+      applied: [],
+    };
+  }
+}
+
+/** まだ使っていない出目（ゾロ目なら 4 個から減っていく）。 */
+function remainingDice() {
+  const rest = diceValues(state.game.roll.die1, state.game.roll.die2);
+  for (const single of state.turn.applied) {
+    const at = rest.indexOf(single.die);
+    if (at >= 0) rest.splice(at, 1);
+  }
+  return rest;
+}
+
+/** いま選べる 1 手の一覧。 */
+function currentOptions() {
+  if (!state.turn) return [];
+  return nextSingles(previewBoard(), state.game.currentPlayer,
+    remainingDice(), state.turn.allowedKeys);
+}
+
+/** 途中まで指した状態を反映した盤面（まだ game.board には書き戻さない）。 */
+function previewBoard() {
+  const game = state.game;
+  if (state.anim) {
+    const board = state.anim.base.clone();
+    for (const single of state.anim.applied) applySingle(board, state.anim.player, single);
+    return board;
+  }
+  if (!state.turn || state.turn.applied.length === 0) return game.board;
+  const board = game.board.clone();
+  for (const single of state.turn.applied) applySingle(board, game.currentPlayer, single);
+  return board;
+}
+
+function handleSourceClick(from) {
+  if (state.busy || !state.turn) return;
+  const options = currentOptions().filter((single) => single.from === from);
+  if (options.length === 0) return;
+
+  // 同じ駒を複数の目で動かせるときは、出目キューの左（die1）を優先する。
+  // 右の目を使いたいときはサイコロをクリックして並びを入れ替える。
+  const preferredDie = state.game.roll.die1;
+  const chosen = options.find((single) => single.die === preferredDie) ?? options[0];
+  state.turn.applied.push(chosen);
+
+  // 合法な終了盤面に達したらターンを確定する（出目が余っていても、
+  // それ以上使えない手順は generateMoves が合法として持っている）。
+  const key = boardKey(previewBoard());
+  if (state.turn.allowedKeys.has(key)) {
+    finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
+  } else {
+    render();
+  }
+}
+
+/** サイコロをクリックすると、どちらの目を先に使うかを入れ替える。 */
+function flipDice() {
+  const game = state.game;
+  if (!game || state.busy) return;
+  if (game.state !== MOVING || game.currentPlayer !== state.humanSide) return;
+  if (game.roll.die1 === game.roll.die2) return;   // ゾロ目は入れ替える意味がない
+  game.roll = { die1: game.roll.die2, die2: game.roll.die1 };
+  render();
+}
+
+function finalizeTurn(move) {
+  const game = state.game;
+  state.history.push(snapshot());
+  const index = game.legalMoves.indexOf(move);
+  game.applyMove(index);
+  state.turn = null;
+  afterChange();
 }
 
 // ── 描画 ──────────────────────────────────────
 
 function render() {
+  syncTurn();
   const game = state.game;
-  const board = game.board;
+  const board = previewBoard();
 
   for (let i = 0; i < 24; i += 1) {
     const el = $(`point-${i}`);
-    const num = el.querySelector('.num');
-    el.replaceChildren(num);
+    el.replaceChildren();
     const white = board.count(i, WHITE);
     const black = board.count(i, BLACK);
     const owner = white > 0 ? WHITE : black > 0 ? BLACK : null;
@@ -142,12 +306,41 @@ function render() {
   const bar = $('bar');
   bar.replaceChildren();
   for (const [player, cls] of [[BLACK, 'black'], [WHITE, 'white']]) {
+    const group = document.createElement('div');
+    group.className = 'bar-group';
     const n = board.bar[player];
-    const slot = document.createElement('div');
-    slot.textContent = n ? `${cls === 'white' ? '白' : '黒'}×${n}` : '';
-    slot.style.fontSize = '10px';
-    slot.style.color = '#fff';
-    bar.appendChild(slot);
+    for (let k = 0; k < Math.min(n, 4); k += 1) {
+      const checker = document.createElement('span');
+      checker.className = `checker ${cls}`;
+      group.appendChild(checker);
+    }
+    if (n > 4) {
+      const badge = document.createElement('span');
+      badge.className = 'stack-count';
+      badge.textContent = `×${n}`;
+      group.appendChild(badge);
+    }
+    bar.appendChild(group);
+  }
+  bar.setAttribute('aria-label', `バー: 白 ${board.bar.WHITE} 個 / 黒 ${board.bar.BLACK} 個`);
+
+  for (const player of [WHITE, BLACK]) {
+    const tray = $(`off-${player}`);
+    tray.replaceChildren();
+    const n = board.off[player];
+    for (let k = 0; k < n; k += 1) {
+      const piece = document.createElement('span');
+      piece.className = 'off-checker';
+      tray.appendChild(piece);
+    }
+    if (n > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'off-count';
+      badge.textContent = String(n);
+      tray.appendChild(badge);
+    }
+    tray.setAttribute('aria-label',
+      `${player === WHITE ? '白' : '黒'}の上がり: ${n} 個`);
   }
 
   renderStatus();
@@ -155,15 +348,71 @@ function render() {
   renderLog();
 }
 
+const opponentSide = () => (state.humanSide === WHITE ? BLACK : WHITE);
+
+/** AI の着手アニメーションで、まだ使っていない出目。 */
+function animRemainingDice() {
+  const rest = diceValues(state.game.roll.die1, state.game.roll.die2);
+  for (const single of state.anim.applied) {
+    const at = rest.indexOf(single.die);
+    if (at >= 0) rest.splice(at, 1);
+  }
+  return rest;
+}
+
+/**
+ * その側のダイスをいま出すか。出すなら `remaining`（未使用の出目）も返す。
+ *
+ * 実物の盤と同じで、**使い切ったら片付ける**（手番中だけ盤上にある）。
+ * 出目は `game.roll` から読むので、クリックで入れ替えた並びがそのまま出る。
+ */
+function diceFor(player) {
+  const game = state.game;
+  if (game.state === GAME_OVER || !game.roll) return null;
+
+  // 動かせなかった出目は、手番が移ったあともしばらく見せる
+  if (state.danceShow === player) return { roll: game.roll, remaining: null };
+
+  let remaining = null;
+  if (state.anim && state.anim.player === player) {
+    remaining = animRemainingDice();
+  } else if (game.state === MOVING && game.currentPlayer === player) {
+    remaining = player === state.humanSide && state.turn ? remainingDice() : null;
+  } else {
+    return null;
+  }
+
+  if (remaining && remaining.length === 0) return null;   // すべて動かし終えた
+  return { roll: game.roll, remaining };
+}
+
+/** 出目を 1 つのトレイに描く。`remaining` を渡すと使い終わった目に印が付く。 */
+function renderDiceTray(el, shown) {
+  el.replaceChildren();
+  if (!shown) return;
+  const faces = diceValues(shown.roll.die1, shown.roll.die2);
+  const rest = shown.remaining ? [...shown.remaining] : [...faces];
+  for (const die of faces) {
+    const at = rest.indexOf(die);
+    if (at >= 0) rest.splice(at, 1);
+    const span = document.createElement('span');
+    span.className = `die${at < 0 ? ' used' : ''}`;
+    span.textContent = String(die);
+    el.appendChild(span);
+  }
+}
+
 function renderStatus() {
   const game = state.game;
   const mine = game.currentPlayer === state.humanSide;
+  const midTurn = Boolean(state.turn && state.turn.applied.length > 0);
 
   if (game.state === GAME_OVER) {
     const kind = { 1: 'シングル', 2: 'ギャモン', 3: 'バックギャモン' }[game.result.winType];
     const who = game.result.winner === state.humanSide ? 'あなた' : 'AI';
     $('turn').textContent = `${who}の勝ち（${kind} ${game.result.points} 点）`;
-    $('dice').replaceChildren();
+    renderDiceTray($('dice'), null);
+    renderDiceTray($('dice-ai'), null);
     $('hint').textContent = `白 ${game.board.off.WHITE} 個 / 黒 ${game.board.off.BLACK} 個 上がり`;
     $('roll').hidden = true;
     $('undo').hidden = true;
@@ -172,46 +421,40 @@ function renderStatus() {
   }
 
   $('turn').textContent = mine ? 'あなたの番' : 'AI の番';
+
+  // 出目は手番中の側だけ盤上に出す（使い切ったら片付ける）。
   const dice = $('dice');
-  dice.replaceChildren();
-  if (game.state === MOVING) {
-    for (const die of [game.roll.die1, game.roll.die2]) {
-      const el = document.createElement('span');
-      el.className = 'die';
-      el.textContent = String(die);
-      dice.appendChild(el);
-    }
-  }
+  const shownMine = diceFor(state.humanSide);
+  const flippable = Boolean(shownMine) && mine && game.state === MOVING
+    && game.roll.die1 !== game.roll.die2;
+  dice.classList.toggle('is-flippable', flippable);
+  dice.title = flippable ? 'クリックで使う順番を入れ替える' : '';
+  renderDiceTray(dice, shownMine);
+  renderDiceTray($('dice-ai'), diceFor(opponentSide()));
+
   $('roll').hidden = !(mine && game.state === ROLLING);
-  $('undo').hidden = !(mine && state.history.length > 0);
+  $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   $('again').hidden = true;
 
-  if (state.busy) $('hint').textContent = 'AI が考えています…';
+  if (state.busy) {
+    $('hint').textContent = state.anim ? 'AI が指しています…' : 'AI が考えています…';
+  }
   else if (mine && game.state === MOVING) {
-    $('hint').textContent = state.selected === null
-      ? '動かす駒をクリックしてください'
-      : 'もう一度クリックで選択解除できます';
+    $('hint').textContent = midTurn
+      ? '続けて駒をクリックしてください'
+      : '動かす駒をクリックしてください';
   } else $('hint').textContent = '';
 }
 
-/** いま選べる移動元と、選択中なら移動先を光らせる。 */
+/** 次の 1 手で動かせる駒（＝出目の移動元）を光らせる。 */
 function renderHighlights() {
-  for (let i = 0; i < 24; i += 1) {
-    $(`point-${i}`).classList.remove('selectable', 'selected', 'target');
-  }
-  const game = state.game;
-  if (game.state !== MOVING || game.currentPlayer !== state.humanSide || state.busy) return;
+  for (let i = 0; i < 24; i += 1) $(`point-${i}`).classList.remove('selectable');
+  $('bar').classList.remove('selectable');
+  if (state.busy || !state.turn) return;
 
-  if (state.selected === null) {
-    for (const from of sourcesOf(game.legalMoves)) {
-      if (from !== null) $(`point-${from}`)?.classList.add('selectable');
-    }
-  } else {
-    if (state.selected !== 'bar') $(`point-${state.selected}`).classList.add('selected');
-    for (const move of movesFrom(game.legalMoves, state.selected)) {
-      const to = move.singles[0].to;
-      if (to !== null) $(`point-${to}`)?.classList.add('target');
-    }
+  for (const single of currentOptions()) {
+    if (single.from === null) $('bar').classList.add('selectable');
+    else $(`point-${single.from}`)?.classList.add('selectable');
   }
 }
 
@@ -227,44 +470,40 @@ function renderLog() {
     else if (event.kind === 'end') li.textContent = `${who}の勝ち`;
     list.appendChild(li);
   }
+  $('mat').textContent = toMat();
 }
+
+// ── 棋譜の書き出し ──────────────────────────────
+//
+// 形式の細かい決まりごとは src/mat.js に置いてある。
+
+function toMat() {
+  const game = state.game;
+  return buildMat({
+    log: game.log,
+    result: game.state === GAME_OVER ? game.result : null,
+    humanSide: state.humanSide,
+  });
+}
+
+$('copy-mat').addEventListener('click', async () => {
+  const button = $('copy-mat');
+  try {
+    await navigator.clipboard.writeText(toMat());
+    button.textContent = 'コピーしました';
+  } catch {
+    button.textContent = '選択してコピーしてください';
+  }
+  setTimeout(() => { button.textContent = 'コピー'; }, 2000);
+});
+
+// PC 幅では棋譜を右側に開いたまま置く。狭い画面では折りたたむ。
+const wideScreen = window.matchMedia('(min-width: 900px)');
+const syncRecordOpen = () => { $('record').open = wideScreen.matches; };
+wideScreen.addEventListener('change', syncRecordOpen);
+syncRecordOpen();
 
 // ── 操作 ──────────────────────────────────────
-
-function sourcesOf(moves) {
-  return [...new Set(moves.map((m) => m.singles[0].from))];
-}
-
-function movesFrom(moves, from) {
-  const key = from === 'bar' ? null : from;
-  return moves.filter((m) => m.singles[0].from === key);
-}
-
-function onPointClick(index) {
-  const game = state.game;
-  if (state.busy || game.state !== MOVING || game.currentPlayer !== state.humanSide) return;
-
-  if (state.selected === index) {     // 同じ場所をもう一度 → 解除
-    state.selected = null;
-    renderHighlights();
-    renderStatus();
-    return;
-  }
-
-  if (state.selected === null) {
-    if (!sourcesOf(game.legalMoves).includes(index)) return;
-    state.selected = index;
-    renderHighlights();
-    renderStatus();
-    return;
-  }
-
-  // 移動先として選ばれた
-  const candidates = movesFrom(game.legalMoves, state.selected)
-    .filter((m) => m.singles[0].to === index);
-  if (candidates.length === 0) return;
-  play(game.legalMoves.indexOf(candidates[0]));
-}
 
 function snapshot() {
   const game = state.game;
@@ -290,53 +529,86 @@ function restore(snap) {
 }
 
 function undo() {
+  // ターンの途中なら、まずは今のターンで確定させた出目を 1 つだけ戻す。
+  if (state.turn && state.turn.applied.length > 0) {
+    state.turn.applied.pop();
+    render();
+    return;
+  }
   const snap = state.history.pop();
   if (!snap) return;
   restore(snap);
-  state.selected = null;
+  state.turn = null;
   render();
 }
 
-function play(index) {
-  state.history.push(snapshot());
-  state.game.applyMove(index);
-  state.selected = null;
-  afterChange();
-}
-
-/**
- * 盤面を描いてから、AI の番なら考えさせる。
- *
- * 2-ply は 1 手 25ms 程度だが、**描画を挟んでから計算する**。同期のまま
- * 走らせると「AI が考えています」が画面に出ないまま固まって見える。
- */
-function afterChange() {
+/** 盤面を描いてから、AI の番なら（間合いを取りながら）指させる。 */
+async function afterChange() {
   render();
   const game = state.game;
   if (game.state === GAME_OVER) return;
   if (game.currentPlayer === state.humanSide) {
-    if (game.state === MOVING && game.legalMoves.length === 0) game.skipTurn();
+    if (game.state === MOVING && game.legalMoves.length === 0) {
+      state.danceShow = game.currentPlayer;
+      game.skipTurn();
+      render();
+      await sleep(DICE_DELAY);
+      state.danceShow = null;
+      await afterChange();
+      return;
+    }
     render();
     return;
   }
+  await runAiTurns();
+}
+
+/**
+ * AI の手番を、1 手ずつ見せながら進める。
+ *
+ * まとめて適用すると「気づいたら自分の番になっていた」状態になり、相手が何を
+ * したのか分からない。**出目を見せる → 駒を 1 個ずつ動かす**の順で間を置く。
+ * ダンス（動かせない出目）のときも出目を見せる時間を必ず取る。
+ */
+async function runAiTurns() {
+  const game = state.game;
+  const runId = state.runId;
+  const alive = () => state.runId === runId && state.game === game;
 
   state.busy = true;
-  renderStatus();
-  // 1 フレーム譲ってから計算する
-  requestAnimationFrame(() => setTimeout(() => {
-    try {
-      while (state.game.state !== GAME_OVER
-             && state.game.currentPlayer !== state.humanSide) {
-        const roll = state.game.prepareTurn();
-        if (roll === null) break;
-        const index = state.agent.selectMove(
-          state.game.legalMoves, state.game.currentPlayer);
-        state.game.applyMove(index);
-      }
-    } finally {
-      state.busy = false;
-      state.history = [];   // AI が指したら戻せない
-      afterChange();
+  render();
+
+  while (alive() && game.state !== GAME_OVER && game.currentPlayer !== state.humanSide) {
+    const ai = game.currentPlayer;
+
+    if (game.state === ROLLING) {
+      game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
+      if (game.currentPlayer !== ai) state.danceShow = ai;
     }
-  }, 0));
+    render();
+    await sleep(DICE_DELAY);
+    state.danceShow = null;
+    if (!alive()) return;
+    if (game.currentPlayer !== ai) { render(); continue; }   // ダンスした
+
+    const index = state.agent.selectMove(game.legalMoves, ai);
+    const move = game.legalMoves[index];
+
+    state.anim = { base: game.board.clone(), player: ai, applied: [] };
+    for (const single of move.singles) {
+      state.anim.applied.push(single);
+      render();
+      await sleep(MOVE_DELAY);
+      if (!alive()) return;
+    }
+    state.anim = null;
+    game.applyMove(index);
+    render();
+  }
+
+  if (!alive()) return;
+  state.anim = null;
+  state.busy = false;
+  state.history = [];   // AI が指したら戻せない
+  await afterChange();
 }
