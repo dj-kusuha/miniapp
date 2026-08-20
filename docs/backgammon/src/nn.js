@@ -1,7 +1,11 @@
-// ニューラルネットの推論。198 -> 80 -> 5 の 3 層 MLP。
+// ニューラルネットの推論。198 -> 隠れ層（1 層以上） -> 5 の MLP。
 //
 // backgammon_engine の `backgammon/nn.py` の移植。**重みは学習済みのものを
-// そのまま読む**ので、ここでやるのは順伝播だけ。行列積 2 回とシグモイド 2 回。
+// そのまま読む**ので、ここでやるのは順伝播だけ。
+//
+// 隠れ層の数は `hidden_dims` の長さで決まる。同梱モデルは 2 層（128 -> 64）
+// だが、1 層の旧モデルもそのまま読める（`hidden_dims` を持たない世代は
+// `hidden_dim` から 1 層とみなす）。
 
 /** 出力ユニットの意味（engine の nn.py と同じ並び）。 */
 export const WIN = 0;
@@ -33,17 +37,26 @@ export class NeuralNet {
     this.features = data.features ?? 'none';
     this.totalEpisodes = data.total_episodes ?? 0;
 
-    if (this.hiddenDims.length !== 1) {
-      // 1 層ぶんしか順伝播を書いていない。多層の重みを黙って無視しないよう落とす。
-      throw new Error(`隠れ層が 1 層のモデルにのみ対応します: ${this.hiddenDims}`);
+    if (this.hiddenDims.length < 1) {
+      throw new Error(`隠れ層が 1 層以上のモデルにのみ対応します: ${this.hiddenDims}`);
     }
 
-    // JSON は行優先の 2 次元配列。内側のループで走るのは列なので、
-    // 転置して「出力ユニットごとに連続した Float32Array」にしておく。
-    this.w1 = toColumns(data.W1, this.inputDim, this.hiddenDims[0]);
-    this.b1 = Float32Array.from(data.b1);
-    this.w2 = toColumns(data.W2, this.hiddenDims[0], this.outputDim);
-    this.b2 = Float32Array.from(data.b2);
+    // 層ごとの (重み, バイアス)。JSON は行優先の 2 次元配列だが、内側のループで
+    // 走るのは列なので、転置して「出力ユニットごとに連続した Float32Array」に
+    // しておく。重みのキーは engine と同じ W1/b1, W2/b2, ... という連番。
+    const dims = [this.inputDim, ...this.hiddenDims, this.outputDim];
+    this.layers = [];
+    for (let index = 1; index < dims.length; index += 1) {
+      const weight = data[`W${index}`];
+      const bias = data[`b${index}`];
+      if (!weight || !bias) {
+        throw new Error(`重み W${index} / b${index} がモデルにありません`);
+      }
+      this.layers.push({
+        columns: toColumns(weight, dims[index - 1], dims[index]),
+        bias: Float32Array.from(bias),
+      });
+    }
   }
 
   static async load(url) {
@@ -58,22 +71,19 @@ export class NeuralNet {
    * @returns {Float32Array} 出力（`outputDim` 要素）
    */
   predict(x) {
-    const hidden = new Float32Array(this.b1.length);
-    for (let j = 0; j < hidden.length; j += 1) {
-      const column = this.w1[j];
-      let sum = this.b1[j];
-      for (let i = 0; i < x.length; i += 1) sum += x[i] * column[i];
-      hidden[j] = sigmoid(sum);
+    // engine の nn.py と同じく、出力層まで含めて全層シグモイド。
+    let activation = x;
+    for (const layer of this.layers) {
+      const next = new Float32Array(layer.bias.length);
+      for (let j = 0; j < next.length; j += 1) {
+        const column = layer.columns[j];
+        let sum = layer.bias[j];
+        for (let i = 0; i < activation.length; i += 1) sum += activation[i] * column[i];
+        next[j] = sigmoid(sum);
+      }
+      activation = next;
     }
-
-    const out = new Float32Array(this.b2.length);
-    for (let k = 0; k < out.length; k += 1) {
-      const column = this.w2[k];
-      let sum = this.b2[k];
-      for (let j = 0; j < hidden.length; j += 1) sum += hidden[j] * column[j];
-      out[k] = sigmoid(sum);
-    }
-    return out;
+    return activation;
   }
 }
 
