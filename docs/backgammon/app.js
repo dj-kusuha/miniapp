@@ -36,14 +36,28 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ── 起動 ──────────────────────────────────────
 
+/**
+ * どのモデルを読んでいるかを人が見て分かる形にする。
+ *
+ * **モデル JSON から導出する。** ここに文字列を直接書くと、モデルを
+ * 差し替えたときに古い表示が残るため。
+ */
+function describeModel(net) {
+  const shape = [net.inputDim, ...net.hiddenDims, net.outputDim].join('-');
+  const episodes = net.totalEpisodes.toLocaleString();
+  const features = net.features === 'none' ? '' : ` / 特徴量 ${net.features}`;
+  return `${shape}（${episodes} エピソード学習${features}）`;
+}
+
 NeuralNet.load('./src/model.json')
   .then((net) => {
     state.net = net;
-    $('loading').textContent =
-      `準備できました（${net.totalEpisodes.toLocaleString()} エピソード学習）`;
+    $('model-info').textContent = describeModel(net);
+    $('loading').textContent = '準備できました';
     $('start').disabled = false;
   })
   .catch((error) => {
+    $('model-info').textContent = '—';
     $('loading').textContent = `モデルを読み込めませんでした: ${error.message}`;
     $('loading').classList.add('error');
   });
