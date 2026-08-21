@@ -7,7 +7,7 @@
 // equity を求めて符号を反転**すると「自分の equity」になる。
 
 import { WHITE, opponent, encodeBoard } from './board.js';
-import { equity } from './nn.js';
+import { equity, WIN } from './nn.js';
 import { generateMoves, diceValues } from './rules.js';
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
@@ -53,16 +53,109 @@ export function filtersFor(plies) {
   return plies >= 3 ? FAST_FILTERS : DEFAULT_FILTERS;
 }
 
+/**
+ * ダブルを提案する最低 equity。engine の `DEFAULT_DOUBLE_POINT` と同じ値。
+ *
+ * キューブ・ベンチマーク 1,200 局面で振って 0.45〜0.46 に底があった
+ * （backgammon_engine の docs/adr/0017-cube-measurement.md）。
+ * **engine 側と必ず揃えること。**
+ */
+export const DEFAULT_DOUBLE_POINT = 0.45;
+
+/** 「キューブを自分が持っている」ことの価値。engine と同じく 0（実測で改善せず）。 */
+export const DEFAULT_CUBE_OWNERSHIP = 0.0;
+
 export class Agent {
   /**
    * @param {NeuralNet} net
    * @param {number} searchPlies 先読みの深さ
    * @param {Array<{candidates: number, tolerance: number}>} filters 段ごとの絞り込み
    */
-  constructor(net, searchPlies = 0, filters = DEFAULT_FILTERS) {
+  constructor(net, searchPlies = 0, filters = DEFAULT_FILTERS, {
+    doublePoint = DEFAULT_DOUBLE_POINT,
+    cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
+  } = {}) {
     this.net = net;
     this.searchPlies = searchPlies;
     this.filters = filters;
+    this.doublePoint = doublePoint;
+    this.cubeOwnership = cubeOwnership;
+  }
+
+  /**
+   * 1 局面ぶんの確率ベクトル（**White 視点**の 5 要素）。
+   *
+   * ジャコビー equity は `2·P(win) - 1` で、**equity からは勝率を逆算できない**
+   * ため、生の出力が要る。
+   */
+  probabilitiesFor(board, turn) {
+    return this.net.predict(encodeBoard(board, WHITE, turn));
+  }
+
+  /**
+   * ジャコビールール下の equity（**キューブがまだ回されていない**局面用）。
+   *
+   * ギャモンが数えられないので `2·P(win) - 1`。
+   * **マネーゲーム専用**で、マッチプレイには無い。
+   */
+  jacobyEquityFor(board, turn, player) {
+    const whiteView = 2 * this.probabilitiesFor(board, turn)[WIN] - 1;
+    return player === WHITE ? whiteView : -whiteView;
+  }
+
+  /** `player` 視点の cubeless equity（0-ply）。 */
+  equityFor(board, turn, player) {
+    const mover = this.equitiesFor([board], turn)[0];
+    return player === turn ? mover : -mover;
+  }
+
+  /**
+   * その equity でテイクするのが正しいか（engine の `would_take` と同じ式）。
+   *
+   *   ドロップ → 確定で -1
+   *   テイク   → 以後キューブ 2 倍で続くので 2·E、さらに所有価値が乗る
+   */
+  wouldTake(equityForTaker) {
+    return 2 * equityForTaker + this.cubeOwnership >= -1;
+  }
+
+  /**
+   * ダブルを提案すべきか。
+   *
+   * **キューブ判断は 0-ply。** engine 側は `cube_plies`（既定は着手と同じ深さ）
+   * で読むが、**実測では 0-ply の方が良かった**（1,200 局面で 11.2 対 12.6 mEMG。
+   * backgammon_engine の docs/adr/0017-cube-measurement.md）。
+   * 深く読む版が要るなら、確率ベクトルを伝播する探索（engine の
+   * `search_vector`）の移植が要る。
+   */
+  shouldDouble(game) {
+    if (!game.canDouble()) return false;
+    const proposer = game.currentPlayer;
+
+    // ジャコビー: キューブが回されるまでギャモンは 1 点なので、判断に使う
+    // equity からギャモンぶんを外す
+    const jacobyNow = game.jacoby && game.cube.untouched;
+    const value = jacobyNow
+      ? this.jacobyEquityFor(game.board, proposer, proposer)
+      : this.equityFor(game.board, proposer, proposer);
+
+    if (value < this.doublePoint) return false;
+
+    // too good to double: 相手がドロップするなら +1 で終わってしまう。
+    // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
+    // 数えられないので「ダブルせずギャモンを狙う」に意味が無い）。
+    if (!jacobyNow && !this.wouldTake(-value) && value > 1) return false;
+
+    return true;
+  }
+
+  /** 相手のダブルを受けるか（テイク = true / ドロップ = false）。 */
+  shouldAcceptDouble(game) {
+    const proposer = game.doublingProposer;
+    const taker = opponent(proposer);
+    // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
+    // ギャモンは数えられる。通常の equity でよい。
+    return this.wouldTake(this.equityFor(game.board, proposer, taker));
   }
 
   /** 各盤面の **turn（手番側）から見た** equity。 */

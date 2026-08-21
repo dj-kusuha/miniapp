@@ -26,6 +26,21 @@
       </div>
     </div>
     <div class="field">
+      <span id="cube-label">ダブリングキューブ</span>
+      <div class="choices" role="radiogroup" aria-labelledby="cube-label">
+        <button type="button" class="choice is-selected" data-cube="on" role="radio" aria-checked="true">使う</button>
+        <button type="button" class="choice" data-cube="off" role="radio" aria-checked="false">使わない</button>
+      </div>
+    </div>
+    <div class="field" id="jacoby-field">
+      <span id="jacoby-label">ジャコビールール</span>
+      <div class="choices" role="radiogroup" aria-labelledby="jacoby-label">
+        <button type="button" class="choice is-selected" data-jacoby="on" role="radio" aria-checked="true">あり</button>
+        <button type="button" class="choice" data-jacoby="off" role="radio" aria-checked="false">なし</button>
+      </div>
+      <p class="note">キューブが一度も回されていない局は、ギャモン・バックギャモンでも 1 点。</p>
+    </div>
+    <div class="field">
       <span id="model-label">対戦相手のモデル</span>
       <p id="model-info" class="note">読み込み中…</p>
     </div>
@@ -43,10 +58,14 @@
 
       <div class="panel status-panel">
         <p id="turn" class="turn" aria-live="polite">—</p>
+        <p id="cube-state" class="cube-state" aria-live="polite" hidden></p>
         <p id="hint" class="note"></p>
       </div>
 
       <div class="actions">
+        <button type="button" id="double" hidden>ダブル</button>
+        <button type="button" id="take" class="primary" hidden>テイク</button>
+        <button type="button" id="pass" hidden>パス</button>
         <button type="button" id="undo" hidden>1 手戻す</button>
         <button type="button" id="again" class="primary" hidden>もう一局</button>
       </div>
