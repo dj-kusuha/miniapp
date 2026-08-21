@@ -85,6 +85,9 @@ body {
 .note { color: var(--muted); font-size: .85rem; margin: .4em 0 0; }
 
 .field { display: grid; gap: 6px; margin-bottom: var(--gap); }
+/* **`display` を指定した要素は `hidden` 属性が効かない。**
+   .field は grid、.speed-field は flex なので、明示的に打ち消す。 */
+[hidden] { display: none !important; }
 .field > span { font-size: .85rem; color: var(--muted); }
 .choices { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -404,6 +407,8 @@ button:disabled { opacity: .5; cursor: default; }
    **どちらが持っているかが盤を見るだけで分かる**。 */
 .cube-tray {
   grid-column: 1;
+  min-height: 0;      /* 中央の帯で潰れたときに中身をはみ出させない */
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -413,8 +418,12 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 .cube-piece {
+  /* **中央の帯は盤の高さの 14% しかない。** 幅だけで大きさを決めると
+     そこに収まらず潰れるので、高さ側にも上限を付ける。 */
   width: min(88%, 34px);
+  max-height: 100%;
   aspect-ratio: 1;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
