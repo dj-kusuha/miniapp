@@ -14,9 +14,14 @@ import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
 
-/** AI の進行を目で追えるようにする間合い（ms）。 */
-const DICE_DELAY = 1000;   // 出目を見せてから動かすまで（ダンスもこの間は見える）
-const MOVE_DELAY = 1000;   // 駒 1 個ぶんの着手の間
+/**
+ * AI の進行を目で追えるようにする間合い（ms）。
+ *
+ * 出目を見せてから動かすまで（ダンスもこの間は見える）と、駒 1 個ぶんの
+ * 着手の間の両方に使う。**対局中にスライダーで変えられる**ので、定数では
+ * なく `state.delay` を都度読むこと。
+ */
+const DEFAULT_DELAY = 1000;
 
 const state = {
   net: null,
@@ -26,6 +31,7 @@ const state = {
   plies: 2,
   useCube: true,      // ダブリングキューブを使うか
   jacoby: true,       // ジャコビールール（マネーゲーム専用）
+  delay: DEFAULT_DELAY,   // AI の進行を見せる間合い（ms）
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -37,6 +43,9 @@ const state = {
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** いまの設定ぶんだけ待つ。スライダーを動かすと次の待ちから効く。 */
+const pause = () => sleep(state.delay);
 
 // ── AI の思考係 ────────────────────────────────
 //
@@ -164,8 +173,7 @@ for (const button of document.querySelectorAll('[data-cube]')) {
   button.addEventListener('click', () => {
     selectChoice(button);
     state.useCube = button.dataset.cube === 'on';
-    // キューブを使わないならジャコビーは意味を持たない
-    $('jacoby-field').hidden = !state.useCube;
+    syncJacobyField();
   });
 }
 for (const button of document.querySelectorAll('[data-jacoby]')) {
@@ -174,6 +182,32 @@ for (const button of document.querySelectorAll('[data-jacoby]')) {
     state.jacoby = button.dataset.jacoby === 'on';
   });
 }
+
+/**
+ * キューブを使わない設定なら、ジャコビールールの項目ごと隠す。
+ *
+ * ジャコビーは「キューブが一度も回っていない局のギャモンを 1 点にする」規則
+ * なので、キューブ自体が無ければ選ばせる意味がない。
+ */
+function syncJacobyField() {
+  $('jacoby-field').hidden = !state.useCube;
+}
+syncJacobyField();
+
+// ── AI の間合い ────────────────────────────────
+//
+// 出目を見せる時間と、駒 1 個ぶんの着手の間。既定の 1 秒は「AI が何をしたか
+// 追える」代わりに待たされるので、対局中でも変えられるようにする。
+
+const speedInput = $('speed');
+
+function syncSpeed() {
+  const seconds = Number(speedInput.value);
+  state.delay = Math.round(seconds * 1000);
+  $('speed-value').textContent = `${seconds.toFixed(1)} 秒`;
+}
+speedInput.addEventListener('input', syncSpeed);
+syncSpeed();
 
 function selectChoice(button) {
   const group = button.parentElement;
@@ -194,7 +228,7 @@ $('roll').addEventListener('click', async () => {
   if (game.currentPlayer !== before) {
     state.danceShow = before;
     render();
-    await sleep(DICE_DELAY);
+    await pause();
     state.danceShow = null;
   }
   await afterChange();
@@ -205,13 +239,13 @@ $('double').addEventListener('click', async () => {
   game.proposeDouble();
   state.history = [];          // ダブルを出したら戻せない
   render();
-  await sleep(DICE_DELAY);     // AI が考えているように見せる
+  await pause();               // AI が考えているように見せる
 
   const accepted = state.agent.shouldAcceptDouble(game);
   if (accepted) {
     game.acceptDouble();
     render();
-    await sleep(DICE_DELAY);
+    await pause();
   } else {
     game.declineDouble();
     render();
@@ -647,7 +681,8 @@ function renderStatus() {
                          && game.canDouble());
 
   if (state.busy) {
-    // 3-ply では出目の間合い（1 秒）で終わらないことがある。
+    // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
+    // 終わらないことがある。
     // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
     if (state.anim) $('hint').textContent = 'AI が指しています…';
     else if (state.thinking) $('hint').textContent = 'AI が長考しています…';
@@ -766,7 +801,7 @@ async function afterChange() {
       state.danceShow = game.currentPlayer;
       game.skipTurn();
       render();
-      await sleep(DICE_DELAY);
+      await pause();
       state.danceShow = null;
       await afterChange();
       return;
@@ -800,7 +835,7 @@ async function runAiTurns() {
         && state.agent.shouldDouble(game)) {
       game.proposeDouble();
       render();
-      await sleep(DICE_DELAY);
+      await pause();
       if (!alive()) return;
       // ここで人間の返事を待つ。テイク / パスのボタンが出る
       state.busy = false;
@@ -815,13 +850,13 @@ async function runAiTurns() {
     render();
 
     // **出目を見せている間に裏で考えさせる。** 3-ply の思考時間のうち
-    // DICE_DELAY ぶんはこれで隠れる。ダンスしたときは考える必要が無い。
+    // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
     const danced = game.currentPlayer !== ai;
     const thinking = danced
       ? null
       : chooseMove(game.board, ai, game.roll, game.legalMoves, state.plies);
 
-    await sleep(DICE_DELAY);
+    await pause();
     state.danceShow = null;
     if (!alive()) return;
     if (danced) { render(); continue; }
@@ -846,7 +881,7 @@ async function runAiTurns() {
     for (const single of move.singles) {
       state.anim.applied.push(single);
       render();
-      await sleep(MOVE_DELAY);
+      await pause();
       if (!alive()) return;
     }
     state.anim = null;

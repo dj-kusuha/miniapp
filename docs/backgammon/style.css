@@ -34,6 +34,11 @@
 
 * { box-sizing: border-box; }
 
+/* `hidden` 属性は UA スタイル（display:none）でしか効かないため、
+   `.field { display: grid }` のような作者スタイルに簡単に負ける。
+   JS 側で hidden を切り替える要素が増えたので、ここで一律に勝たせる。 */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -64,11 +69,19 @@ body {
 #game { display: grid; gap: var(--gap); }
 .play { display: grid; gap: var(--gap); align-content: start; }
 
-/* PC 幅では棋譜を盤の右に並べる（狭い画面では盤の下に折りたたむ）。 */
+/* PC 幅では棋譜を盤の右に並べる（狭い画面では盤の下に折りたたむ）。
+   右の列は上から「間合い」「棋譜」の順。狭い画面でも DOM の順がそのまま
+   縦に並ぶので、どちらでも間合いは棋譜の上に出る。 */
 @media (min-width: 900px) {
   #app { max-width: 1140px; }
-  #game { grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
-  .record { position: sticky; top: var(--gap); }
+  #game {
+    grid-template-columns: minmax(0, 1fr) 320px;
+    grid-template-rows: auto 1fr;
+    align-items: start;
+  }
+  .play { grid-column: 1; grid-row: 1 / span 2; }
+  .speed-panel { grid-column: 2; grid-row: 1; }
+  .record { grid-column: 2; grid-row: 2; position: sticky; top: var(--gap); }
   .record > summary { cursor: default; list-style: none; }
   .record > summary::-webkit-details-marker { display: none; }
 }
@@ -335,6 +348,27 @@ button:disabled { opacity: .5; cursor: default; }
 
 @media (prefers-reduced-motion: reduce) {
   .note.is-thinking { animation: none; }
+}
+
+/* AI の間合い。対局中に変えられるよう、盤と棋譜の間に置く。 */
+.speed-panel { display: grid; gap: 6px; }
+.speed-panel .speed-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: .85rem;
+  color: var(--muted);
+}
+.speed-panel output {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--ink);
+}
+.speed-panel input[type="range"] {
+  width: 100%;
+  min-height: 44px;      /* タップ目標 */
+  accent-color: var(--accent);
 }
 
 /* キューブの状態表示。値と持ち主が一目で分かるようにする。 */
