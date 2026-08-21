@@ -13,8 +13,6 @@
   --black-checker: #3a3430;
   --accent: #2f6f4f;
   --danger: #a8412f;
-  /* キューブの操作。サイコロを振る（accent の緑）と対比させる青紫。 */
-  --cube: #4a5a9c;
   --gap: 12px;
   --radius: 10px;
 }
@@ -85,9 +83,6 @@ body {
 .note { color: var(--muted); font-size: .85rem; margin: .4em 0 0; }
 
 .field { display: grid; gap: 6px; margin-bottom: var(--gap); }
-/* **`display` を指定した要素は `hidden` 属性が効かない。**
-   .field は grid、.speed-field は flex なので、明示的に打ち消す。 */
-[hidden] { display: none !important; }
 .field > span { font-size: .85rem; color: var(--muted); }
 .choices { display: flex; gap: 8px; flex-wrap: wrap; }
 
@@ -120,16 +115,14 @@ button:disabled { opacity: .5; cursor: default; }
 .board {
   position: relative;
   display: grid;
-  /* キューブ / 6 点 / バー / 6 点 / 上がりトレイ。
-     **キューブは上がりトレイの反対側（左端）**に置く。実物の盤と同じ配置。 */
-  grid-template-columns:
-    minmax(22px, 6%) repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
+  /* 6 点 / バー / 6 点 / 上がりトレイ */
+  grid-template-columns: repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
   /* 上ラベル / 上段 / 中央の帯（バーとダイスの定位置） / 下段 / 下ラベル。
      番号は三角形の外（盤の縁）に出し、実物の盤と同じく三角形は帯に向かって尖る。 */
   grid-template-rows: 5% 1fr 14% 1fr 5%;
   gap: 2px;
   /* 駒 5 個を積んでも中央の帯を越えないように、実物より縦長にしてある。 */
-  aspect-ratio: 15 / 12.5;
+  aspect-ratio: 14 / 12.5;
   background: var(--board-dark);
   border: 6px solid var(--board-dark);
   border-radius: var(--radius);
@@ -172,26 +165,8 @@ button:disabled { opacity: .5; cursor: default; }
 .point.bottom { flex-direction: column-reverse; }
 .point:disabled { cursor: default; opacity: 1; }
 
-/* 選択できる駒を示す。
-   **`box-shadow: inset` を .point 本体に描いても見えない。**
-   本体は background: transparent で、駒（z-index: 1）が上に乗るため。
-   実測でスマホでも見えなかった（2026-08-21）。
-   代わりに **専用の枠を疑似要素で重ね、駒そのものも光らせる**。 */
-.point.selectable::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  border: 3px solid var(--accent);
-  border-radius: 3px;
-  pointer-events: none;
-}
-
-/* いちばん手前の駒（動かせる駒）を光らせる。枠だけより分かりやすい。 */
-.point.selectable .checker:last-child,
-.point.bottom.selectable .checker:last-child {
-  box-shadow: 0 0 0 3px var(--accent), 0 1px 3px rgba(0, 0, 0, .5);
-}
+/* 選択できる駒はマス全体を囲う（三角形に切り取られる ::before ではなく本体に描く）。 */
+.point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
 
 .checker {
   aspect-ratio: 1;
@@ -237,9 +212,6 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .bar .checker { width: 78%; }
 .bar.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
-.bar.selectable .checker:last-child {
-  box-shadow: 0 0 0 3px var(--accent), 0 1px 3px rgba(0, 0, 0, .5);
-}
 
 /* 上がった駒を置く右端のトレイ。実物と同じく駒は寝かせて積む。 */
 .off-tray {
@@ -289,28 +261,12 @@ button:disabled { opacity: .5; cursor: default; }
   justify-content: center;
   gap: 10%;
 }
-#dice { grid-column: 9 / 15; }
-#dice-ai { grid-column: 2 / 8; }
+#dice { grid-column: 8 / 14; }
+#dice-ai { grid-column: 1 / 7; }
 
 /* 「振る」は自分のダイスと同じ場所に出す（手を伸ばす先を 1 箇所にまとめる）。 */
-/* ダブルは盤面の**左半分**。「サイコロを振る」（右半分）と対になる位置。 */
-#double.cube-action {
-  grid-column: 2 / 8;
-  grid-row: 3;
-  justify-self: center;
-  align-self: center;
-  min-height: 0;
-  padding: 6px 20px;
-  font-size: .9rem;
-  white-space: nowrap;
-  background: var(--cube);
-  color: #fff;
-  border-color: var(--cube);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
-}
-
 #roll {
-  grid-column: 9 / 15;
+  grid-column: 8 / 14;
   grid-row: 3;
   justify-self: center;
   align-self: center;
@@ -364,17 +320,7 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 @media (max-width: 420px) {
-  /* **列数は必ず .board と同じ 15 列に保つこと。**
-     キューブ / 6 点 / バー / 6 点 / 上がりトレイ。
-     ここだけ 13 列のままにしていて、狭い画面で盤がまるごと崩れた
-     （2026-08-21）。狭い画面では両端と中央の帯を細くして、
-     **点の 1fr を等幅に保つ**のが狙い。 */
-  .board {
-    /* **キューブ列（1 列目）は数字を入れるので広めに。** 16px だと
-       「64」が入らず潰れる（2026-08-21 に実機で確認）。
-       上がりトレイ（15 列目）は駒を寝かせるだけなので細くてよい。 */
-    grid-template-columns: 26px repeat(6, 1fr) 18px repeat(6, 1fr) 16px;
-  }
+  .board { grid-template-columns: repeat(6, 1fr) 20px repeat(6, 1fr); }
 }
 
 /* 長考中（3 手先読み）。固まったのではないと分かるように点滅させる。 */
@@ -397,85 +343,3 @@ button:disabled { opacity: .5; cursor: default; }
   font-variant-numeric: tabular-nums;
   font-weight: 600;
 }
-
-/* 棋譜の上に置く「AI の間合い」スライダー。 */
-.speed-field {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--line);
-}
-
-.speed-field label {
-  font-size: .85rem;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.speed-field output {
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.speed-field input[type="range"] {
-  flex: 1 1 140px;
-  min-width: 120px;
-  accent-color: var(--accent);
-}
-
-/* 棋譜の中でキューブの操作を目立たせる。着手の流れの中で見失いやすいため。 */
-.log .is-cube {
-  color: var(--cube);
-  font-weight: 600;
-}
-
-/* ── ダブリングキューブ ─────────────────────────
-   上がりトレイの反対側（左端）に置く。所有者の側へ動くので、
-   **どちらが持っているかが盤を見るだけで分かる**。 */
-.cube-tray {
-  /* **上段〜下段（2〜4 行）をまたぐ 1 つの器。** 中央の帯（3 行目）は
-     盤の高さの 14% しかないので、そこだけを器にするとキューブが潰れる。 */
-  grid-column: 1;
-  grid-row: 2 / 5;
-  min-height: 0;
-  display: flex;
-  justify-content: center;
-  background: var(--board-dark);
-  border-right: 2px solid var(--board);
-  padding: 2px 1px;
-}
-
-/* 所有者の側へ寄せる。盤は White が下段なので、あなたが持てば下。 */
-.cube-tray[data-place="top"] { align-items: flex-start; }
-.cube-tray[data-place="center"] { align-items: center; }
-.cube-tray[data-place="bottom"] { align-items: flex-end; }
-
-.cube-piece {
-  /* **幅が狭いと数字が入らない。** 列幅いっぱいまで使い、最低でも
-     20px は確保する（「64」の 2 桁が読める大きさ）。 */
-  width: 100%;
-  min-width: 20px;
-  max-height: 100%;
-  aspect-ratio: 1;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--white-checker);
-  color: var(--ink);
-  border: 1px solid rgba(0, 0, 0, .45);
-  border-radius: 4px;
-  font-weight: 700;
-  font-size: clamp(.55rem, 2.6vw, .85rem);
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
-}
-
-/* まだ一度も回っていない（センター）ときは 64 と書いて控えめに出す。
-   実物のキューブも 64 の面を上にして中央に置く。 */
-.cube-piece.is-center { opacity: .8; }
