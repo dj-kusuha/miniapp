@@ -14,9 +14,20 @@ import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
 
-/** AI の進行を目で追えるようにする間合い（ms）。 */
-const DICE_DELAY = 1000;   // 出目を見せてから動かすまで（ダンスもこの間は見える）
-const MOVE_DELAY = 1000;   // 駒 1 個ぶんの着手の間
+/** AI の進行を目で追えるようにする間合い（ms）。**棋譜の上のスライダーで変える。**
+ *
+ * 出目を見せてから動かすまで（ダンスもこの間は見える）と、駒 1 個ぶんの
+ * 着手の間の両方に使う。**3-ply の思考はこの間合いの裏で走る**ので、
+ * 短くすると「AI が長考しています…」が出やすくなる。
+ */
+const DEFAULT_DELAY = 1000;
+const MIN_DELAY = 100;
+const MAX_DELAY = 2000;
+
+/** いまの間合い（ms）。`sleep` に渡す値はここから読む。 */
+function delay() {
+  return state.delay;
+}
 
 const state = {
   net: null,
@@ -26,6 +37,7 @@ const state = {
   plies: 2,
   useCube: true,      // ダブリングキューブを使うか
   jacoby: true,       // ジャコビールール（マネーゲーム専用）
+  delay: DEFAULT_DELAY,   // AI の間合い（ms）
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -144,6 +156,7 @@ NeuralNet.load('./src/model.json')
   .then(async (net) => {
     state.net = net;
     $('model-info').textContent = describeModel(net);
+    $('jacoby-field').hidden = !state.useCube;
     state.threaded = await startThinker('./src/model.json');
     $('loading').textContent = state.threaded
       ? '準備できました'
@@ -167,6 +180,13 @@ for (const button of document.querySelectorAll('[data-cube]')) {
     $('jacoby-field').hidden = !state.useCube;
   });
 }
+// AI の間合い。棋譜の上のスライダーで変える。対局中でも即座に効く。
+$('speed').addEventListener('input', (event) => {
+  const seconds = Number(event.target.value);
+  state.delay = Math.min(MAX_DELAY, Math.max(MIN_DELAY, Math.round(seconds * 1000)));
+  $('speed-value').textContent = seconds.toFixed(1);
+});
+
 for (const button of document.querySelectorAll('[data-jacoby]')) {
   button.addEventListener('click', () => {
     selectChoice(button);
@@ -193,7 +213,7 @@ $('roll').addEventListener('click', async () => {
   if (game.currentPlayer !== before) {
     state.danceShow = before;
     render();
-    await sleep(DICE_DELAY);
+    await sleep(delay());
     state.danceShow = null;
   }
   await afterChange();
@@ -204,13 +224,13 @@ $('double').addEventListener('click', async () => {
   game.proposeDouble();
   state.history = [];          // ダブルを出したら戻せない
   render();
-  await sleep(DICE_DELAY);     // AI が考えているように見せる
+  await sleep(delay());     // AI が考えているように見せる
 
   const accepted = state.agent.shouldAcceptDouble(game);
   if (accepted) {
     game.acceptDouble();
     render();
-    await sleep(DICE_DELAY);
+    await sleep(delay());
   } else {
     game.declineDouble();
     render();
@@ -680,7 +700,17 @@ function renderLog() {
     if (event.kind === 'move') li.textContent = `${who}: ${event.text}`;
     else if (event.kind === 'skip') li.textContent = `${who}: 動かせず（${event.roll.join('-')}）`;
     else if (event.kind === 'roll' || event.kind === 'open') li.textContent = `${who}: ${event.roll.join('-')}`;
-    else if (event.kind === 'end') li.textContent = `${who}の勝ち`;
+    else if (event.kind === 'double') li.textContent = `${who}: ダブル → ${event.value}`;
+    else if (event.kind === 'take') li.textContent = `${who}: テイク（キューブ ${event.value}）`;
+    else if (event.kind === 'pass') li.textContent = `${who}: パス`;
+    else if (event.kind === 'end') {
+      li.textContent = event.jacoby
+        ? `${who}の勝ち（${event.points} 点・ジャコビーで 1 点扱い）`
+        : `${who}の勝ち（${event.points ?? ''} 点）`.replace('（ 点）', '');
+    }
+    if (event.kind === 'double' || event.kind === 'take' || event.kind === 'pass') {
+      li.classList.add('is-cube');
+    }
     list.appendChild(li);
   }
   $('mat').textContent = toMat();
@@ -765,7 +795,7 @@ async function afterChange() {
       state.danceShow = game.currentPlayer;
       game.skipTurn();
       render();
-      await sleep(DICE_DELAY);
+      await sleep(delay());
       state.danceShow = null;
       await afterChange();
       return;
@@ -799,7 +829,7 @@ async function runAiTurns() {
         && state.agent.shouldDouble(game)) {
       game.proposeDouble();
       render();
-      await sleep(DICE_DELAY);
+      await sleep(delay());
       if (!alive()) return;
       // ここで人間の返事を待つ。テイク / パスのボタンが出る
       state.busy = false;
@@ -814,13 +844,13 @@ async function runAiTurns() {
     render();
 
     // **出目を見せている間に裏で考えさせる。** 3-ply の思考時間のうち
-    // DICE_DELAY ぶんはこれで隠れる。ダンスしたときは考える必要が無い。
+    // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
     const danced = game.currentPlayer !== ai;
     const thinking = danced
       ? null
       : chooseMove(game.board, ai, game.roll, game.legalMoves, state.plies);
 
-    await sleep(DICE_DELAY);
+    await sleep(delay());
     state.danceShow = null;
     if (!alive()) return;
     if (danced) { render(); continue; }
@@ -845,7 +875,7 @@ async function runAiTurns() {
     for (const single of move.singles) {
       state.anim.applied.push(single);
       render();
-      await sleep(MOVE_DELAY);
+      await sleep(delay());
       if (!alive()) return;
     }
     state.anim = null;

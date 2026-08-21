@@ -13,6 +13,8 @@
   --black-checker: #3a3430;
   --accent: #2f6f4f;
   --danger: #a8412f;
+  /* キューブの操作。サイコロを振る（accent の緑）と対比させる青紫。 */
+  --cube: #4a5a9c;
   --gap: 12px;
   --radius: 10px;
 }
@@ -265,6 +267,22 @@ button:disabled { opacity: .5; cursor: default; }
 #dice-ai { grid-column: 1 / 7; }
 
 /* 「振る」は自分のダイスと同じ場所に出す（手を伸ばす先を 1 箇所にまとめる）。 */
+/* ダブルは盤面の**左半分**。「サイコロを振る」（右半分）と対になる位置。 */
+#double.cube-action {
+  grid-column: 1 / 7;
+  grid-row: 3;
+  justify-self: center;
+  align-self: center;
+  min-height: 0;
+  padding: 6px 20px;
+  font-size: .9rem;
+  white-space: nowrap;
+  background: var(--cube);
+  color: #fff;
+  border-color: var(--cube);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
+}
+
 #roll {
   grid-column: 8 / 14;
   grid-row: 3;
@@ -341,5 +359,40 @@ button:disabled { opacity: .5; cursor: default; }
 .cube-state {
   margin: 0.35rem 0 0;
   font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* 棋譜の上に置く「AI の間合い」スライダー。 */
+.speed-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.speed-field label {
+  font-size: .85rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.speed-field output {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.speed-field input[type="range"] {
+  flex: 1 1 140px;
+  min-width: 120px;
+  accent-color: var(--accent);
+}
+
+/* 棋譜の中でキューブの操作を目立たせる。着手の流れの中で見失いやすいため。 */
+.log .is-cube {
+  color: var(--cube);
   font-weight: 600;
 }
