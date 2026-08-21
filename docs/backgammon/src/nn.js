@@ -36,6 +36,9 @@ export class NeuralNet {
     this.perspective = data.perspective ?? 'white';
     this.features = data.features ?? 'none';
     this.totalEpisodes = data.total_episodes ?? 0;
+    //: engine が保存した日付（YYYY-MM-DD）。**古いモデルには入っていない**ので
+    //: 空文字に落とす。対戦前の画面に「どの世代を配っているか」を出すために使う。
+    this.savedAt = data.saved_at ?? '';
 
     if (this.hiddenDims.length < 1) {
       throw new Error(`隠れ層が 1 層以上のモデルにのみ対応します: ${this.hiddenDims}`);
