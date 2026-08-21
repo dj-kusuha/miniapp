@@ -39,6 +39,9 @@ export class NeuralNet {
     //: engine が保存した日付（YYYY-MM-DD）。**古いモデルには入っていない**ので
     //: 空文字に落とす。対戦前の画面に「どの世代を配っているか」を出すために使う。
     this.savedAt = data.saved_at ?? '';
+    //: どうやって作ったモデルかの覚え書き。**オフラインの教師あり学習は
+    //: エピソードを進めない**ので、total_episodes だけでは世代を区別できない。
+    this.note = data.note ?? '';
 
     if (this.hiddenDims.length < 1) {
       throw new Error(`隠れ層が 1 層以上のモデルにのみ対応します: ${this.hiddenDims}`);
