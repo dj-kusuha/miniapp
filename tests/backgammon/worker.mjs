@@ -54,7 +54,7 @@ async function ask(payload) {
 const src = (name) => new URL(`../../docs/backgammon/src/${name}`, import.meta.url).href;
 const { Board, WHITE, opponent } = await import(src('board.js'));
 const { NeuralNet } = await import(src('nn.js'));
-const { Agent } = await import(src('agent.js'));
+const { Agent, filtersFor } = await import(src('agent.js'));
 const { generateMoves, boardKey } = await import(src('rules.js'));
 
 await ask({ kind: 'load', url: `${base}src/model.json` });
@@ -68,7 +68,7 @@ const die = () => 1 + (rnd() * 6 | 0);
 let bad = 0;
 let checked = 0;
 for (const plies of [0, 2, 3]) {
-  const agent = new Agent(net, plies);
+  const agent = new Agent(net, plies, filtersFor(plies));
   let board = new Board();
   let turn = WHITE;
   let done = 0;

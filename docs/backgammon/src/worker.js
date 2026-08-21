@@ -9,7 +9,7 @@
 
 import { Board } from './board.js';
 import { NeuralNet } from './nn.js';
-import { Agent } from './agent.js';
+import { Agent, filtersFor } from './agent.js';
 import { generateMoves, boardKey } from './rules.js';
 
 let net = null;
@@ -18,7 +18,7 @@ const agents = new Map();   // plies -> Agent（作り直さず使い回す）
 function agentFor(plies) {
   let agent = agents.get(plies);
   if (!agent) {
-    agent = new Agent(net, plies);
+    agent = new Agent(net, plies, filtersFor(plies));
     agents.set(plies, agent);
   }
   return agent;

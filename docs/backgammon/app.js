@@ -7,7 +7,7 @@
 
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
-import { Agent } from './src/agent.js';
+import { Agent, filtersFor } from './src/agent.js';
 import { Game, MOVING, ROLLING, GAME_OVER } from './src/game.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
@@ -184,7 +184,8 @@ $('undo').addEventListener('click', undo);
 $('dice').addEventListener('click', flipDice);
 
 function startGame() {
-  state.agent = new Agent(state.net, state.plies);
+  // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
+  state.agent = new Agent(state.net, state.plies, filtersFor(state.plies));
   state.game = new Game();
   state.history = [];
   state.turn = null;
