@@ -336,3 +336,10 @@ button:disabled { opacity: .5; cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .note.is-thinking { animation: none; }
 }
+
+/* キューブの状態表示。値と持ち主が一目で分かるようにする。 */
+.cube-state {
+  margin: 0.35rem 0 0;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}

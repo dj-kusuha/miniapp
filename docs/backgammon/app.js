@@ -8,7 +8,7 @@
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
 import { Agent, filtersFor } from './src/agent.js';
-import { Game, MOVING, ROLLING, GAME_OVER } from './src/game.js';
+import { Game, MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
 
@@ -24,6 +24,8 @@ const state = {
   game: null,
   humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
   plies: 2,
+  useCube: true,      // ダブリングキューブを使うか
+  jacoby: true,       // ジャコビールール（マネーゲーム専用）
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -155,6 +157,20 @@ NeuralNet.load('./src/model.json')
 for (const button of document.querySelectorAll('[data-plies]')) {
   button.addEventListener('click', () => selectChoice(button));
 }
+for (const button of document.querySelectorAll('[data-cube]')) {
+  button.addEventListener('click', () => {
+    selectChoice(button);
+    state.useCube = button.dataset.cube === 'on';
+    // キューブを使わないならジャコビーは意味を持たない
+    $('jacoby-field').hidden = !state.useCube;
+  });
+}
+for (const button of document.querySelectorAll('[data-jacoby]')) {
+  button.addEventListener('click', () => {
+    selectChoice(button);
+    state.jacoby = button.dataset.jacoby === 'on';
+  });
+}
 
 function selectChoice(button) {
   const group = button.parentElement;
@@ -162,7 +178,7 @@ function selectChoice(button) {
     sibling.classList.toggle('is-selected', sibling === button);
     sibling.setAttribute('aria-checked', String(sibling === button));
   }
-  state.plies = Number(button.dataset.plies);
+  if (button.dataset.plies !== undefined) state.plies = Number(button.dataset.plies);
 }
 
 $('start').addEventListener('click', startGame);
@@ -180,13 +196,47 @@ $('roll').addEventListener('click', async () => {
   }
   await afterChange();
 });
+$('double').addEventListener('click', async () => {
+  const game = state.game;
+  if (!state.useCube || !game.canDouble()) return;
+  game.proposeDouble();
+  state.history = [];          // ダブルを出したら戻せない
+  render();
+  await sleep(DICE_DELAY);     // AI が考えているように見せる
+
+  const accepted = state.agent.shouldAcceptDouble(game);
+  if (accepted) {
+    game.acceptDouble();
+    render();
+    await sleep(DICE_DELAY);
+  } else {
+    game.declineDouble();
+    render();
+    return;
+  }
+  await afterChange();
+});
+
+$('take').addEventListener('click', async () => {
+  state.game.acceptDouble();
+  state.history = [];
+  render();
+  await afterChange();
+});
+
+$('pass').addEventListener('click', () => {
+  state.game.declineDouble();
+  state.history = [];
+  render();
+});
+
 $('undo').addEventListener('click', undo);
 $('dice').addEventListener('click', flipDice);
 
 function startGame() {
   // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
   state.agent = new Agent(state.net, state.plies, filtersFor(state.plies));
-  state.game = new Game();
+  state.game = new Game(null, Math.random, { jacoby: state.jacoby });
   state.history = [];
   state.turn = null;
   state.anim = null;
@@ -492,6 +542,22 @@ function diceFor(player) {
 }
 
 /** 出目を 1 つのトレイに描く。`remaining` を渡すと使い終わった目に印が付く。 */
+/** いまのキューブの値と持ち主を出す。使わない設定なら隠す。 */
+function renderCubeState() {
+  const el = $('cube-state');
+  if (!state.useCube) {
+    el.hidden = true;
+    return;
+  }
+  const cube = state.game.cube;
+  const who = cube.owner === null ? 'センター'
+    : (cube.owner === state.humanSide ? 'あなた' : 'AI');
+  const jacoby = (state.jacoby && cube.untouched)
+    ? '・ギャモンは 1 点（ジャコビー）' : '';
+  el.textContent = `キューブ ${cube.value}（${who}）${jacoby}`;
+  el.hidden = false;
+}
+
 function renderDiceTray(el, shown) {
   el.replaceChildren();
   if (!shown) return;
@@ -513,18 +579,50 @@ function renderStatus() {
   const mine = game.currentPlayer === state.humanSide;
   const midTurn = Boolean(state.turn && state.turn.applied.length > 0);
 
+  renderCubeState();
+
   if (game.state === GAME_OVER) {
-    const kind = { 1: 'シングル', 2: 'ギャモン', 3: 'バックギャモン' }[game.result.winType];
-    const who = game.result.winner === state.humanSide ? 'あなた' : 'AI';
-    $('turn').textContent = `${who}の勝ち（${kind} ${game.result.points} 点）`;
+    const result = game.result;
+    const who = result.winner === state.humanSide ? 'あなた' : 'AI';
+    let kind;
+    if (result.declined) {
+      kind = 'パス';
+    } else {
+      kind = { 1: 'シングル', 2: 'ギャモン', 3: 'バックギャモン' }[result.winType];
+    }
+    $('turn').textContent = `${who}の勝ち（${kind} ${result.points} 点）`;
     renderDiceTray($('dice'), null);
     renderDiceTray($('dice-ai'), null);
-    $('hint').textContent = `白 ${game.board.off.WHITE} 個 / 黒 ${game.board.off.BLACK} 個 上がり`;
-    $('roll').hidden = true;
-    $('undo').hidden = true;
+    if (result.jacobyApplied) {
+      // なぜ点が伸びなかったのかを説明する。黙って 1 点だと理不尽に見える
+      $('hint').textContent =
+        `${kind}だが、キューブが回っていないのでジャコビールールにより 1 点。`;
+    } else if (result.declined) {
+      $('hint').textContent = 'ダブルを断ったので、キューブの値ぶんの失点。';
+    } else {
+      $('hint').textContent = `白 ${game.board.off.WHITE} 個 / 黒 ${game.board.off.BLACK} 個 上がり`;
+    }
+    for (const id of ['roll', 'undo', 'double', 'take', 'pass']) $(id).hidden = true;
     $('again').hidden = false;
     return;
   }
+
+  // ── ダブルを提案されている ────────────────────────
+  if (game.state === DOUBLING_PROPOSED) {
+    const toMe = game.doublingProposer !== state.humanSide;
+    $('turn').textContent = toMe ? 'AI がダブルしました' : 'ダブルを提案中';
+    $('hint').textContent = toMe
+      ? `受ければキューブは ${game.cube.value * 2}。断れば ${game.cube.value} 点の負け。`
+      : 'AI が考えています…';
+    renderDiceTray($('dice'), null);
+    renderDiceTray($('dice-ai'), null);
+    for (const id of ['roll', 'undo', 'again', 'double']) $(id).hidden = true;
+    $('take').hidden = !toMe;
+    $('pass').hidden = !toMe;
+    return;
+  }
+  $('take').hidden = true;
+  $('pass').hidden = true;
 
   $('turn').textContent = mine ? 'あなたの番' : 'AI の番';
 
@@ -541,6 +639,9 @@ function renderStatus() {
   $('roll').hidden = !(mine && game.state === ROLLING);
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   $('again').hidden = true;
+  // ダブルはロール前だけ。キューブを相手が持っていたら出せない
+  $('double').hidden = !(state.useCube && mine && game.state === ROLLING
+                         && game.canDouble());
 
   if (state.busy) {
     // 3-ply では出目の間合い（1 秒）で終わらないことがある。
@@ -690,6 +791,19 @@ async function runAiTurns() {
 
   while (alive() && game.state !== GAME_OVER && game.currentPlayer !== state.humanSide) {
     const ai = game.currentPlayer;
+
+    // ── ダブルの提案（ロール前だけ）────────────────
+    if (state.useCube && game.state === ROLLING && game.canDouble()
+        && state.agent.shouldDouble(game)) {
+      game.proposeDouble();
+      render();
+      await sleep(DICE_DELAY);
+      if (!alive()) return;
+      // ここで人間の返事を待つ。テイク / パスのボタンが出る
+      state.busy = false;
+      render();
+      return;
+    }
 
     if (game.state === ROLLING) {
       game.rollDice();          // 動かせない目なら内部で手番が飛ぶ
