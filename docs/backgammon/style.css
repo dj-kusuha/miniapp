@@ -322,3 +322,17 @@ button:disabled { opacity: .5; cursor: default; }
 @media (max-width: 420px) {
   .board { grid-template-columns: repeat(6, 1fr) 20px repeat(6, 1fr); }
 }
+
+/* 長考中（3 手先読み）。固まったのではないと分かるように点滅させる。 */
+.note.is-thinking {
+  animation: thinking 1.2s ease-in-out infinite;
+}
+
+@keyframes thinking {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .note.is-thinking { animation: none; }
+}
