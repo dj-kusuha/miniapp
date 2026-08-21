@@ -341,14 +341,13 @@ function buildBoard() {
   board.appendChild(makeOffTray(WHITE, 4));
 
   // ダブリングキューブ。上がりトレイの反対側（左端の 1 列目）。
-  // **行だけを付け替えて所有者の側へ動かす**ので、器は 3 段ぶん用意する。
-  for (const row of [2, 3, 4]) {
-    const tray = document.createElement('div');
-    tray.className = 'cube-tray';
-    tray.id = `cube-row-${row}`;
-    tray.style.gridRow = String(row);
-    board.appendChild(tray);
-  }
+  // **上段〜下段（2〜4 行）をまたぐ 1 つの器**にして、その中で上・中・下へ
+  // 寄せる。中央の帯（3 行目）は盤の高さの 14% しかなく、そこだけを器に
+  // すると潰れるため。
+  const cubeTray = document.createElement('div');
+  cubeTray.className = 'cube-tray';
+  cubeTray.id = 'cube-tray';
+  board.appendChild(cubeTray);
 }
 
 /**
@@ -361,16 +360,17 @@ function buildBoard() {
  * 間は **64** と書く（実物のキューブも 64 の面を上にして中央に置く）。
  */
 function renderCube() {
-  for (const row of [2, 3, 4]) {
-    const tray = $(`cube-row-${row}`);
-    if (tray) tray.replaceChildren();
-  }
+  const tray = $('cube-tray');
+  if (!tray) return;
+  tray.replaceChildren();
+  tray.hidden = !state.useCube;
   if (!state.useCube) return;
 
   const cube = state.game.cube;
-  const row = cube.owner === null ? 3 : (cube.owner === state.humanSide ? 4 : 2);
-  const tray = $(`cube-row-${row}`);
-  if (!tray) return;
+  // 器の中で上下に寄せる。盤は White が下段なので、あなたが持てば下へ。
+  const place = cube.owner === null ? 'center'
+    : (cube.owner === state.humanSide ? 'bottom' : 'top');
+  tray.dataset.place = place;
 
   const piece = document.createElement('div');
   piece.className = `cube-piece${cube.untouched ? ' is-center' : ''}`;
