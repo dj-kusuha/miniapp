@@ -153,9 +153,6 @@ export class Game {
     }
     const winner = this.doublingProposer;
     this.log.push({ kind: 'pass', player: opponent(winner), value: this.cube.value });
-    // **決着のログも残す。** 無いと棋譜がパスで途切れて勝敗が分からない。
-    this.log.push({ kind: 'end', player: winner, winType: 1,
-                    points: this.cube.declineCost, jacoby: false, declined: true });
     this.result = {
       winner,
       winType: 1,

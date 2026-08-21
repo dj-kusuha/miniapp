@@ -13,9 +13,6 @@
 //   - 左列は 27 桁 + 空白 1 つ。右列との間に**必ず空白**が要る（import.c:3749）
 //   - キューブ無しは `0 point match`（マネーゲーム）で正しい。弾かれるのは
 //     `nLength < 0` のときだけ（import.c:1037）
-//   - **キューブは着手欄に書く**。gnubg は ` Doubles => 2` / ` Takes` /
-//     ` Drops` を読む（import.c の ParseMatMove）。**出目の欄は使わない**ので、
-//     ダブルは 1 手番ぶんの枠を単独で消費する
 //
 // **先手を必ず左の列に置く。** 左列が空の行は、gnubg が「コロン 2 つ」ではなく
 // 「15 桁目以降の二重空白」で列を割る経路に落ちる（import.c:930）。実機では
@@ -27,11 +24,7 @@ import { WHITE, opponent } from './board.js';
 
 const MAT_LEFT = 27;   // 左の列幅。gnubg は "%-27s " で書く
 
-/** ログを「1 手番 = 1 エントリ」に畳む。
- *
- * **キューブの操作は出目を持たない**ので、`roll` を null にした専用の
- * エントリにする（`cell` がそれを見て書き分ける）。
- */
+/** ログを「1 手番 = 1 エントリ」に畳む。 */
 function matTurns(log) {
   const turns = [];
   let current = null;
@@ -39,16 +32,6 @@ function matTurns(log) {
     if (event.kind === 'roll' || event.kind === 'open') {
       current = { player: event.player, roll: event.roll, text: '' };
       turns.push(current);
-    } else if (event.kind === 'double') {
-      // ダブルは 1 手番ぶんの枠を単独で使う（この後にロールが来る）
-      turns.push({ player: event.player, roll: null, text: `Doubles => ${event.value}` });
-      current = null;
-    } else if (event.kind === 'take') {
-      turns.push({ player: event.player, roll: null, text: 'Takes' });
-      current = null;
-    } else if (event.kind === 'pass') {
-      turns.push({ player: event.player, roll: null, text: 'Drops' });
-      current = null;
     } else if (current && current.player === event.player && event.kind === 'move') {
       current.text = event.text;
       // 'skip'（ダンス）は出目だけ書いて着手は空のままにする
@@ -64,12 +47,7 @@ function matTurns(log) {
  */
 export function toMat({ log, result = null, humanSide = WHITE }) {
   const turns = matTurns(log);
-  // 出目を持たない手番（キューブの操作）は本文だけを書く
-  const cell = (turn) => {
-    if (!turn) return '';
-    if (turn.roll === null) return turn.text;
-    return `${turn.roll.join('')}: ${turn.text}`.trimEnd();
-  };
+  const cell = (turn) => (turn ? `${turn.roll.join('')}: ${turn.text}`.trimEnd() : '');
 
   // 先手を左に。ダンスした手番も 1 枠使う。
   const leftSide = turns.length > 0 ? turns[0].player : WHITE;

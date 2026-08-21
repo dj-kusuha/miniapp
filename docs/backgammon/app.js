@@ -14,20 +14,9 @@ import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
 
-/** AI の進行を目で追えるようにする間合い（ms）。**棋譜の上のスライダーで変える。**
- *
- * 出目を見せてから動かすまで（ダンスもこの間は見える）と、駒 1 個ぶんの
- * 着手の間の両方に使う。**3-ply の思考はこの間合いの裏で走る**ので、
- * 短くすると「AI が長考しています…」が出やすくなる。
- */
-const DEFAULT_DELAY = 1000;
-const MIN_DELAY = 100;
-const MAX_DELAY = 2000;
-
-/** いまの間合い（ms）。`sleep` に渡す値はここから読む。 */
-function delay() {
-  return state.delay;
-}
+/** AI の進行を目で追えるようにする間合い（ms）。 */
+const DICE_DELAY = 1000;   // 出目を見せてから動かすまで（ダンスもこの間は見える）
+const MOVE_DELAY = 1000;   // 駒 1 個ぶんの着手の間
 
 const state = {
   net: null,
@@ -37,7 +26,6 @@ const state = {
   plies: 2,
   useCube: true,      // ダブリングキューブを使うか
   jacoby: true,       // ジャコビールール（マネーゲーム専用）
-  delay: DEFAULT_DELAY,   // AI の間合い（ms）
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -79,11 +67,6 @@ function startThinker(modelUrl) {
     if (event.data.ok) entry.resolve(event.data);
     else entry.reject(new Error(event.data.error));
   };
-  // **module worker は import の解決に失敗しても onerror が来ないことがある。**
-  // そのときは ask() のタイムアウトが受け止める（WORKER_TIMEOUT）。
-  worker.onmessageerror = (event) => {
-    console.warn('Worker からのメッセージを解釈できません', event);
-  };
   worker.onerror = (event) => {
     console.warn('Worker が落ちました。メインスレッドで思考します', event.message);
     for (const entry of thinker.pending.values()) entry.reject(new Error('worker error'));
@@ -91,9 +74,7 @@ function startThinker(modelUrl) {
     thinker.worker = null;
   };
   thinker.worker = worker;
-  // 起動時のモデル読み込みは短めに。**ここで沈黙したら Worker を諦めて
-  // メインスレッドに落とす**（3-ply では固まるが、遊べなくなるよりよい）。
-  return ask({ kind: 'load', url: new URL(modelUrl, import.meta.url).href }, 15000)
+  return ask({ kind: 'load', url: new URL(modelUrl, import.meta.url).href })
     .then(() => true)
     .catch((error) => {
       console.warn('Worker でモデルを読めませんでした', error);
@@ -102,32 +83,13 @@ function startThinker(modelUrl) {
     });
 }
 
-/** Worker の返事を待つ上限（ms）。**これが無いと沈黙したとき永久に止まる。**
- *
- * module worker は import の解決に追加のリクエストを出すため、配信の
- * 失敗などで `onerror` すら発火せずに黙り込むことがある。実際に本番で
- * 「AI の番」のまま進まなくなった（2026-08-21）。
- *
- * 3-ply の最悪ケース（合法手が多い局面）でも数秒なので、十分な余裕を取る。
- */
-const WORKER_TIMEOUT = 20000;
-
-function ask(payload, timeout = WORKER_TIMEOUT) {
+function ask(payload) {
   const worker = thinker.worker;
   if (!worker) return Promise.reject(new Error('worker なし'));
   const id = thinker.nextId;
   thinker.nextId += 1;
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      thinker.pending.delete(id);
-      // **以後は使わない。** 一度沈黙した Worker は復帰しないとみなす。
-      thinker.worker = null;
-      reject(new Error(`worker が ${timeout} ms 応答しませんでした`));
-    }, timeout);
-    thinker.pending.set(id, {
-      resolve: (value) => { clearTimeout(timer); resolve(value); },
-      reject: (error) => { clearTimeout(timer); reject(error); },
-    });
+    thinker.pending.set(id, { resolve, reject });
     worker.postMessage({ id, ...payload });
   });
 }
@@ -182,7 +144,6 @@ NeuralNet.load('./src/model.json')
   .then(async (net) => {
     state.net = net;
     $('model-info').textContent = describeModel(net);
-    $('jacoby-field').hidden = !state.useCube;
     state.threaded = await startThinker('./src/model.json');
     $('loading').textContent = state.threaded
       ? '準備できました'
@@ -206,13 +167,6 @@ for (const button of document.querySelectorAll('[data-cube]')) {
     $('jacoby-field').hidden = !state.useCube;
   });
 }
-// AI の間合い。棋譜の上のスライダーで変える。対局中でも即座に効く。
-$('speed').addEventListener('input', (event) => {
-  const seconds = Number(event.target.value);
-  state.delay = Math.min(MAX_DELAY, Math.max(MIN_DELAY, Math.round(seconds * 1000)));
-  $('speed-value').textContent = seconds.toFixed(1);
-});
-
 for (const button of document.querySelectorAll('[data-jacoby]')) {
   button.addEventListener('click', () => {
     selectChoice(button);
@@ -239,7 +193,7 @@ $('roll').addEventListener('click', async () => {
   if (game.currentPlayer !== before) {
     state.danceShow = before;
     render();
-    await sleep(delay());
+    await sleep(DICE_DELAY);
     state.danceShow = null;
   }
   await afterChange();
@@ -250,13 +204,13 @@ $('double').addEventListener('click', async () => {
   game.proposeDouble();
   state.history = [];          // ダブルを出したら戻せない
   render();
-  await sleep(delay());     // AI が考えているように見せる
+  await sleep(DICE_DELAY);     // AI が考えているように見せる
 
   const accepted = state.agent.shouldAcceptDouble(game);
   if (accepted) {
     game.acceptDouble();
     render();
-    await sleep(delay());
+    await sleep(DICE_DELAY);
   } else {
     game.declineDouble();
     render();
@@ -311,8 +265,7 @@ function buildBoard() {
   board.replaceChildren();
 
   // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）。
-  // **1 列目はキューブ**なので、点は 2 列目から。バーは 8 列目に固定し、
-  // 各点の列位置も明示する（auto-flow に任せない）。
+  // バーは 7 列目に固定し、各点の列位置も明示する（auto-flow に任せない）。
   const top = [];
   for (let i = 12; i <= 23; i += 1) top.push(i);
   const bottom = [];
@@ -334,15 +287,15 @@ function buildBoard() {
     label.style.gridRow = isBottom ? '5' : '1';
     board.appendChild(label);
   };
-  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 2); placeLabel(i, false, k + 2); });
-  top.slice(6).forEach((i, k) => { place(i, false, k + 9); placeLabel(i, false, k + 9); });
-  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 2); placeLabel(i, true, k + 2); });
-  bottom.slice(6).forEach((i, k) => { place(i, true, k + 9); placeLabel(i, true, k + 9); });
+  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 1); placeLabel(i, false, k + 1); });
+  top.slice(6).forEach((i, k) => { place(i, false, k + 8); placeLabel(i, false, k + 8); });
+  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 1); placeLabel(i, true, k + 1); });
+  bottom.slice(6).forEach((i, k) => { place(i, true, k + 8); placeLabel(i, true, k + 8); });
 
   const bar = document.createElement('div');
   bar.className = 'bar';
   bar.id = 'bar';
-  bar.style.gridColumn = '8';
+  bar.style.gridColumn = '7';
   bar.style.gridRow = '2 / 5';
   bar.setAttribute('role', 'button');
   bar.tabIndex = 0;
@@ -365,54 +318,13 @@ function buildBoard() {
   // Black は上段側、White は下段側に積む。
   board.appendChild(makeOffTray(BLACK, 2));
   board.appendChild(makeOffTray(WHITE, 4));
-
-  // ダブリングキューブ。上がりトレイの反対側（左端の 1 列目）。
-  // **上段〜下段（2〜4 行）をまたぐ 1 つの器**にして、その中で上・中・下へ
-  // 寄せる。中央の帯（3 行目）は盤の高さの 14% しかなく、そこだけを器に
-  // すると潰れるため。
-  const cubeTray = document.createElement('div');
-  cubeTray.className = 'cube-tray';
-  cubeTray.id = 'cube-tray';
-  board.appendChild(cubeTray);
-}
-
-/**
- * ダブリングキューブを盤に置く。
- *
- * **位置で所有者を示す。** センターなら中段、持っている側があればその側へ。
- * 盤は White が下段なので、White が持てば下段（4 行目）に来る。
- *
- * **数字は「次に上がる値」ではなく「いまの値」。** ただし一度も回っていない
- * 間は **64** と書く（実物のキューブも 64 の面を上にして中央に置く）。
- */
-function renderCube() {
-  const tray = $('cube-tray');
-  if (!tray) return;
-  tray.replaceChildren();
-  tray.hidden = !state.useCube;
-  if (!state.useCube) return;
-
-  const cube = state.game.cube;
-  // 器の中で上下に寄せる。盤は White が下段なので、あなたが持てば下へ。
-  const place = cube.owner === null ? 'center'
-    : (cube.owner === state.humanSide ? 'bottom' : 'top');
-  tray.dataset.place = place;
-
-  const piece = document.createElement('div');
-  piece.className = `cube-piece${cube.untouched ? ' is-center' : ''}`;
-  piece.textContent = cube.untouched ? '64' : String(cube.value);
-  const who = cube.owner === null ? 'センター'
-    : (cube.owner === state.humanSide ? 'あなたが所有' : 'AI が所有');
-  piece.title = `キューブ ${cube.value}（${who}）`;
-  piece.setAttribute('aria-label', piece.title);
-  tray.appendChild(piece);
 }
 
 function makeOffTray(player, row) {
   const tray = document.createElement('div');
   tray.className = `off-tray ${player === WHITE ? 'white' : 'black'}`;
   tray.id = `off-${player}`;
-  tray.style.gridColumn = '15';
+  tray.style.gridColumn = '14';
   tray.style.gridRow = String(row);
   return tray;
 }
@@ -588,7 +500,6 @@ function render() {
       `${player === WHITE ? '白' : '黒'}の上がり: ${n} 個`);
   }
 
-  renderCube();
   renderStatus();
   renderHighlights();
   renderLog();
@@ -769,17 +680,7 @@ function renderLog() {
     if (event.kind === 'move') li.textContent = `${who}: ${event.text}`;
     else if (event.kind === 'skip') li.textContent = `${who}: 動かせず（${event.roll.join('-')}）`;
     else if (event.kind === 'roll' || event.kind === 'open') li.textContent = `${who}: ${event.roll.join('-')}`;
-    else if (event.kind === 'double') li.textContent = `${who}: ダブル → ${event.value}`;
-    else if (event.kind === 'take') li.textContent = `${who}: テイク（キューブ ${event.value}）`;
-    else if (event.kind === 'pass') li.textContent = `${who}: パス`;
-    else if (event.kind === 'end') {
-      li.textContent = event.jacoby
-        ? `${who}の勝ち（${event.points} 点・ジャコビーで 1 点扱い）`
-        : `${who}の勝ち（${event.points ?? ''} 点）`.replace('（ 点）', '');
-    }
-    if (event.kind === 'double' || event.kind === 'take' || event.kind === 'pass') {
-      li.classList.add('is-cube');
-    }
+    else if (event.kind === 'end') li.textContent = `${who}の勝ち`;
     list.appendChild(li);
   }
   $('mat').textContent = toMat();
@@ -864,7 +765,7 @@ async function afterChange() {
       state.danceShow = game.currentPlayer;
       game.skipTurn();
       render();
-      await sleep(delay());
+      await sleep(DICE_DELAY);
       state.danceShow = null;
       await afterChange();
       return;
@@ -898,7 +799,7 @@ async function runAiTurns() {
         && state.agent.shouldDouble(game)) {
       game.proposeDouble();
       render();
-      await sleep(delay());
+      await sleep(DICE_DELAY);
       if (!alive()) return;
       // ここで人間の返事を待つ。テイク / パスのボタンが出る
       state.busy = false;
@@ -913,13 +814,13 @@ async function runAiTurns() {
     render();
 
     // **出目を見せている間に裏で考えさせる。** 3-ply の思考時間のうち
-    // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
+    // DICE_DELAY ぶんはこれで隠れる。ダンスしたときは考える必要が無い。
     const danced = game.currentPlayer !== ai;
     const thinking = danced
       ? null
       : chooseMove(game.board, ai, game.roll, game.legalMoves, state.plies);
 
-    await sleep(delay());
+    await sleep(DICE_DELAY);
     state.danceShow = null;
     if (!alive()) return;
     if (danced) { render(); continue; }
@@ -944,7 +845,7 @@ async function runAiTurns() {
     for (const single of move.singles) {
       state.anim.applied.push(single);
       render();
-      await sleep(delay());
+      await sleep(MOVE_DELAY);
       if (!alive()) return;
     }
     state.anim = null;
