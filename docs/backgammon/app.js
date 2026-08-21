@@ -292,11 +292,12 @@ function startGame() {
 
 function buildBoard() {
   const board = $('board');
-  // ダイスのトレイと「振る」ボタンは盤面の内側（中央の帯）に置くので、
+  // ダイスのトレイと「振る」「ダブル」ボタンは盤面の内側（中央の帯）に置くので、
   // 作り直す前に退避する
   const dice = $('dice');
   const diceAi = $('dice-ai');
   const roll = $('roll');
+  const double = $('double');
   board.replaceChildren();
 
   // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）。
@@ -345,9 +346,11 @@ function buildBoard() {
   board.appendChild(bar);
   // 中段（行 3）はサイコロの定位置。自分は右半分、AI は左半分。
   // 「振る」ボタンも自分のダイスと同じ場所に出す（振る前は空いている）。
+  // 「ダブル」は左半分。ロール前だけなので AI のダイスとは重ならない。
   board.appendChild(diceAi);
   board.appendChild(dice);
   board.appendChild(roll);
+  board.appendChild(double);
 
   // 上がった駒を置く右端のトレイ。盤の向き（White は右下がホーム）に合わせて、
   // Black は上段側、White は下段側に積む。
