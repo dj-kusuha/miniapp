@@ -285,7 +285,8 @@ function buildBoard() {
   board.replaceChildren();
 
   // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）。
-  // バーは 7 列目に固定し、各点の列位置も明示する（auto-flow に任せない）。
+  // **1 列目はキューブ**なので、点は 2 列目から。バーは 8 列目に固定し、
+  // 各点の列位置も明示する（auto-flow に任せない）。
   const top = [];
   for (let i = 12; i <= 23; i += 1) top.push(i);
   const bottom = [];
@@ -307,15 +308,15 @@ function buildBoard() {
     label.style.gridRow = isBottom ? '5' : '1';
     board.appendChild(label);
   };
-  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 1); placeLabel(i, false, k + 1); });
-  top.slice(6).forEach((i, k) => { place(i, false, k + 8); placeLabel(i, false, k + 8); });
-  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 1); placeLabel(i, true, k + 1); });
-  bottom.slice(6).forEach((i, k) => { place(i, true, k + 8); placeLabel(i, true, k + 8); });
+  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 2); placeLabel(i, false, k + 2); });
+  top.slice(6).forEach((i, k) => { place(i, false, k + 9); placeLabel(i, false, k + 9); });
+  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 2); placeLabel(i, true, k + 2); });
+  bottom.slice(6).forEach((i, k) => { place(i, true, k + 9); placeLabel(i, true, k + 9); });
 
   const bar = document.createElement('div');
   bar.className = 'bar';
   bar.id = 'bar';
-  bar.style.gridColumn = '7';
+  bar.style.gridColumn = '8';
   bar.style.gridRow = '2 / 5';
   bar.setAttribute('role', 'button');
   bar.tabIndex = 0;
@@ -338,13 +339,54 @@ function buildBoard() {
   // Black は上段側、White は下段側に積む。
   board.appendChild(makeOffTray(BLACK, 2));
   board.appendChild(makeOffTray(WHITE, 4));
+
+  // ダブリングキューブ。上がりトレイの反対側（左端の 1 列目）。
+  // **行だけを付け替えて所有者の側へ動かす**ので、器は 3 段ぶん用意する。
+  for (const row of [2, 3, 4]) {
+    const tray = document.createElement('div');
+    tray.className = 'cube-tray';
+    tray.id = `cube-row-${row}`;
+    tray.style.gridRow = String(row);
+    board.appendChild(tray);
+  }
+}
+
+/**
+ * ダブリングキューブを盤に置く。
+ *
+ * **位置で所有者を示す。** センターなら中段、持っている側があればその側へ。
+ * 盤は White が下段なので、White が持てば下段（4 行目）に来る。
+ *
+ * **数字は「次に上がる値」ではなく「いまの値」。** ただし一度も回っていない
+ * 間は **64** と書く（実物のキューブも 64 の面を上にして中央に置く）。
+ */
+function renderCube() {
+  for (const row of [2, 3, 4]) {
+    const tray = $(`cube-row-${row}`);
+    if (tray) tray.replaceChildren();
+  }
+  if (!state.useCube) return;
+
+  const cube = state.game.cube;
+  const row = cube.owner === null ? 3 : (cube.owner === state.humanSide ? 4 : 2);
+  const tray = $(`cube-row-${row}`);
+  if (!tray) return;
+
+  const piece = document.createElement('div');
+  piece.className = `cube-piece${cube.untouched ? ' is-center' : ''}`;
+  piece.textContent = cube.untouched ? '64' : String(cube.value);
+  const who = cube.owner === null ? 'センター'
+    : (cube.owner === state.humanSide ? 'あなたが所有' : 'AI が所有');
+  piece.title = `キューブ ${cube.value}（${who}）`;
+  piece.setAttribute('aria-label', piece.title);
+  tray.appendChild(piece);
 }
 
 function makeOffTray(player, row) {
   const tray = document.createElement('div');
   tray.className = `off-tray ${player === WHITE ? 'white' : 'black'}`;
   tray.id = `off-${player}`;
-  tray.style.gridColumn = '14';
+  tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
   return tray;
 }
@@ -520,6 +562,7 @@ function render() {
       `${player === WHITE ? '白' : '黒'}の上がり: ${n} 個`);
   }
 
+  renderCube();
   renderStatus();
   renderHighlights();
   renderLog();

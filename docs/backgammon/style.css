@@ -117,14 +117,16 @@ button:disabled { opacity: .5; cursor: default; }
 .board {
   position: relative;
   display: grid;
-  /* 6 点 / バー / 6 点 / 上がりトレイ */
-  grid-template-columns: repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
+  /* キューブ / 6 点 / バー / 6 点 / 上がりトレイ。
+     **キューブは上がりトレイの反対側（左端）**に置く。実物の盤と同じ配置。 */
+  grid-template-columns:
+    minmax(22px, 6%) repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
   /* 上ラベル / 上段 / 中央の帯（バーとダイスの定位置） / 下段 / 下ラベル。
      番号は三角形の外（盤の縁）に出し、実物の盤と同じく三角形は帯に向かって尖る。 */
   grid-template-rows: 5% 1fr 14% 1fr 5%;
   gap: 2px;
   /* 駒 5 個を積んでも中央の帯を越えないように、実物より縦長にしてある。 */
-  aspect-ratio: 14 / 12.5;
+  aspect-ratio: 15 / 12.5;
   background: var(--board-dark);
   border: 6px solid var(--board-dark);
   border-radius: var(--radius);
@@ -263,13 +265,13 @@ button:disabled { opacity: .5; cursor: default; }
   justify-content: center;
   gap: 10%;
 }
-#dice { grid-column: 8 / 14; }
-#dice-ai { grid-column: 1 / 7; }
+#dice { grid-column: 9 / 15; }
+#dice-ai { grid-column: 2 / 8; }
 
 /* 「振る」は自分のダイスと同じ場所に出す（手を伸ばす先を 1 箇所にまとめる）。 */
 /* ダブルは盤面の**左半分**。「サイコロを振る」（右半分）と対になる位置。 */
 #double.cube-action {
-  grid-column: 1 / 7;
+  grid-column: 2 / 8;
   grid-row: 3;
   justify-self: center;
   align-self: center;
@@ -284,7 +286,7 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 #roll {
-  grid-column: 8 / 14;
+  grid-column: 9 / 15;
   grid-row: 3;
   justify-self: center;
   align-self: center;
@@ -396,3 +398,36 @@ button:disabled { opacity: .5; cursor: default; }
   color: var(--cube);
   font-weight: 600;
 }
+
+/* ── ダブリングキューブ ─────────────────────────
+   上がりトレイの反対側（左端）に置く。所有者の側へ動くので、
+   **どちらが持っているかが盤を見るだけで分かる**。 */
+.cube-tray {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--board-dark);
+  border-right: 2px solid var(--board);
+  padding: 2px;
+}
+
+.cube-piece {
+  width: min(88%, 34px);
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--white-checker);
+  color: var(--ink);
+  border: 1px solid rgba(0, 0, 0, .45);
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: clamp(.6rem, 2.2vw, .9rem);
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+}
+
+/* まだ一度も回っていない（センター）ときは 64 と書いて控えめに出す。
+   実物のキューブも 64 の面を上にして中央に置く。 */
+.cube-piece.is-center { opacity: .8; }
