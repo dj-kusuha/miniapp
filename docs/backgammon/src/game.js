@@ -1,22 +1,37 @@
-// 1 局の進行。backgammon_engine の `backgammon/game.py` の移植（キューブ抜き）。
+// 1 局の進行。backgammon_engine の `backgammon/game.py` の移植。
 //
 // engine の Web フロントはこの部分をサーバに置いているが、GitHub Pages では
 // Python を動かせないのでブラウザ側に持つ。
 
 import { Board, WHITE, BLACK, opponent } from './board.js';
+import { DoublingCube } from './cube.js';
 import { generateMoves } from './rules.js';
 
 export const ROLLING = 'ROLLING';
 export const MOVING = 'MOVING';
+/** ダブルを提案して、相手の返事を待っている。 */
+export const DOUBLING_PROPOSED = 'DOUBLING_PROPOSED';
 export const GAME_OVER = 'GAME_OVER';
 
 /** 双方が着手不能なまま進まなくなる理論上のデッドロックを避ける上限。 */
 const MAX_CONSECUTIVE_SKIPS = 200;
 
 export class Game {
-  constructor(board = null, rng = Math.random) {
+  /**
+   * @param {?Board} board
+   * @param {function} rng
+   * @param {object} options
+   * @param {boolean} options.jacoby ジャコビールール。**マネーゲーム専用**で、
+   *   キューブが一度も回されていない局はギャモンも 1 点として数える。
+   *   マッチプレイには無いルールなので、マッチを実装するときは false にする。
+   */
+  constructor(board = null, rng = Math.random, { jacoby = true } = {}) {
     this.board = board ?? new Board();
     this.rng = rng;
+    this.jacoby = jacoby;
+    this.cube = new DoublingCube();
+    /** ダブルを提案した側（返事待ちの間だけ入る）。 */
+    this.doublingProposer = null;
     this.currentPlayer = null;
     this.roll = null;
     this.legalMoves = [];
@@ -79,9 +94,20 @@ export class Game {
 
     if (this.board.hasWon(this.currentPlayer)) {
       const winType = this.board.winType(opponent(this.currentPlayer));
-      this.result = { winner: this.currentPlayer, winType, points: winType };
+      // **ジャコビー: キューブが一度も回されていない局はギャモンも 1 点。**
+      // マネーゲーム専用のルールなので、マッチでは jacoby を false にする。
+      const counted = (this.jacoby && this.cube.untouched) ? 1 : winType;
+      this.result = {
+        winner: this.currentPlayer,
+        winType,
+        counted,
+        points: this.cube.gameValue(counted),
+        cubeValue: this.cube.value,
+        jacobyApplied: this.jacoby && this.cube.untouched && winType > 1,
+      };
       this.state = GAME_OVER;
-      this.log.push({ kind: 'end', player: this.currentPlayer, winType });
+      this.log.push({ kind: 'end', player: this.currentPlayer, winType,
+                      points: this.result.points, jacoby: this.result.jacobyApplied });
       return this.result;
     }
 
@@ -91,6 +117,56 @@ export class Game {
     return null;
   }
 
+  // ── ダブリングキューブ ────────────────────────────────
+
+  /** いま手番側がダブルを提案できるか。ロール前だけ。 */
+  canDouble() {
+    return this.state === ROLLING && this.cube.canDouble(this.currentPlayer);
+  }
+
+  /** ダブルを提案する。相手の返事待ちになる。 */
+  proposeDouble() {
+    if (!this.canDouble()) {
+      throw new Error(`${this.currentPlayer} はいまダブルできません (${this.state})`);
+    }
+    this.doublingProposer = this.currentPlayer;
+    this.state = DOUBLING_PROPOSED;
+    this.log.push({ kind: 'double', player: this.currentPlayer, value: this.cube.value * 2 });
+  }
+
+  /** ダブルを受ける。キューブが倍になり、受けた側が所有する。提案者がロールへ。 */
+  acceptDouble() {
+    if (this.state !== DOUBLING_PROPOSED) {
+      throw new Error(`ダブルが提案されていません (${this.state})`);
+    }
+    const taker = opponent(this.doublingProposer);
+    this.cube.accept(taker);
+    this.log.push({ kind: 'take', player: taker, value: this.cube.value });
+    this.doublingProposer = null;
+    this.state = ROLLING;   // 提案者がそのまま振る
+  }
+
+  /** ダブルを断る。提案者が**倍にする前の**キューブの値で勝つ。 */
+  declineDouble() {
+    if (this.state !== DOUBLING_PROPOSED) {
+      throw new Error(`ダブルが提案されていません (${this.state})`);
+    }
+    const winner = this.doublingProposer;
+    this.log.push({ kind: 'pass', player: opponent(winner), value: this.cube.value });
+    this.result = {
+      winner,
+      winType: 1,
+      counted: 1,
+      points: this.cube.declineCost,
+      cubeValue: this.cube.value,
+      jacobyApplied: false,
+      declined: true,
+    };
+    this.doublingProposer = null;
+    this.state = GAME_OVER;
+    return this.result;
+  }
+
   /**
    * 着手できる状態まで進める。合法手が無いターンは自動で飛ばす。
    * @returns {?object} 使うロール。決着していれば null。
@@ -98,6 +174,7 @@ export class Game {
   prepareTurn() {
     for (let i = 0; i < MAX_CONSECUTIVE_SKIPS; i += 1) {
       if (this.state === GAME_OVER) return null;
+      if (this.state === DOUBLING_PROPOSED) return null;
       if (this.state === MOVING) return this.roll;
       this.rollDice();
     }
