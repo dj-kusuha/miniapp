@@ -172,8 +172,26 @@ button:disabled { opacity: .5; cursor: default; }
 .point.bottom { flex-direction: column-reverse; }
 .point:disabled { cursor: default; opacity: 1; }
 
-/* 選択できる駒はマス全体を囲う（三角形に切り取られる ::before ではなく本体に描く）。 */
-.point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
+/* 選択できる駒を示す。
+   **`box-shadow: inset` を .point 本体に描いても見えない。**
+   本体は background: transparent で、駒（z-index: 1）が上に乗るため。
+   実測でスマホでも見えなかった（2026-08-21）。
+   代わりに **専用の枠を疑似要素で重ね、駒そのものも光らせる**。 */
+.point.selectable::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  border: 3px solid var(--accent);
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+/* いちばん手前の駒（動かせる駒）を光らせる。枠だけより分かりやすい。 */
+.point.selectable .checker:last-child,
+.point.bottom.selectable .checker:last-child {
+  box-shadow: 0 0 0 3px var(--accent), 0 1px 3px rgba(0, 0, 0, .5);
+}
 
 .checker {
   aspect-ratio: 1;
@@ -219,6 +237,9 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .bar .checker { width: 78%; }
 .bar.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
+.bar.selectable .checker:last-child {
+  box-shadow: 0 0 0 3px var(--accent), 0 1px 3px rgba(0, 0, 0, .5);
+}
 
 /* 上がった駒を置く右端のトレイ。実物と同じく駒は寝かせて積む。 */
 .off-tray {
@@ -349,7 +370,10 @@ button:disabled { opacity: .5; cursor: default; }
      （2026-08-21）。狭い画面では両端と中央の帯を細くして、
      **点の 1fr を等幅に保つ**のが狙い。 */
   .board {
-    grid-template-columns: 16px repeat(6, 1fr) 20px repeat(6, 1fr) 16px;
+    /* **キューブ列（1 列目）は数字を入れるので広めに。** 16px だと
+       「64」が入らず潰れる（2026-08-21 に実機で確認）。
+       上がりトレイ（15 列目）は駒を寝かせるだけなので細くてよい。 */
+    grid-template-columns: 26px repeat(6, 1fr) 18px repeat(6, 1fr) 16px;
   }
 }
 
@@ -431,9 +455,10 @@ button:disabled { opacity: .5; cursor: default; }
 .cube-tray[data-place="bottom"] { align-items: flex-end; }
 
 .cube-piece {
-  /* **中央の帯は盤の高さの 14% しかない。** 幅だけで大きさを決めると
-     そこに収まらず潰れるので、高さ側にも上限を付ける。 */
-  width: min(88%, 34px);
+  /* **幅が狭いと数字が入らない。** 列幅いっぱいまで使い、最低でも
+     20px は確保する（「64」の 2 桁が読める大きさ）。 */
+  width: 100%;
+  min-width: 20px;
   max-height: 100%;
   aspect-ratio: 1;
   flex: 0 0 auto;
@@ -445,7 +470,8 @@ button:disabled { opacity: .5; cursor: default; }
   border: 1px solid rgba(0, 0, 0, .45);
   border-radius: 4px;
   font-weight: 700;
-  font-size: clamp(.6rem, 2.2vw, .9rem);
+  font-size: clamp(.55rem, 2.6vw, .85rem);
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
 }

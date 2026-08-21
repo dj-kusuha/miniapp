@@ -79,6 +79,11 @@ function startThinker(modelUrl) {
     if (event.data.ok) entry.resolve(event.data);
     else entry.reject(new Error(event.data.error));
   };
+  // **module worker は import の解決に失敗しても onerror が来ないことがある。**
+  // そのときは ask() のタイムアウトが受け止める（WORKER_TIMEOUT）。
+  worker.onmessageerror = (event) => {
+    console.warn('Worker からのメッセージを解釈できません', event);
+  };
   worker.onerror = (event) => {
     console.warn('Worker が落ちました。メインスレッドで思考します', event.message);
     for (const entry of thinker.pending.values()) entry.reject(new Error('worker error'));
@@ -86,7 +91,9 @@ function startThinker(modelUrl) {
     thinker.worker = null;
   };
   thinker.worker = worker;
-  return ask({ kind: 'load', url: new URL(modelUrl, import.meta.url).href })
+  // 起動時のモデル読み込みは短めに。**ここで沈黙したら Worker を諦めて
+  // メインスレッドに落とす**（3-ply では固まるが、遊べなくなるよりよい）。
+  return ask({ kind: 'load', url: new URL(modelUrl, import.meta.url).href }, 15000)
     .then(() => true)
     .catch((error) => {
       console.warn('Worker でモデルを読めませんでした', error);
@@ -95,13 +102,32 @@ function startThinker(modelUrl) {
     });
 }
 
-function ask(payload) {
+/** Worker の返事を待つ上限（ms）。**これが無いと沈黙したとき永久に止まる。**
+ *
+ * module worker は import の解決に追加のリクエストを出すため、配信の
+ * 失敗などで `onerror` すら発火せずに黙り込むことがある。実際に本番で
+ * 「AI の番」のまま進まなくなった（2026-08-21）。
+ *
+ * 3-ply の最悪ケース（合法手が多い局面）でも数秒なので、十分な余裕を取る。
+ */
+const WORKER_TIMEOUT = 20000;
+
+function ask(payload, timeout = WORKER_TIMEOUT) {
   const worker = thinker.worker;
   if (!worker) return Promise.reject(new Error('worker なし'));
   const id = thinker.nextId;
   thinker.nextId += 1;
   return new Promise((resolve, reject) => {
-    thinker.pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      thinker.pending.delete(id);
+      // **以後は使わない。** 一度沈黙した Worker は復帰しないとみなす。
+      thinker.worker = null;
+      reject(new Error(`worker が ${timeout} ms 応答しませんでした`));
+    }, timeout);
+    thinker.pending.set(id, {
+      resolve: (value) => { clearTimeout(timer); resolve(value); },
+      reject: (error) => { clearTimeout(timer); reject(error); },
+    });
     worker.postMessage({ id, ...payload });
   });
 }
