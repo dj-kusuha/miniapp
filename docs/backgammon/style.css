@@ -12,6 +12,10 @@
   --white-checker: #fbf7ef;
   --black-checker: #3a3430;
   --accent: #2f6f4f;
+  /* ダブル用。「サイコロを振る」と並んで盤の上に出るので、**緑と間違えない
+     色**にする。盤（金茶）の上に白抜きで置いても読める濃さを選んである。
+     盤の色はテーマで変わらないので、この色も 1 つで通す。 */
+  --cube-action: #5b4b9e;
   --danger: #a8412f;
   --gap: 12px;
   --radius: 10px;
@@ -277,9 +281,10 @@ button:disabled { opacity: .5; cursor: default; }
 #dice { grid-column: 8 / 14; }
 #dice-ai { grid-column: 1 / 7; }
 
-/* 「振る」は自分のダイスと同じ場所に出す（手を伸ばす先を 1 箇所にまとめる）。 */
-#roll {
-  grid-column: 8 / 14;
+/* 盤の中央の帯に出すボタン。「振る」は自分のダイスと同じ右半分（手を伸ばす先を
+   1 箇所にまとめる）、「ダブル」は左半分。どちらもロール前にしか出ないので、
+   ダイスと場所を取り合わない。 */
+#roll, #double {
   grid-row: 3;
   justify-self: center;
   align-self: center;
@@ -289,6 +294,16 @@ button:disabled { opacity: .5; cursor: default; }
   white-space: nowrap;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
 }
+#roll { grid-column: 8 / 14; }
+#double { grid-column: 1 / 7; }
+
+/* 振る（緑）と取り違えないよう、ダブルだけ別の色にする。 */
+.cube-action {
+  background: var(--cube-action);
+  color: #fff;
+  border-color: var(--cube-action);
+}
+.cube-action:hover:not(:disabled) { border-color: #fff; }
 .die {
   width: 16%;
   aspect-ratio: 1;
