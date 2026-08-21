@@ -135,7 +135,9 @@ function describeModel(net) {
   const shape = [net.inputDim, ...net.hiddenDims, net.outputDim].join('-');
   const episodes = net.totalEpisodes.toLocaleString();
   const features = net.features === 'none' ? '' : ` / 特徴量 ${net.features}`;
-  return `${shape}（${episodes} エピソード学習${features}）`;
+  // **日付は古いモデルには入っていない**ので、無ければ出さない
+  const date = net.savedAt ? ` / ${net.savedAt} 版` : '';
+  return `${shape}（${episodes} エピソード学習${features}）${date}`;
 }
 
 NeuralNet.load('./src/model.json')
