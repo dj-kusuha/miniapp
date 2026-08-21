@@ -7,7 +7,7 @@
 
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
-import { Agent } from './src/agent.js';
+import { Agent, filtersFor } from './src/agent.js';
 import { Game, MOVING, ROLLING, GAME_OVER } from './src/game.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
@@ -30,9 +30,96 @@ const state = {
   danceShow: null,     // 動かせなかった出目を見せている側（手番は既に移っている）
   runId: 0,            // 対局をまたいで古いアニメーションが動き続けないように
   busy: false,
+  threaded: false,     // Worker で思考できているか
+  thinking: false,     // 思考中の表示を出すか
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ── AI の思考係 ────────────────────────────────
+//
+// **3-ply は 1 手 1〜3 秒かかる。** メインスレッドで回すと画面が固まるので
+// Web Worker へ逃がす。Worker が使えない環境（file:// など）では
+// メインスレッドの Agent に落ちる。**そのときは 3-ply だと固まる。**
+
+const thinker = {
+  worker: null,
+  ready: null,
+  nextId: 1,
+  pending: new Map(),
+};
+
+function startThinker(modelUrl) {
+  let worker;
+  try {
+    worker = new Worker(new URL('./src/worker.js', import.meta.url), { type: 'module' });
+  } catch (error) {
+    console.warn('Worker を作れませんでした。メインスレッドで思考します', error);
+    return Promise.resolve(false);
+  }
+  worker.onmessage = (event) => {
+    const { id } = event.data;
+    const entry = thinker.pending.get(id);
+    if (!entry) return;
+    thinker.pending.delete(id);
+    if (event.data.ok) entry.resolve(event.data);
+    else entry.reject(new Error(event.data.error));
+  };
+  worker.onerror = (event) => {
+    console.warn('Worker が落ちました。メインスレッドで思考します', event.message);
+    for (const entry of thinker.pending.values()) entry.reject(new Error('worker error'));
+    thinker.pending.clear();
+    thinker.worker = null;
+  };
+  thinker.worker = worker;
+  return ask({ kind: 'load', url: new URL(modelUrl, import.meta.url).href })
+    .then(() => true)
+    .catch((error) => {
+      console.warn('Worker でモデルを読めませんでした', error);
+      thinker.worker = null;
+      return false;
+    });
+}
+
+function ask(payload) {
+  const worker = thinker.worker;
+  if (!worker) return Promise.reject(new Error('worker なし'));
+  const id = thinker.nextId;
+  thinker.nextId += 1;
+  return new Promise((resolve, reject) => {
+    thinker.pending.set(id, { resolve, reject });
+    worker.postMessage({ id, ...payload });
+  });
+}
+
+/**
+ * AI に着手を選ばせる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
+ * 返すのは `moves` の index。
+ */
+async function chooseMove(board, player, roll, moves, plies) {
+  if (thinker.worker && moves.length > 1) {
+    try {
+      const reply = await ask({
+        kind: 'select',
+        board: {
+          points: board.points,
+          bar: [board.bar[WHITE], board.bar[BLACK]],
+          off: [board.off[WHITE], board.off[BLACK]],
+        },
+        player, die1: roll.die1, die2: roll.die2, plies,
+      });
+      // 合法手の並びは generateMoves が純関数なので一致するはずだが、
+      // 念のため鍵で照合する。ずれていたら鍵で引き直す。
+      if (boardKey(moves[reply.index].resultingBoard) === reply.key) return reply.index;
+      const found = moves.findIndex((m) => boardKey(m.resultingBoard) === reply.key);
+      if (found >= 0) return found;
+      console.warn('Worker の手がメイン側の合法手に見つかりません。こちらで選び直します');
+    } catch (error) {
+      console.warn('Worker での思考に失敗しました。こちらで選びます', error);
+    }
+  }
+  return state.agent.selectMove(moves, player);
+}
 
 // ── 起動 ──────────────────────────────────────
 
@@ -50,10 +137,13 @@ function describeModel(net) {
 }
 
 NeuralNet.load('./src/model.json')
-  .then((net) => {
+  .then(async (net) => {
     state.net = net;
     $('model-info').textContent = describeModel(net);
-    $('loading').textContent = '準備できました';
+    state.threaded = await startThinker('./src/model.json');
+    $('loading').textContent = state.threaded
+      ? '準備できました'
+      : '準備できました（別スレッドが使えないため、最強では画面が一時的に止まります）';
     $('start').disabled = false;
   })
   .catch((error) => {
@@ -94,7 +184,8 @@ $('undo').addEventListener('click', undo);
 $('dice').addEventListener('click', flipDice);
 
 function startGame() {
-  state.agent = new Agent(state.net, state.plies);
+  // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
+  state.agent = new Agent(state.net, state.plies, filtersFor(state.plies));
   state.game = new Game();
   state.history = [];
   state.turn = null;
@@ -418,6 +509,7 @@ function renderDiceTray(el, shown) {
 
 function renderStatus() {
   const game = state.game;
+  $('hint').classList.toggle('is-thinking', Boolean(state.thinking));
   const mine = game.currentPlayer === state.humanSide;
   const midTurn = Boolean(state.turn && state.turn.applied.length > 0);
 
@@ -451,7 +543,11 @@ function renderStatus() {
   $('again').hidden = true;
 
   if (state.busy) {
-    $('hint').textContent = state.anim ? 'AI が指しています…' : 'AI が考えています…';
+    // 3-ply では出目の間合い（1 秒）で終わらないことがある。
+    // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
+    if (state.anim) $('hint').textContent = 'AI が指しています…';
+    else if (state.thinking) $('hint').textContent = 'AI が長考しています…';
+    else $('hint').textContent = 'AI が考えています…';
   }
   else if (mine && game.state === MOVING) {
     $('hint').textContent = midTurn
@@ -596,16 +692,37 @@ async function runAiTurns() {
     const ai = game.currentPlayer;
 
     if (game.state === ROLLING) {
-      game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
+      game.rollDice();          // 動かせない目なら内部で手番が飛ぶ
       if (game.currentPlayer !== ai) state.danceShow = ai;
     }
     render();
+
+    // **出目を見せている間に裏で考えさせる。** 3-ply の思考時間のうち
+    // DICE_DELAY ぶんはこれで隠れる。ダンスしたときは考える必要が無い。
+    const danced = game.currentPlayer !== ai;
+    const thinking = danced
+      ? null
+      : chooseMove(game.board, ai, game.roll, game.legalMoves, state.plies);
+
     await sleep(DICE_DELAY);
     state.danceShow = null;
     if (!alive()) return;
-    if (game.currentPlayer !== ai) { render(); continue; }   // ダンスした
+    if (danced) { render(); continue; }
 
-    const index = state.agent.selectMove(game.legalMoves, ai);
+    // 出目の間合いで終わっていなければ「考え中」を出して待つ
+    let index;
+    if (thinking) {
+      let settled = false;
+      thinking.then(() => { settled = true; });
+      await Promise.race([thinking, sleep(0)]);
+      if (!settled) {
+        state.thinking = true;
+        render();
+      }
+      index = await thinking;
+      state.thinking = false;
+      if (!alive()) return;
+    }
     const move = game.legalMoves[index];
 
     state.anim = { base: game.board.clone(), player: ai, applied: [] };

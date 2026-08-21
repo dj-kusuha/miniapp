@@ -7,7 +7,8 @@
 // 作り直してからここへコピーする。
 import { execFileSync } from 'node:child_process';
 
-const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'parity-moves.mjs', 'parity-select.mjs', 'parity-game.mjs'];
+const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'parity-moves.mjs', 'parity-select.mjs',
+  'parity-game.mjs', 'worker.mjs'];
 let failed = 0;
 for (const spec of specs) {
   try {

@@ -22,15 +22,47 @@ export const ALL_ROLLS = (() => {
 })();
 
 /** 深い段ほどきつく絞る（engine の DEFAULT_SEARCH_FILTERS と同じ）。 */
-const FILTERS = [
+export const DEFAULT_FILTERS = [
   { candidates: 8, tolerance: 0.160 },   // 段 0（根）
   { candidates: 3, tolerance: 0.080 },   // 段 1 以降
 ];
 
+/**
+ * 3-ply を軽くする構成。**相手の応手を 2 手に絞る。**
+ *
+ * engine 側の実測（1,500 局面・3-ply・シード対応）で、現行との差は
+ * 誤差の内に収まりつつ **1.30 倍**速い。深い段は期待値の推定に寄与する
+ * だけで、1 手の違いが結果に効きにくいため
+ * （docs/adr/0016-faster-3ply-search.md）。
+ *
+ * **既定にはしない。** engine の既定と食い違わせないため、
+ * これを使うかはアプリ側が選ぶ。
+ */
+export const FAST_FILTERS = [
+  { candidates: 8, tolerance: 0.160 },   // 段 0（根）はそのまま
+  { candidates: 2, tolerance: 0.080 },   // 段 1 以降を 2 手に
+];
+
+/**
+ * その深さで使う絞り方を返す。**アプリと Worker とテストで 1 か所を見る。**
+ *
+ * 3-ply だけ `FAST_FILTERS`。2-ply では段 1 のフィルタに到達しないので
+ * 変えても意味が無く、0-ply はそもそも探索しない。
+ */
+export function filtersFor(plies) {
+  return plies >= 3 ? FAST_FILTERS : DEFAULT_FILTERS;
+}
+
 export class Agent {
-  constructor(net, searchPlies = 0) {
+  /**
+   * @param {NeuralNet} net
+   * @param {number} searchPlies 先読みの深さ
+   * @param {Array<{candidates: number, tolerance: number}>} filters 段ごとの絞り込み
+   */
+  constructor(net, searchPlies = 0, filters = DEFAULT_FILTERS) {
     this.net = net;
     this.searchPlies = searchPlies;
+    this.filters = filters;
   }
 
   /** 各盤面の **turn（手番側）から見た** equity。 */
@@ -52,7 +84,7 @@ export class Agent {
   }
 
   filterFor(level) {
-    return FILTERS[Math.min(level, FILTERS.length - 1)];
+    return this.filters[Math.min(level, this.filters.length - 1)];
   }
 
   /** `toMove` から見て強い順に並べ、深く読む手の index を返す。 */
