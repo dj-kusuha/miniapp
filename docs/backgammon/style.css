@@ -343,7 +343,14 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 @media (max-width: 420px) {
-  .board { grid-template-columns: repeat(6, 1fr) 20px repeat(6, 1fr); }
+  /* **列数は必ず .board と同じ 15 列に保つこと。**
+     キューブ / 6 点 / バー / 6 点 / 上がりトレイ。
+     ここだけ 13 列のままにしていて、狭い画面で盤がまるごと崩れた
+     （2026-08-21）。狭い画面では両端と中央の帯を細くして、
+     **点の 1fr を等幅に保つ**のが狙い。 */
+  .board {
+    grid-template-columns: 16px repeat(6, 1fr) 20px repeat(6, 1fr) 16px;
+  }
 }
 
 /* 長考中（3 手先読み）。固まったのではないと分かるように点滅させる。 */
@@ -406,16 +413,22 @@ button:disabled { opacity: .5; cursor: default; }
    上がりトレイの反対側（左端）に置く。所有者の側へ動くので、
    **どちらが持っているかが盤を見るだけで分かる**。 */
 .cube-tray {
+  /* **上段〜下段（2〜4 行）をまたぐ 1 つの器。** 中央の帯（3 行目）は
+     盤の高さの 14% しかないので、そこだけを器にするとキューブが潰れる。 */
   grid-column: 1;
-  min-height: 0;      /* 中央の帯で潰れたときに中身をはみ出させない */
-  overflow: hidden;
+  grid-row: 2 / 5;
+  min-height: 0;
   display: flex;
-  align-items: center;
   justify-content: center;
   background: var(--board-dark);
   border-right: 2px solid var(--board);
-  padding: 2px;
+  padding: 2px 1px;
 }
+
+/* 所有者の側へ寄せる。盤は White が下段なので、あなたが持てば下。 */
+.cube-tray[data-place="top"] { align-items: flex-start; }
+.cube-tray[data-place="center"] { align-items: center; }
+.cube-tray[data-place="bottom"] { align-items: flex-end; }
 
 .cube-piece {
   /* **中央の帯は盤の高さの 14% しかない。** 幅だけで大きさを決めると
