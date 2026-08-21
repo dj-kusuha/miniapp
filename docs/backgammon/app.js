@@ -716,6 +716,11 @@ function renderLog() {
     if (event.kind === 'move') li.textContent = `${who}: ${event.text}`;
     else if (event.kind === 'skip') li.textContent = `${who}: 動かせず（${event.roll.join('-')}）`;
     else if (event.kind === 'roll' || event.kind === 'open') li.textContent = `${who}: ${event.roll.join('-')}`;
+    // キューブの出来事も残す。あとから棋譜を読むとき、値がどこで動いたのかが
+    // 分からないと着手の意味が追えない
+    else if (event.kind === 'double') li.textContent = `${who}: ダブル（${event.value} を提案）`;
+    else if (event.kind === 'take') li.textContent = `${who}: テイク（キューブ ${event.value}）`;
+    else if (event.kind === 'pass') li.textContent = `${who}: パス（${event.value} 点で終局）`;
     else if (event.kind === 'end') li.textContent = `${who}の勝ち`;
     list.appendChild(li);
   }

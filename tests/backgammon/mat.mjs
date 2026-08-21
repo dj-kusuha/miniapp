@@ -9,7 +9,7 @@
 // 特に**先手が左の列**であることを確かめる。左列が空の行は列の分割が
 // 「15 桁目以降の二重空白」に頼る経路へ落ち、実機で読み込めなかった。
 
-import { WHITE, BLACK } from '../../docs/backgammon/src/board.js';
+import { WHITE, BLACK, opponent as opponentOf } from '../../docs/backgammon/src/board.js';
 import { Game, GAME_OVER } from '../../docs/backgammon/src/game.js';
 import { toMat } from '../../docs/backgammon/src/mat.js';
 
@@ -22,12 +22,23 @@ function seeded(seed) {
   };
 }
 
-/** 合法手から適当に 1 つ選んで 1 局を終わりまで進める。 */
-function playGame(seed) {
+/**
+ * 合法手から適当に 1 つ選んで 1 局を終わりまで進める。
+ *
+ * `cube` を立てると、ロール前にときどきダブルを提案し、受けたり降りたりする。
+ * ジャコビーは切る（点数の見え方を単純にするため）。
+ */
+function playGame(seed, { cube = false } = {}) {
   const rng = seeded(seed);
-  const game = new Game(null, rng);
+  const game = new Game(null, rng, { jacoby: false });
   game.start();
   for (let i = 0; i < 2000 && game.state !== GAME_OVER; i += 1) {
+    if (cube && game.canDouble() && rng() < 0.08) {
+      game.proposeDouble();
+      if (rng() < 0.75) game.acceptDouble();
+      else game.declineDouble();
+      continue;
+    }
     if (game.legalMoves.length === 0) {
       game.rollDice();
       continue;
@@ -35,6 +46,35 @@ function playGame(seed) {
     game.applyMove(Math.floor(rng() * game.legalMoves.length));
   }
   return game;
+}
+
+/**
+ * ログから「.mat に並ぶはずのセル」を作る。**レイアウトを通さずログから直接**
+ * 作るので、読み込み結果とこれを突き合わせれば、どの列にどの手が入ったかまで
+ * 確かめられる。
+ */
+function expectedCells(game) {
+  const out = [];
+  let roll = null;
+  for (const event of game.log) {
+    if (event.kind === 'open' || event.kind === 'roll') {
+      roll = { player: event.player, kind: 'dance' };
+      out.push(roll);
+    } else if (event.kind === 'move') {
+      if (roll && roll.player === event.player) roll.kind = 'move';
+    } else if (event.kind === 'double') {
+      out.push({ player: event.player, kind: 'double' });
+      roll = null;
+    } else if (event.kind === 'take') {
+      out.push({ player: event.player, kind: 'take' });
+      roll = null;
+    } else if (event.kind === 'pass') {
+      out.push({ player: event.player, kind: 'drop' });
+      roll = null;
+    }
+  }
+  if (game.state === GAME_OVER) out.push({ player: game.result.winner, kind: 'win' });
+  return out;
 }
 
 // ── gnubg の import.c を写した検証器 ──────────────
@@ -118,18 +158,24 @@ function parseMat(text) {
     const paren = left.indexOf(')');
     const leftCell = paren >= 0 ? left.slice(paren + 1) : left;
 
+    const leftEmpty = leftCell.trim() === '';
     for (const [raw, who] of [[leftCell, 0], [right, 1]]) {
       if (raw === null) continue;
       const sz = raw.replace(/^[ \t]+/, '').replace(/[ \t]+$/, '');
-      if (!sz) { cells.push({ who, kind: 'empty', splitBy, line: idx + 1 }); continue; }
-      if (/^Wins \d+ points?$/i.test(sz)) { cells.push({ who, kind: 'win', line: idx + 1 }); continue; }
+      const at = { who, splitBy, leftEmpty, line: idx + 1 };
+      if (!sz) { cells.push({ ...at, kind: 'empty' }); continue; }
+      if (/^Wins \d+ points?$/i.test(sz)) { cells.push({ ...at, kind: 'win' }); continue; }
+      // キューブ。gnubg 自身の書き出しを写した形（先頭の空白は上で落ちている）
+      if (/^Doubles\s*=>\s*\d+$/i.test(sz)) { cells.push({ ...at, kind: 'double' }); continue; }
+      if (/^Takes$/i.test(sz)) { cells.push({ ...at, kind: 'take' }); continue; }
+      if (/^Drops$/i.test(sz)) { cells.push({ ...at, kind: 'drop' }); continue; }
       // ParseMatMove:586
       const ok = sz[0] >= '1' && sz[0] <= '6' && sz[1] >= '1' && sz[1] <= '6' && sz[2] === ':';
       if (!ok) {
         problems.push(`行 ${idx + 1} 列 ${who}: 着手欄として認識できない → "${sz}"`);
         continue;
       }
-      cells.push({ who, kind: sz.slice(3).trim() === '' ? 'dance' : 'move', splitBy, line: idx + 1 });
+      cells.push({ ...at, kind: sz.slice(3).trim() === '' ? 'dance' : 'move' });
     }
   }
 
@@ -141,48 +187,77 @@ function parseMat(text) {
 const GAMES = 60;
 let blackFirst = 0;
 let whiteFirst = 0;
-let totalMoves = 0;
-let totalDances = 0;
+const counts = { move: 0, dance: 0, double: 0, take: 0, drop: 0, win: 0 };
 const failures = [];
 
-for (let seed = 1; seed <= GAMES; seed += 1) {
-  const game = playGame(seed);
-  const humanSide = seed % 2 ? WHITE : BLACK;
-  const text = toMat({
-    log: game.log,
-    result: game.state === GAME_OVER ? game.result : null,
-    humanSide,
-  });
+for (const cube of [false, true]) {
+  for (let seed = 1; seed <= GAMES; seed += 1) {
+    const label = `seed ${seed}${cube ? '（キューブあり）' : ''}`;
+    const game = playGame(seed, { cube });
+    const humanSide = seed % 2 ? WHITE : BLACK;
+    const text = toMat({
+      log: game.log,
+      result: game.state === GAME_OVER ? game.result : null,
+      humanSide,
+    });
 
-  const opening = game.log.find((e) => e.kind === 'open');
-  if (opening.player === BLACK) blackFirst += 1; else whiteFirst += 1;
-
-  const { problems, cells, players } = parseMat(text);
-  for (const p of problems) failures.push(`seed ${seed}: ${p}`);
-
-  // 先手が左の列に来ているか
-  const firstCell = cells.find((c) => c.kind === 'move' || c.kind === 'dance');
-  if (!firstCell || firstCell.who !== 0) {
-    failures.push(`seed ${seed}: 先手が左の列にいない（who=${firstCell ? firstCell.who : 'なし'}）`);
-  }
-  // 先手の色が左のプレイヤー名と一致しているか
-  const expected = opening.player === WHITE ? 'White' : 'Black';
-  if (players && !players[0].startsWith(expected)) {
-    failures.push(`seed ${seed}: 左の名前が先手と違う（${players[0]} / 先手は ${expected}）`);
-  }
-  // 空の左列に頼る分割が起きていないか
-  for (const c of cells) {
-    if (c.who === 1 && c.splitBy === 'spaces') {
-      failures.push(`seed ${seed}: 行 ${c.line} が二重空白で分割されている（左列が空）`);
+    const opening = game.log.find((e) => e.kind === 'open');
+    if (!cube) {
+      if (opening.player === BLACK) blackFirst += 1; else whiteFirst += 1;
     }
-  }
 
-  totalMoves += cells.filter((c) => c.kind === 'move').length;
-  totalDances += cells.filter((c) => c.kind === 'dance').length;
+    const { problems, cells, players } = parseMat(text);
+    for (const p of problems) failures.push(`${label}: ${p}`);
+
+    // 先手が左の列に来ているか
+    const firstCell = cells.find((c) => c.kind === 'move' || c.kind === 'dance');
+    if (!firstCell || firstCell.who !== 0) {
+      failures.push(`${label}: 先手が左の列にいない（who=${firstCell ? firstCell.who : 'なし'}）`);
+    }
+    // 先手の色が左のプレイヤー名と一致しているか
+    const expected = opening.player === WHITE ? 'White' : 'Black';
+    if (players && !players[0].startsWith(expected)) {
+      failures.push(`${label}: 左の名前が先手と違う（${players[0]} / 先手は ${expected}）`);
+    }
+    // 空の左列に頼る分割が起きていないか。**着手が右列に来る行だけを見る**:
+    // キューブ行にはコロンが無く二重空白で割られるが、それは gnubg 自身の
+    // 書き出しもそうなので正常。危ないのは「左が空で着手が右」の組み合わせ。
+    for (const c of cells) {
+      if (c.who === 1 && c.splitBy === 'spaces' && c.leftEmpty
+          && (c.kind === 'move' || c.kind === 'dance')) {
+        failures.push(`${label}: 行 ${c.line} が二重空白で分割されている（左列が空）`);
+      }
+    }
+
+    // 読み込み結果が、ログから作った並びと 1 セルずつ一致するか。
+    // **どちらの列に入ったか**まで見るので、列の割り当ての誤りを捕まえられる。
+    const leftSide = opening.player;
+    const got = cells.filter((c) => c.kind !== 'empty')
+      .map((c) => ({ player: c.who === 0 ? leftSide : opponentOf(leftSide), kind: c.kind }));
+    const want = expectedCells(game);
+    if (got.length !== want.length) {
+      failures.push(`${label}: セル数が違う（読み込み ${got.length} / ログ ${want.length}）`);
+    } else {
+      for (let i = 0; i < want.length; i += 1) {
+        if (got[i].player !== want[i].player || got[i].kind !== want[i].kind) {
+          failures.push(`${label}: ${i + 1} 番目のセルが違う`
+            + `（読み込み ${got[i].player}/${got[i].kind} / ログ ${want[i].player}/${want[i].kind}）`);
+          break;
+        }
+      }
+    }
+
+    for (const c of got) counts[c.kind] += 1;
+  }
 }
 
-console.log(`.mat 書き出し: ${GAMES} 局（先手 White ${whiteFirst} / Black ${blackFirst}）`);
-console.log(`  着手欄 ${totalMoves} 件 / ダンス ${totalDances} 件`);
+console.log(`.mat 書き出し: ${GAMES * 2} 局（先手 White ${whiteFirst} / Black ${blackFirst}）`);
+console.log(`  着手欄 ${counts.move} 件 / ダンス ${counts.dance} 件`);
+console.log(`  キューブ: ダブル ${counts.double} 件 / テイク ${counts.take} 件 / ドロップ ${counts.drop} 件`);
+
+if (counts.double === 0 || counts.take === 0 || counts.drop === 0) {
+  failures.push('キューブの検体が足りない（ダブル / テイク / ドロップのどれかが 0 件）');
+}
 
 if (failures.length) {
   console.error(`\n不一致 ${failures.length} 件:`);
