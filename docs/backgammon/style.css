@@ -312,6 +312,21 @@ button:disabled { opacity: .5; cursor: default; }
 /* センターは「まだ誰も持っていない」ので、少し控えめに見せる。 */
 .cube.is-center { opacity: .85; }
 
+/* 返事待ちの間だけ、置き場から外して盤に「打った」キューブ。中段の帯に置き、
+   出す側はダイスと同じ半分（自分は右、AI は左）。ダブルのボタンと同じ色の
+   縁を付けて、これがキューブの提案だと分かるようにする。 */
+#cube-offer {
+  grid-row: 3;
+  justify-self: center;
+  align-self: center;
+  width: 18%;            /* ダイスの目（16%）と近い大きさに揃える */
+  font-size: clamp(10px, 1.7vw, 18px);
+  border: 2px solid var(--cube-action);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, .45);
+}
+#cube-offer.at-right { grid-column: 9 / 15; }
+#cube-offer.at-left { grid-column: 2 / 8; }
+
 .status-panel { display: grid; gap: 6px; }
 .turn { margin: 0; font-weight: 700; }
 

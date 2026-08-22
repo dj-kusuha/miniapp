@@ -363,6 +363,13 @@ function buildBoard() {
   cubeTray.className = 'cube-tray';
   cubeTray.id = 'cube-tray';
   board.appendChild(cubeTray);
+
+  // ダブルを提案している間だけ、盤に「打った」キューブを出す（中段の帯）。
+  const cubeOffer = document.createElement('span');
+  cubeOffer.className = 'cube';
+  cubeOffer.id = 'cube-offer';
+  cubeOffer.hidden = true;
+  board.appendChild(cubeOffer);
 }
 
 function makeOffTray(player, row) {
@@ -611,17 +618,34 @@ function renderCubeState() {
  * 持ち主がいなければ中央に置き、**数字は 64** を出す。実物のキューブには
  * 1 の面が無く、まだ回っていない状態を 64 の面で表すのに合わせている。
  * 誰かが持っていればその側（White は下、Black は上）へ移し、いまの値を出す。
+ *
+ * **返事待ちの間だけは置き場から外し、盤に「打った」形で出す。** 出す側は
+ * ダイスと同じ半分（自分は右、AI は左）。値は提案後の値（＝いまの倍）。
  */
 function renderCube() {
   const tray = $('cube-tray');
+  const offer = $('cube-offer');
   tray.replaceChildren();
   tray.classList.remove('at-center', 'at-top', 'at-bottom');
-  if (!state.useCube) {
-    tray.removeAttribute('aria-label');
+  tray.removeAttribute('aria-label');
+  offer.hidden = true;
+  offer.classList.remove('at-left', 'at-right');
+  if (!state.useCube) return;
+
+  const game = state.game;
+  const cube = game.cube;
+
+  if (game.state === DOUBLING_PROPOSED) {
+    const mine = game.doublingProposer === state.humanSide;
+    const offered = cube.value * 2;
+    offer.classList.add(mine ? 'at-right' : 'at-left');
+    offer.textContent = String(offered);
+    offer.setAttribute('aria-label',
+      `${mine ? 'あなた' : 'AI'}が ${offered} のダブルを提案中`);
+    offer.hidden = false;
     return;
   }
 
-  const cube = state.game.cube;
   const center = cube.owner === null;
   // 盤は White 視点固定なので、White が下・Black が上で決め打ってよい。
   tray.classList.add(center ? 'at-center' : (cube.owner === WHITE ? 'at-bottom' : 'at-top'));
