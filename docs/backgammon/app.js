@@ -7,7 +7,7 @@
 
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
-import { Agent, filtersFor } from './src/agent.js';
+import { agentFor, levelById, DEFAULT_LEVEL } from './src/agent.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
@@ -30,7 +30,7 @@ const state = {
   match: null,        // Match。進行中の局は match.game
   game: null,         // = match.game（既存のコードから触りやすいように持つ）
   humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
-  plies: 2,
+  level: DEFAULT_LEVEL,   // AI の強さ（段）。plies はここから引く
   useCube: true,      // ダブリングキューブを使うか
   jacoby: true,       // ジャコビールール（アンリミテッド専用）
   isMatch: false,     // 形式。false = アンリミテッド
@@ -111,7 +111,7 @@ function ask(payload) {
  * AI に着手を選ばせる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
  * 返すのは `moves` の index。
  */
-async function chooseMove(board, player, roll, moves, plies) {
+async function chooseMove(board, player, roll, moves, level) {
   if (thinker.worker && moves.length > 1) {
     try {
       const reply = await ask({
@@ -121,7 +121,7 @@ async function chooseMove(board, player, roll, moves, plies) {
           bar: [board.bar[WHITE], board.bar[BLACK]],
           off: [board.off[WHITE], board.off[BLACK]],
         },
-        player, die1: roll.die1, die2: roll.die2, plies,
+        player, die1: roll.die1, die2: roll.die2, level,
       });
       // 合法手の並びは generateMoves が純関数なので一致するはずだが、
       // 念のため鍵で照合する。ずれていたら鍵で引き直す。
@@ -161,7 +161,7 @@ NeuralNet.load('./src/model.json')
     state.threaded = await startThinker('./src/model.json');
     $('loading').textContent = state.threaded
       ? '準備できました'
-      : '準備できました（別スレッドが使えないため、最強では画面が一時的に止まります）';
+      : '準備できました（別スレッドが使えないため、エキスパートでは画面が一時的に止まります）';
     $('start').disabled = false;
   })
   .catch((error) => {
@@ -170,7 +170,7 @@ NeuralNet.load('./src/model.json')
     $('loading').classList.add('error');
   });
 
-for (const button of document.querySelectorAll('[data-plies]')) {
+for (const button of document.querySelectorAll('[data-level]')) {
   button.addEventListener('click', () => selectChoice(button));
 }
 for (const button of document.querySelectorAll('[data-cube]')) {
@@ -237,8 +237,17 @@ function selectChoice(button) {
     sibling.classList.toggle('is-selected', sibling === button);
     sibling.setAttribute('aria-checked', String(sibling === button));
   }
-  if (button.dataset.plies !== undefined) state.plies = Number(button.dataset.plies);
+  if (button.dataset.level !== undefined) {
+    state.level = button.dataset.level;
+    syncLevelNote();
+  }
 }
+
+/** 選んだ段の補足（先読みの深さなど）を出す。 */
+function syncLevelNote() {
+  $('level-note').textContent = levelById(state.level).note;
+}
+syncLevelNote();
 
 $('start').addEventListener('click', startMatch);
 // マッチが続いていれば次の局へ、終わっていれば同じ設定で新しいマッチへ。
@@ -299,7 +308,7 @@ $('dice').addEventListener('click', flipDice);
 /** 設定画面から。新しいマッチ（アンリミテッドなら新しいセッション）を始める。 */
 function startMatch() {
   // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
-  state.agent = new Agent(state.net, state.plies, filtersFor(state.plies));
+  state.agent = agentFor(state.net, state.level);
   state.match = new Match({
     length: state.matchLength,
     jacoby: state.jacoby,
@@ -1009,7 +1018,7 @@ async function runAiTurns() {
     const danced = game.currentPlayer !== ai;
     const thinking = danced
       ? null
-      : chooseMove(game.board, ai, game.roll, game.legalMoves, state.plies);
+      : chooseMove(game.board, ai, game.roll, game.legalMoves, state.level);
 
     await pause();
     state.danceShow = null;

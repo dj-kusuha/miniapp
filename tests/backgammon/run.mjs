@@ -11,7 +11,8 @@ import { execFileSync } from 'node:child_process';
 // import.c 相当の判定にかける検証。一覧から漏れていて手で叩かないと動かない
 // 状態だったので入れてある。
 const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'parity-moves.mjs', 'parity-select.mjs',
-  'parity-game.mjs', 'parity-cube.mjs', 'worker.mjs', 'match.mjs', 'met.mjs', 'mat.mjs'];
+  'parity-game.mjs', 'parity-cube.mjs', 'worker.mjs', 'levels.mjs', 'match.mjs',
+  'met.mjs', 'mat.mjs'];
 let failed = 0;
 for (const spec of specs) {
   try {

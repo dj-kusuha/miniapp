@@ -9,17 +9,24 @@
 
 import { Board } from './board.js';
 import { NeuralNet } from './nn.js';
-import { Agent, filtersFor } from './agent.js';
+import { agentFor } from './agent.js';
 import { generateMoves, boardKey } from './rules.js';
 
 let net = null;
-const agents = new Map();   // plies -> Agent（作り直さず使い回す）
+const agents = new Map();   // level id -> Agent（作り直さず使い回す）
 
-function agentFor(plies) {
-  let agent = agents.get(plies);
+/**
+ * **鍵は段（level）であって先読みの深さ（plies）ではない。**
+ *
+ * 先読み 0 の段が 3 つある（入門 / 初級 / 中級）ので、plies を鍵にすると
+ * **弱い段が黙って中級のまま**になる。しかも Worker が使える環境でだけ起きるので
+ * 気づきにくい。`tests/backgammon/worker.mjs` が全段で照合している。
+ */
+function agentForLevel(level) {
+  let agent = agents.get(level);
   if (!agent) {
-    agent = new Agent(net, plies, filtersFor(plies));
-    agents.set(plies, agent);
+    agent = agentFor(net, level);
+    agents.set(level, agent);
   }
   return agent;
 }
@@ -34,9 +41,9 @@ self.onmessage = async (event) => {
     }
 
     if (kind === 'select') {
-      const { board, player, die1, die2, plies } = event.data;
+      const { board, player, die1, die2, level } = event.data;
       const moves = generateMoves(Board.fromJson(board), player, die1, die2);
-      const index = agentFor(plies).selectMove(moves, player);
+      const index = agentForLevel(level).selectMove(moves, player);
       // メイン側と合法手の並びが同じであることは generateMoves が純関数で
       // あることから保証されるが、**鍵も返して照合できるようにする**。
       // ずれていたらメイン側が鍵で引き直す。
