@@ -29,7 +29,7 @@ const state = {
   agent: null,
   adviceAgent: null,   // ヒント用。**対戦相手とは別の段**で読み違えも無い
   advice: null,        // 表示中のヒント。局面が動いたら必ず消す
-  advising: false,     // ヒントを計算中（3-ply なので 1〜3 秒かかる）
+  advising: false,     // ヒントを計算中（段によっては数秒かかる）
   match: null,        // Match。進行中の局は match.game
   game: null,         // = match.game（既存のコードから触りやすいように持つ）
   humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
@@ -319,8 +319,9 @@ $('dice').addEventListener('click', flipDice);
 /**
  * 候補手を強い順に並べる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
  *
- * `chooseMove` と同じ理由で Worker へ逃がす。**ヒントは 3-ply なので 1〜3 秒
- * かかり**、メインスレッドで回すとその間ずっと画面が固まる。
+ * `chooseMove` と同じ理由で Worker へ逃がす。いまの `ADVICE_LEVEL`（2-ply）は
+ * 数十 ms で終わるが、**3-ply に戻したら 1〜3 秒かかる**。メインスレッドで回すと
+ * その間ずっと画面が固まるので、速い段でも Worker 経由のままにしておく。
  */
 async function rankMoves(board, player, roll, moves, level, limit = 3) {
   if (thinker.worker) {
@@ -364,7 +365,7 @@ $('advice-button').addEventListener('click', async () => {
   try {
     const entries = await rankMoves(
       game.board, game.currentPlayer, game.roll, root, ADVICE_LEVEL, 3);
-    // **待っている間に局面が動いていたら捨てる。** 1〜3 秒あるので普通に起きる。
+    // **待っている間に局面が動いていたら捨てる。** 深い段では数秒あるので起きる。
     if (state.runId === runId && state.game === game && game.legalMoves === root) {
       state.advice = { root, entries };
     }
@@ -924,7 +925,8 @@ function renderStatus() {
   $('roll').hidden = !(mine && game.state === ROLLING);
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   // ヒントは手番の最初だけ。駒を動かし始めたら引っ込める。
-  // **3-ply は 1〜3 秒かかる**ので、計算中はそう見せて二度押しも止める。
+  // **深い段にすると数秒かかる**ので、計算中はそう見せて二度押しも止める
+  // （いまの 2-ply では一瞬だが、段を変えたときに効く）。
   const adviceButton = $('advice-button');
   adviceButton.hidden = !canAdvise();
   adviceButton.disabled = state.advising;
