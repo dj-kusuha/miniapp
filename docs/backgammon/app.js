@@ -899,15 +899,44 @@ function toMat() {
   });
 }
 
-$('copy-mat').addEventListener('click', async () => {
-  const button = $('copy-mat');
-  try {
-    await navigator.clipboard.writeText(toMat());
-    button.textContent = 'コピーしました';
-  } catch {
-    button.textContent = '選択してコピーしてください';
-  }
-  setTimeout(() => { button.textContent = 'コピー'; }, 2000);
+/** `backgammon-5pt-20260823-1930.mat` のような、中身が分かる名前。 */
+function matFileName() {
+  const pad = (n) => String(n).padStart(2, '0');
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`
+    + `-${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const kind = state.match.isMoney ? 'money' : `${state.match.length}pt`;
+  return `backgammon-${kind}-${stamp}.mat`;
+}
+
+$('download-mat').addEventListener('click', () => {
+  const blob = new Blob([toMat()], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = matFileName();
+  // **一度 DOM に入れてから click する。** 付けずに click しても動くブラウザは
+  // あるが、Firefox など一部では無視される。
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // すぐ revoke すると、ダウンロードが始まる前に URL が消える環境がある
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+});
+
+// **Ctrl+A（⌘+A）でこの欄だけを全選択する。**
+//
+// 素のままだとページ全体が選択されてしまい、棋譜だけ取り出せない。
+// `tabindex="0"` を付けてあるので、クリックかタブ移動でここへフォーカスが来る。
+$('mat').addEventListener('keydown', (event) => {
+  if (event.key !== 'a' && event.key !== 'A') return;
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  const range = document.createRange();
+  range.selectNodeContents($('mat'));
+  selection.addRange(range);
 });
 
 // PC 幅では棋譜を右側に開いたまま置く。狭い画面では折りたたむ。
