@@ -59,6 +59,17 @@ body {
   border-bottom: 1px solid var(--line);
 }
 .site-header h1 { font-size: 1.1rem; margin: 0; }
+
+/* 同梱物のクレジット。**許諾の条件はここではない**（条件が掛かるのは表を含む
+   `src/met-table.js` の先頭で、そちらの表示は消せない）。ここは JS を開かない
+   人向けの表示なので、文面は変えても構わない。 */
+.site-footer {
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: var(--gap);
+  border-top: 1px solid var(--line);
+}
+.site-footer .note { margin: 0; font-size: .75rem; }
 .back-link { color: var(--muted); text-decoration: none; font-size: .85rem; }
 .back-link:hover, .back-link:focus-visible { color: var(--accent); }
 
