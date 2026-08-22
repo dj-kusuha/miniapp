@@ -20,10 +20,13 @@
     <div class="field">
       <span id="level-label">AI の強さ</span>
       <div class="choices" role="radiogroup" aria-labelledby="level-label">
-        <button type="button" class="choice" data-plies="0" role="radio" aria-checked="false">ふつう（0-ply）</button>
-        <button type="button" class="choice is-selected" data-plies="2" role="radio" aria-checked="true">つよい（2-ply）</button>
-        <button type="button" class="choice" data-plies="3" role="radio" aria-checked="false">めちゃつよ（3-ply）</button>
+        <button type="button" class="choice" data-level="beginner" role="radio" aria-checked="false">初心者</button>
+        <button type="button" class="choice" data-level="casual" role="radio" aria-checked="false">カジュアル</button>
+        <button type="button" class="choice is-selected" data-level="intermediate" role="radio" aria-checked="true">中級</button>
+        <button type="button" class="choice" data-level="advanced" role="radio" aria-checked="false">上級</button>
+        <button type="button" class="choice" data-level="expert" role="radio" aria-checked="false">エキスパート</button>
       </div>
+      <p id="level-note" class="note"></p>
     </div>
     <div class="field">
       <span id="format-label">形式</span>

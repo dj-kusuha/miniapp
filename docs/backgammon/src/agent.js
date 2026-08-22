@@ -9,7 +9,7 @@
 import { WHITE, opponent, encodeBoard } from './board.js';
 import { equity, WIN } from './nn.js';
 import { matchWinChance, mwcWithCube, outcomeSpread } from './met.js';
-import { generateMoves, diceValues } from './rules.js';
+import { generateMoves, diceValues, boardKey } from './rules.js';
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
 export const ALL_ROLLS = (() => {
@@ -66,6 +66,131 @@ export const DEFAULT_DOUBLE_POINT = 0.45;
 /** 「キューブを自分が持っている」ことの価値。engine と同じく 0（実測で改善せず）。 */
 export const DEFAULT_CUBE_OWNERSHIP = 0.0;
 
+// ── 弱い相手の作り方 ──────────────────────────────
+//
+// **先読み 0 が床なので、それより弱くするには別の軸が要る。**
+// 採ったのは gnubg が Beginner / Casual を作るのと同じ「評価値にノイズを乗せる」
+// 方式。equity に平均 0・標準偏差 `noise` のノイズを足してから最大を選ぶ。
+//
+// **なぜこれが人間らしいか**: 間違える確率が「判断の難しさ」に自動で連動する。
+// equity 差 0.3 の明らかな手はノイズ 0.05 ではまず逆転せず、差 0.02 の際どい手は
+// しょっちゅう逆転する。弱い人が「簡単な手は外さず、際どい判断だけ落とす」のと
+// 同じ形になる。
+//
+// **採らなかった案**:
+//
+// | やり方 | 何が起きるか |
+// | --- | --- |
+// | ランダムに選ぶ | equity 差を見ていないので、明らかな悪手を平気で打つ |
+// | 上位 k 手から等確率 | 差の大きさを見ていない。まともな手が 2 つしかない局面で破綻 |
+// | X% の確率でランダム手 | **間違いが難易度と無相関**になる。ふだん完璧で突然おかしい＝人間味の逆 |
+//
+// ノイズは正規分布なので裾が無限に伸びる。そこで **`maxLoss`（最善からの
+// equity 差の上限）で足切りしてから**ノイズを掛ける。「よく間違えるが、
+// 絶対にアホなことはしない」の 2 つのつまみ。
+
+/**
+ * 盤面から決定的にノイズを作る（32bit FNV-1a + 撹拌）。
+ *
+ * **毎回乱数を引いてはいけない。** 1 手戻してやり直すと AI の手が変わり、
+ * 同じ局面で違う手を打つのが露骨に見える。局面を鍵にすれば、同じ局面は
+ * 何度でも同じ読み違えをする。
+ */
+function hash32(text, seed) {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  h ^= h >>> 15; h = Math.imul(h, 2246822507) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 3266489909) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** 標準正規分布の値を 1 つ、鍵から決定的に作る（Box-Muller）。 */
+export function gaussianFor(key) {
+  // log(0) を避けるため u1 は 0 を取らないようにずらす
+  const u1 = (hash32(key, 0x811c9dc5) + 1) / 4294967297;
+  const u2 = hash32(key, 0x01000193) / 4294967296;
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+/**
+ * 強さの段。**着手・キューブ・Worker が同じ表を見る。**
+ *
+ * `plies` だけで Agent を作り分けると、**先読み 0 の段が 3 つあるせいで
+ * 弱い段が黙って上級のまま**になる（Worker は plies を鍵に使い回していた）。
+ * Agent を作る入口は `agentFor()` 1 つに統一すること。
+ *
+ * `noise` / `maxLoss` は equity（1 局あたりの期待得点）の単位。
+ *
+ * **σ は勘で置かない。** `tools/measure-level.mjs` で自己対局の棋譜を gnubg に
+ * 採点させ、技量帯に合わせて選んである（30 局・約 1,700 手ずつ。3-ply だけ
+ * 24 局・1,136 手 / 2026-08-22）。
+ *
+ * **小さい標本では帯をまたぐ。** 3-ply を 8 局で測ったときは 5.7（Expert）
+ * だったが、24 局で測り直すと 4.1（World class）になった。
+ */
+//
+// | 設定 | 実測 ER | gnubg のラベル（W / B） | 採否 |
+// | --- | --- | --- | --- |
+// | σ=0.30 / cap 0.3 | 75.5 | Awful! / Awful! | |
+// | σ=0.20 / cap 0.3 | 62.1 | Awful! / Awful! | |
+// | σ=0.12 / cap 0.4 | 42.9 | Awful! / Awful! | |
+// | **σ=0.07 / cap 0.5** | **29.2** | Beginner / Beginner | **初心者** |
+// | **σ=0.04 / cap 0.5** | **20.6** | Casual / Casual | **カジュアル** |
+// | **0-ply** | **12.8** | Advanced / Intermediate | **中級** |
+// | **2-ply** | **8.3** | Advanced / Expert | **上級** |
+// | **3-ply** | **4.1** | World class / World class | **エキスパート** |
+//
+// **最初に当てで置いた σ=0.16 は ER 50 超（Awful!）だった。** 0.12 より下は
+// 「読み違えが多い人」ではなく「でたらめ」に見え始めるので採らない。
+//
+// 名前は gnubg の技量帯から借りた**目安**。「よわい」「つよい」のような主観語を
+// 避けたかったのと、σ を決めた根拠と同じ言葉にしておくと後から追いやすいため。
+// **ぴったり一致させることは狙っていない**（0-ply と 2-ply は W と B で別の
+// ラベルが付いており、そもそも境界をまたいでいる）。
+export const LEVELS = [
+  {
+    id: 'beginner', name: '初心者', plies: 0, noise: 0.07, maxLoss: 0.50,
+    note: '読み違えが多め',
+  },
+  {
+    id: 'casual', name: 'カジュアル', plies: 0, noise: 0.04, maxLoss: 0.50,
+    note: 'ときどき読み違える',
+  },
+  {
+    id: 'intermediate', name: '中級', plies: 0, noise: 0, maxLoss: Infinity,
+    note: '先読みなし・読み違え無し',
+  },
+  {
+    id: 'advanced', name: '上級', plies: 2, noise: 0, maxLoss: Infinity,
+    note: '2 手先読み',
+  },
+  {
+    id: 'expert', name: 'エキスパート', plies: 3, noise: 0, maxLoss: Infinity,
+    note: '3 手先読み・1 手に数秒かかる',
+  },
+];
+
+/** 既定の段（設定画面の初期選択）。 */
+export const DEFAULT_LEVEL = 'intermediate';
+
+export function levelById(id) {
+  return LEVELS.find((l) => l.id === id) ?? LEVELS.find((l) => l.id === DEFAULT_LEVEL);
+}
+
+/**
+ * 段から Agent を作る。**アプリ・Worker・テストはここだけを通すこと。**
+ */
+export function agentFor(net, levelId) {
+  const level = levelById(levelId);
+  return new Agent(net, level.plies, filtersFor(level.plies), {
+    noise: level.noise,
+    maxLoss: level.maxLoss,
+  });
+}
+
 export class Agent {
   /**
    * @param {NeuralNet} net
@@ -75,12 +200,27 @@ export class Agent {
   constructor(net, searchPlies = 0, filters = DEFAULT_FILTERS, {
     doublePoint = DEFAULT_DOUBLE_POINT,
     cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
+    noise = 0,
+    maxLoss = Infinity,
   } = {}) {
     this.net = net;
     this.searchPlies = searchPlies;
     this.filters = filters;
     this.doublePoint = doublePoint;
     this.cubeOwnership = cubeOwnership;
+    this.noise = noise;
+    this.maxLoss = maxLoss;
+  }
+
+  /**
+   * この局面をどれだけ読み違えるか（equity 単位）。強い段では常に 0。
+   *
+   * **キューブの判断にも同じ値を掛ける。** 着手だけ弱くすると「手はヘボいのに
+   * ダブルは完璧」という妙な相手になる。
+   */
+  noiseFor(board) {
+    if (this.noise <= 0) return 0;
+    return this.noise * gaussianFor(boardKey(board));
   }
 
   /**
@@ -90,7 +230,20 @@ export class Agent {
    * ため、生の出力が要る。
    */
   probabilitiesFor(board, turn) {
-    return this.net.predict(encodeBoard(board, WHITE, turn));
+    const probs = this.net.predict(encodeBoard(board, WHITE, turn));
+    const noise = this.noiseFor(board);
+    if (noise === 0) return probs;
+    // **確率の側でも同じだけ読み違える。** equity ≒ 2·P(win) − 1 なので、
+    // equity 単位のノイズは P(win) では半分。
+    //
+    // ここでずらすのは P(win) だけ。ギャモンの累積が P(win) を超え得るが、
+    // **`met.js` の `outcomeSpread()` が包含関係を押さえ直す**ので、負の確率は
+    // 出ない（元の出力も独立なシグモイドなので同じ問題を持っており、
+    // その対策がそのまま効く）。
+    const w = Math.min(0.999, Math.max(0.001, probs[WIN] + noise / 2));
+    const out = [...probs];
+    out[WIN] = w;
+    return out;
   }
 
   /**
@@ -104,9 +257,14 @@ export class Agent {
     return player === WHITE ? whiteView : -whiteView;
   }
 
-  /** `player` 視点の cubeless equity（0-ply）。 */
+  /**
+   * `player` 視点の cubeless equity（0-ply）。
+   *
+   * **キューブ判断でしか使わない**ので、ここでノイズを乗せる（着手側は
+   * `selectMove` が足切りと一緒に掛ける）。
+   */
   equityFor(board, turn, player) {
-    const mover = this.equitiesFor([board], turn)[0];
+    const mover = this.equitiesFor([board], turn)[0] + this.noiseFor(board);
     return player === turn ? mover : -mover;
   }
 
@@ -299,9 +457,23 @@ export class Agent {
     const values = this.equitiesFor(boards, opponent(player)).map((v) => -v);
 
     if (this.searchPlies < 2) {
-      let best = 0;
-      for (let i = 1; i < values.length; i += 1) if (values[i] > values[best]) best = i;
-      return best;
+      if (this.noise <= 0) {
+        let best = 0;
+        for (let i = 1; i < values.length; i += 1) if (values[i] > values[best]) best = i;
+        return best;
+      }
+      // **足切りしてからノイズ。** 最善から maxLoss 以上劣る手は候補にすら
+      // 入れない（ノイズは正規分布で裾が無限に伸びるため、これが無いと
+      // ごく稀に「その手はやらんやろ」が出る）。最善手は必ず生き残る。
+      const best = Math.max(...values);
+      let pick = 0;
+      let bestScore = -Infinity;
+      for (let i = 0; i < values.length; i += 1) {
+        if (values[i] < best - this.maxLoss) continue;
+        const score = values[i] + this.noiseFor(boards[i]);
+        if (score > bestScore) { bestScore = score; pick = i; }
+      }
+      return pick;
     }
 
     const picks = this.shortlist(boards, player);

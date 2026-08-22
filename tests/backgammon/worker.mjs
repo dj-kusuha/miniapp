@@ -54,7 +54,7 @@ async function ask(payload) {
 const src = (name) => new URL(`../../docs/backgammon/src/${name}`, import.meta.url).href;
 const { Board, WHITE, opponent } = await import(src('board.js'));
 const { NeuralNet } = await import(src('nn.js'));
-const { Agent, filtersFor } = await import(src('agent.js'));
+const { agentFor, LEVELS } = await import(src('agent.js'));
 const { generateMoves, boardKey } = await import(src('rules.js'));
 
 await ask({ kind: 'load', url: `${base}src/model.json` });
@@ -67,8 +67,11 @@ const die = () => 1 + (rnd() * 6 | 0);
 
 let bad = 0;
 let checked = 0;
-for (const plies of [0, 2, 3]) {
-  const agent = new Agent(net, plies, filtersFor(plies));
+// **全段で照合する。** 先読み 0 の段が 3 つあるので、Worker が plies を鍵に
+// 使い回すと弱い段が黙って中級のままになる。ここが唯一の防波堤。
+for (const level of LEVELS) {
+  const plies = level.plies;
+  const agent = agentFor(net, level.id);
   let board = new Board();
   let turn = WHITE;
   let done = 0;
@@ -85,17 +88,17 @@ for (const plies of [0, 2, 3]) {
           bar: [board.bar[WHITE], board.bar[opponent(WHITE)]],
           off: [board.off[WHITE], board.off[opponent(WHITE)]],
         },
-        player: turn, die1: d1, die2: d2, plies,
+        player: turn, die1: d1, die2: d2, level: level.id,
       });
       const want_ = agent.selectMove(moves, turn);
       checked += 1;
       if (reply.index !== want_) {
         bad += 1;
-        if (bad <= 3) console.log(`  ${plies}-ply: worker=${reply.index} main=${want_}`);
+        if (bad <= 3) console.log(`  ${level.id}: worker=${reply.index} main=${want_}`);
       }
       if (boardKey(moves[reply.index].resultingBoard) !== reply.key) {
         bad += 1;
-        console.log(`  ${plies}-ply: 鍵が一致しません`);
+        console.log(`  ${level.id}: 鍵が一致しません`);
       }
       done += 1;
     }
