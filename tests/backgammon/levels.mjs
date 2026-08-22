@@ -7,12 +7,13 @@
 //   2. **足切りが効く**こと（最善から maxLoss 以上劣る手を選ばない）
 //   3. **段が単調に弱い**こと（ノイズが大きいほど平均損失が増える）
 //   4. **キューブにもノイズが乗る**こと（手だけヘボくならない）
+//   5. **ヒントが読み違えず、探索が効いている**こと（壊れても静かなので固定する）
 
 import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import { WHITE, opponent } from '../../docs/backgammon/src/board.js';
 import {
-  LEVELS, DEFAULT_LEVEL, agentFor, levelById, gaussianFor,
+  LEVELS, DEFAULT_LEVEL, ADVICE_LEVEL, agentFor, levelById, gaussianFor,
 } from '../../docs/backgammon/src/agent.js';
 import { generateMoves } from '../../docs/backgammon/src/rules.js';
 
@@ -177,6 +178,88 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
   if (!(p[0] > 0 && p[0] < 1)) fail(`ノイズ後の P(win) が範囲外: ${p[0]}`);
 }
 
+// (5) ヒント（`rankMoves`）。**壊れても静かなので固定する。**
+//
+// **`ADVICE_LEVEL` は 3-ply で 1 局面 1 秒級**なので、多数の局面には掛けられない。
+// 仕組みの検証は速い段（2-ply）で数を回し、**`ADVICE_LEVEL` が本当にその段で
+// 繋がっているか**だけを少数の局面で確かめる、の 2 段構えにする。
+let adviceStats = null;
+{
+  const level = levelById(ADVICE_LEVEL);
+
+  // 助言に読み違えが乗っていたら助言ではない
+  if (level.noise !== 0) fail('ヒントの段にノイズが乗っている');
+  // **いちばん深く読む段を使う。** 対戦相手より弱い助言は助言にならない
+  const deepest = LEVELS.reduce((a, b) => (b.plies > a.plies ? b : a));
+  if (level.plies !== deepest.plies) {
+    fail(`ヒントの段が ${level.plies}-ply（最深は ${deepest.plies}-ply）`);
+  }
+
+  // ── 仕組みの検証（速い段で数を回す） ──
+  //
+  // 2-ply でも 1 局面 60ms 程度かかる。**主張に必要なだけ**に絞る
+  // （全 400 局面だと 1 分近くかかり、テストとして回らなくなる）。
+  const advice = agentFor(net, LEVELS.find((l) => l.plies === 2).id);
+  const adviceCases = cases.slice(0, 80);
+  let sameAsSelect = 0;
+  let differFromFlat = 0;
+  let ordered = 0;
+  const flat = agentFor(net, CLEAN.id);   // 先読みなし・ノイズなし
+
+  for (const c of adviceCases) {
+    const ranked = advice.rankMoves(c.moves, c.turn, 3);
+    if (ranked.length === 0) { fail('ヒントが空を返した'); break; }
+
+    // **ヒントの 1 位は、同じ段の Agent が実際に選ぶ手と一致するはず。**
+    // ここがずれると「AI が指さない手を最善だと言う」ことになる。
+    if (ranked[0].index === advice.selectMove(c.moves, c.turn)) sameAsSelect += 1;
+    // 探索が本当に効いているか（効いていなければ 0-ply と常に一致する）
+    if (ranked[0].index !== flat.selectMove(c.moves, c.turn)) differFromFlat += 1;
+
+    // 強い順に並び、loss は最善との差で単調に増える
+    const okOrder = ranked.every((e, i) => (i === 0
+      ? Math.abs(e.loss) < 1e-12
+      : e.equity <= ranked[i - 1].equity + 1e-12 && e.loss >= ranked[i - 1].loss - 1e-12));
+    if (okOrder) ordered += 1;
+
+    // 確率は合計 1・非負
+    const p = ranked[0].probabilities;
+    const sum = p.win1 + p.win2 + p.win3 + p.lose1 + p.lose2 + p.lose3;
+    if (Math.abs(sum - 1) > 1e-9) fail(`ヒントの確率の合計が ${sum}`);
+    if (Object.values(p).some((v) => v < 0)) fail('ヒントの確率が負');
+  }
+
+  if (sameAsSelect !== adviceCases.length) {
+    fail(`ヒントの 1 位が同じ段の着手と食い違う（${adviceCases.length - sameAsSelect} 件）`);
+  }
+  if (ordered !== adviceCases.length) {
+    fail(`ヒントの並びが強い順でない（${adviceCases.length - ordered} 件）`);
+  }
+  // **0-ply と常に同じなら探索が繋がっていない。** 静かに壊れる形なので明示的に見る。
+  if (differFromFlat === 0) fail('ヒントが 0-ply と常に同じ手（探索が効いていない）');
+
+  // ── `ADVICE_LEVEL` が本当にその深さで繋がっているか（少数だけ） ──
+  //
+  // 3-ply は 1 局面 1 秒級なので数を絞る。ここで見たいのは正しさの統計ではなく
+  // **「アプリが使う段で rankMoves が動き、着手と一致するか」**の 1 点。
+  const deep = agentFor(net, ADVICE_LEVEL);
+  if (deep.searchPlies !== level.plies) fail('ヒント用 Agent の先読みが段の表と違う');
+  let deepChecked = 0;
+  for (const c of cases.slice(0, 3)) {
+    const ranked = deep.rankMoves(c.moves, c.turn, 3);
+    if (!ranked.length) { fail('ヒント（最深）が空を返した'); break; }
+    if (ranked[0].index !== deep.selectMove(c.moves, c.turn)) {
+      fail('ヒント（最深）の 1 位が同じ段の着手と食い違う');
+      break;
+    }
+    deepChecked += 1;
+  }
+
+  adviceStats = {
+    sameAsSelect, differFromFlat, total: adviceCases.length, deepChecked, plies: level.plies,
+  };
+}
+
 // ── 結果 ────────────────────────────────────
 
 console.log(`強さの段: ${cases.length} 局面（選択肢 2 つ以上）で確認`);
@@ -184,6 +267,14 @@ for (const s of summary) {
   console.log(`  ${s.name.padEnd(4)} 最善一致 ${(s.agree * 100).toFixed(1)}%`
     + ` / 平均損失 ${(s.meanLoss * 1000).toFixed(1)} mEMG`
     + ` / 最悪 ${(s.worst * 1000).toFixed(0)} mEMG`);
+}
+
+if (adviceStats) {
+  console.log(`  ヒントの仕組み（2-ply で検証） 1 位が同段の着手と一致`
+    + ` ${adviceStats.sameAsSelect}/${adviceStats.total}`
+    + ` / 0-ply と違った ${adviceStats.differFromFlat}`);
+  console.log(`  ヒントの段: ${levelById(ADVICE_LEVEL).name}`
+    + `（${adviceStats.plies}-ply）を ${adviceStats.deepChecked} 局面で結線確認`);
 }
 
 if (failures.length) {

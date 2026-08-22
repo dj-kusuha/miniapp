@@ -16,6 +16,10 @@
      色**にする。盤（金茶）の上に白抜きで置いても読める濃さを選んである。
      盤の色はテーマで変わらないので、この色も 1 つで通す。 */
   --cube-action: #5b4b9e;
+  /* ヒントの印。**選択できる印（緑）と同じ駒に同時に付く**ので、緑ともダブルの
+     紫とも見分けが付く色にする。盤（クリーム / 茶）の上でも沈まない濃さ。
+     **色だけに頼ってはいない**（最善手は表記でも出す。FRONTEND.md）。 */
+  --advice: #c2185b;
   --danger: #a8412f;
   --gap: 12px;
   --radius: 10px;
@@ -33,6 +37,9 @@
     --white-checker: #ede7dc;
     --black-checker: #16130f;
     --accent: #4f9d74;
+    /* 暗い背景では沈むので明るい側へ。盤の色はテーマで変わらないが、
+       クリーム / 茶のどちらの上でも読める範囲。 */
+    --advice: #ff5c8a;
   }
 }
 
@@ -198,6 +205,17 @@ button:disabled { opacity: .5; cursor: default; }
 /* 選択できる駒はマス全体を囲う（三角形に切り取られる ::before ではなく本体に描く）。 */
 .point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
 
+/* ヒントの最善手の移動元。**選択できる印（緑）と重なるので別の色にする。**
+   両方付くことがあるため、内側と外側で描き分けて共存させる。 */
+.point.advised { box-shadow: inset 0 0 0 3px var(--advice); }
+.point.selectable.advised {
+  box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--accent);
+}
+.bar.advised { box-shadow: inset 0 0 0 3px var(--advice); }
+.bar.selectable.advised {
+  box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--accent);
+}
+
 .checker {
   aspect-ratio: 1;
   border-radius: 50%;
@@ -337,6 +355,22 @@ button:disabled { opacity: .5; cursor: default; }
 }
 #cube-offer.at-right { grid-column: 9 / 15; }
 #cube-offer.at-left { grid-column: 2 / 8; }
+
+/* ヒントの表示。盤のすぐ下に出す。 */
+.advice { display: grid; gap: 4px; }
+.advice-move {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--advice);
+}
+.advice-rest {
+  margin: 0;
+  padding-left: 1.2em;
+  font-size: .85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 
 .status-panel { display: grid; gap: 6px; }
 .turn { margin: 0; font-weight: 700; }

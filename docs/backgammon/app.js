@@ -7,7 +7,7 @@
 
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
-import { agentFor, levelById, DEFAULT_LEVEL } from './src/agent.js';
+import { agentFor, levelById, DEFAULT_LEVEL, ADVICE_LEVEL } from './src/agent.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
@@ -27,6 +27,9 @@ const DEFAULT_DELAY = 1000;
 const state = {
   net: null,
   agent: null,
+  adviceAgent: null,   // ヒント用。**対戦相手とは別の段**で読み違えも無い
+  advice: null,        // 表示中のヒント。局面が動いたら必ず消す
+  advising: false,     // ヒントを計算中（3-ply なので 1〜3 秒かかる）
   match: null,        // Match。進行中の局は match.game
   game: null,         // = match.game（既存のコードから触りやすいように持つ）
   humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
@@ -305,10 +308,93 @@ $('pass').addEventListener('click', () => {
 $('undo').addEventListener('click', undo);
 $('dice').addEventListener('click', flipDice);
 
+// ── ヒント ────────────────────────────────────
+//
+// **助言は対戦相手の段とは無関係**（`ADVICE_LEVEL`）。初心者と対局していても
+// 助言は良いものであってほしいし、読み違えの乗った助言は助言ではない。
+//
+// **手番の最初にしか出さない。** 駒を動かし始めたあとに「1 手番まるごとの最善」
+// を見せても、既に動かしたものと食い違って混乱するだけ。1 手戻せばまた出せる。
+
+/**
+ * 候補手を強い順に並べる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
+ *
+ * `chooseMove` と同じ理由で Worker へ逃がす。**ヒントは 3-ply なので 1〜3 秒
+ * かかり**、メインスレッドで回すとその間ずっと画面が固まる。
+ */
+async function rankMoves(board, player, roll, moves, level, limit = 3) {
+  if (thinker.worker) {
+    try {
+      const reply = await ask({
+        kind: 'rank',
+        board: {
+          points: board.points,
+          bar: [board.bar[WHITE], board.bar[BLACK]],
+          off: [board.off[WHITE], board.off[BLACK]],
+        },
+        player, die1: roll.die1, die2: roll.die2, level, limit,
+      });
+      // 着手のときと同じく、**鍵で照合**してからメイン側の Move に結び直す
+      const entries = reply.entries.map((entry) => {
+        const at = entry.index < moves.length
+          && boardKey(moves[entry.index].resultingBoard) === entry.key
+          ? entry.index
+          : moves.findIndex((m) => boardKey(m.resultingBoard) === entry.key);
+        return at >= 0 ? { ...entry, index: at, move: moves[at] } : null;
+      });
+      if (entries.length && entries.every(Boolean)) return entries;
+      console.warn('Worker のヒントがメイン側の合法手に見つかりません。こちらで計算します');
+    } catch (error) {
+      console.warn('Worker でのヒント計算に失敗しました。こちらで計算します', error);
+    }
+  }
+  return state.adviceAgent.rankMoves(moves, player, limit);
+}
+
+$('advice-button').addEventListener('click', async () => {
+  const game = state.game;
+  if (!canAdvise() || state.advising) return;
+  // **この手番の合法手そのものを鍵にする。** 局面が動けば別の配列になるので、
+  // 「消し忘れて古い助言が残る」が起こらない（消して回る必要がない）。
+  const root = game.legalMoves;
+  const runId = state.runId;
+
+  state.advising = true;
+  render();                       // ボタンを「考えています…」に
+  try {
+    const entries = await rankMoves(
+      game.board, game.currentPlayer, game.roll, root, ADVICE_LEVEL, 3);
+    // **待っている間に局面が動いていたら捨てる。** 1〜3 秒あるので普通に起きる。
+    if (state.runId === runId && state.game === game && game.legalMoves === root) {
+      state.advice = { root, entries };
+    }
+  } finally {
+    state.advising = false;
+    render();
+  }
+});
+
+/** いまヒントを出せるか。 */
+function canAdvise() {
+  const game = state.game;
+  return Boolean(state.adviceAgent) && !state.busy
+    && game.state === MOVING
+    && game.currentPlayer === state.humanSide
+    && game.legalMoves.length > 0
+    && !(state.turn && state.turn.applied.length > 0);
+}
+
+/** 出せない状況になっていたらヒントを捨てる。描画のたびに通す。 */
+function syncAdvice() {
+  if (!state.advice) return;
+  if (!canAdvise() || state.advice.root !== state.game.legalMoves) state.advice = null;
+}
+
 /** 設定画面から。新しいマッチ（アンリミテッドなら新しいセッション）を始める。 */
 function startMatch() {
   // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
   state.agent = agentFor(state.net, state.level);
+  state.adviceAgent = agentFor(state.net, ADVICE_LEVEL);
   state.match = new Match({
     length: state.matchLength,
     jacoby: state.jacoby,
@@ -602,7 +688,9 @@ function render() {
       `${player === WHITE ? '白' : '黒'}の上がり: ${n} 個`);
   }
 
+  syncAdvice();
   renderStatus();
+  renderAdvice();
   renderHighlights();
   renderLog();
 }
@@ -795,7 +883,9 @@ function renderStatus() {
     } else {
       $('hint').textContent = `白 ${game.board.off.WHITE} 個 / 黒 ${game.board.off.BLACK} 個 上がり`;
     }
-    for (const id of ['roll', 'undo', 'double', 'take', 'pass']) $(id).hidden = true;
+    for (const id of ['roll', 'undo', 'double', 'take', 'pass', 'advice-button']) {
+      $(id).hidden = true;
+    }
     $('again').textContent = match.isOver ? '新しいマッチ'
       : (match.isMoney ? 'もう一局' : '次の局');
     $('again').hidden = false;
@@ -811,7 +901,7 @@ function renderStatus() {
       : 'AI が考えています…';
     renderDiceTray($('dice'), null);
     renderDiceTray($('dice-ai'), null);
-    for (const id of ['roll', 'undo', 'again', 'double']) $(id).hidden = true;
+    for (const id of ['roll', 'undo', 'again', 'double', 'advice-button']) $(id).hidden = true;
     $('take').hidden = !toMe;
     $('pass').hidden = !toMe;
     return;
@@ -833,6 +923,12 @@ function renderStatus() {
 
   $('roll').hidden = !(mine && game.state === ROLLING);
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
+  // ヒントは手番の最初だけ。駒を動かし始めたら引っ込める。
+  // **3-ply は 1〜3 秒かかる**ので、計算中はそう見せて二度押しも止める。
+  const adviceButton = $('advice-button');
+  adviceButton.hidden = !canAdvise();
+  adviceButton.disabled = state.advising;
+  adviceButton.textContent = state.advising ? '考えています…' : 'ヒント';
   $('again').hidden = true;
   // ダブルはロール前だけ。キューブを相手が持っていたら出せない
   $('double').hidden = !(state.match.useCube && mine && game.state === ROLLING
@@ -853,10 +949,80 @@ function renderStatus() {
   } else $('hint').textContent = '';
 }
 
+const pct = (v) => `${(v * 100).toFixed(1)}%`;
+
+/**
+ * ヒントを描く。
+ *
+ * 出すのは**最善手の表記**と、**その手を指したあとの見込み**（勝ち / 負けを
+ * ギャモン・バックギャモンまで分けたもの）。次点も equity の差つきで並べる。
+ *
+ * > **順位と確率で読みの深さが違う。** 順位は 2 手先読みで付けているが、
+ * > 確率は着手後の局面を先読みなしで評価したもの。探索が equity しか返さない
+ * > ため。**「この % を根拠にこの順位」ではない。**
+ */
+function renderAdvice() {
+  const el = $('advice');
+  if (!state.advice) {
+    el.replaceChildren();
+    el.hidden = true;
+    return;
+  }
+  const [best, ...rest] = state.advice.entries;
+  const p = best.probabilities;
+  const win = p.win1 + p.win2 + p.win3;
+
+  el.replaceChildren();
+  const head = document.createElement('p');
+  head.className = 'advice-move';
+  head.textContent = `最善手 ${best.move.toString()}`;
+  el.appendChild(head);
+
+  const detail = document.createElement('p');
+  detail.className = 'note';
+  detail.textContent = `この手のあと 勝ち ${pct(win)}`
+    + `（ギャモン ${pct(p.win2 + p.win3)} / バックギャモン ${pct(p.win3)}）`
+    + ` ・ 負け ${pct(1 - win)}`
+    + `（ギャモン ${pct(p.lose2 + p.lose3)} / バックギャモン ${pct(p.lose3)}）`;
+  el.appendChild(detail);
+
+  const legend = document.createElement('p');
+  legend.className = 'note';
+  if (rest.length) {
+    const list = document.createElement('ul');
+    list.className = 'advice-rest';
+    for (const entry of rest) {
+      const li = document.createElement('li');
+      // 差は mEMG（1 局あたりの期待得点の 1/1000）。小さいほど僅差
+      li.textContent = `${entry.move.toString()}（−${(entry.loss * 1000).toFixed(0)}）`;
+      list.appendChild(li);
+    }
+    el.appendChild(list);
+    legend.textContent = '括弧内は最善手との差（1/1000 点）。小さいほど僅差。';
+  } else {
+    // 候補が 1 つしか残らないのは「ほかが明らかに劣る」ということ。
+    // 空欄にせず、そう言ってしまう方が初心者には有用。
+    legend.textContent = 'ほかの手は大きく劣ります（迷うところではありません）。';
+  }
+  el.appendChild(legend);
+  el.hidden = false;
+}
+
 /** 次の 1 手で動かせる駒（＝出目の移動元）を光らせる。 */
 function renderHighlights() {
-  for (let i = 0; i < 24; i += 1) $(`point-${i}`).classList.remove('selectable');
-  $('bar').classList.remove('selectable');
+  for (let i = 0; i < 24; i += 1) {
+    $(`point-${i}`).classList.remove('selectable', 'advised');
+  }
+  $('bar').classList.remove('selectable', 'advised');
+
+  // ヒントの最善手の移動元に印を付ける。**表記だけだと盤上で探すのが大変。**
+  if (state.advice) {
+    for (const single of state.advice.entries[0].move.singles) {
+      if (single.from === null) $('bar').classList.add('advised');
+      else $(`point-${single.from}`)?.classList.add('advised');
+    }
+  }
+
   if (state.busy || !state.turn) return;
 
   for (const single of currentOptions()) {

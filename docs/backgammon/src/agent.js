@@ -176,6 +176,17 @@ export const LEVELS = [
 /** 既定の段（設定画面の初期選択）。 */
 export const DEFAULT_LEVEL = 'intermediate';
 
+/**
+ * ヒントを出すときの段。**対戦相手の段とは無関係に固定する。**
+ *
+ * 初心者と対局していても、助言は良いものであってほしい。**いちばん深く読む段**
+ * を使う。**読み違えの無い段**であることが必須（ノイズの乗った助言は助言ではない）。
+ *
+ * **1 手に 1〜3 秒かかる。** そのため着手と同じく Web Worker へ逃がすこと
+ * （メインスレッドで回すとその間ずっと画面が固まる）。
+ */
+export const ADVICE_LEVEL = 'expert';
+
 export function levelById(id) {
   return LEVELS.find((l) => l.id === id) ?? LEVELS.find((l) => l.id === DEFAULT_LEVEL);
 }
@@ -359,6 +370,46 @@ export class Agent {
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
     return this.wouldTake(this.equityFor(game.board, proposer, taker));
+  }
+
+  /**
+   * 候補手を強い順に並べる。**ヒント表示用**で、対局の着手選択には使わない。
+   *
+   * 並べ替えは `selectMove` と同じ基準（`searchPlies` の深さ）。**2-ply 以上では
+   * 絞り込み（shortlist）に残った手だけを深く読む**ので、返すのはその中の上位。
+   * 絞り落とされた手は 0-ply の時点で明らかに劣っているものなので、ヒントとして
+   * 出す価値がない。
+   *
+   * `probabilities` は**着手後の局面を 0-ply で評価した**確率
+   * （手番は相手に移っている）。探索は equity しか返さないため、深く読んだ
+   * 結果ではない。**順位と確率で深さが違う**ことに注意。
+   *
+   * @returns {{move, index, equity, loss, probabilities}[]} loss は最善との差
+   */
+  rankMoves(legalMoves, player, limit = 3) {
+    const boards = legalMoves.map((m) => m.resultingBoard);
+    const shallow = this.equitiesFor(boards, opponent(player)).map((v) => -v);
+    const picks = this.searchPlies >= 2
+      ? this.shortlist(boards, player)
+      : shallow.map((_, i) => i);
+
+    const scored = picks.map((i) => ({
+      index: i,
+      equity: this.searchPlies >= 2
+        ? this.expandRolls(boards[i], opponent(player), player, this.searchPlies - 1, 1)
+        : shallow[i],
+    }));
+    scored.sort((a, b) => b.equity - a.equity);
+
+    const best = scored.length ? scored[0].equity : 0;
+    return scored.slice(0, limit).map(({ index, equity: value }) => ({
+      move: legalMoves[index],
+      index,
+      equity: value,
+      loss: best - value,
+      probabilities: outcomeSpread(
+        this.probabilitiesFor(boards[index], opponent(player)), player === WHITE),
+    }));
   }
 
   /** 各盤面の **turn（手番側）から見た** equity。 */
