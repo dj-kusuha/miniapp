@@ -180,20 +180,21 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
 
 // (5) ヒント（`rankMoves`）。**壊れても静かなので固定する。**
 //
-// **`ADVICE_LEVEL` は 3-ply で 1 局面 1 秒級**なので、多数の局面には掛けられない。
-// 仕組みの検証は速い段（2-ply）で数を回し、**`ADVICE_LEVEL` が本当にその段で
-// 繋がっているか**だけを少数の局面で確かめる、の 2 段構えにする。
+// 検証は**2 段構え**にしてある: 仕組みは速い段で数を回し、**`ADVICE_LEVEL` が
+// 本当にその段で繋がっているか**だけを少数の局面で確かめる。
+//
+// **`ADVICE_LEVEL` を 3-ply に戻しても壊れないように**この形を保つこと
+// （3-ply は 1 局面 1 秒級で、多数の局面には掛けられない）。
 let adviceStats = null;
 {
   const level = levelById(ADVICE_LEVEL);
 
   // 助言に読み違えが乗っていたら助言ではない
   if (level.noise !== 0) fail('ヒントの段にノイズが乗っている');
-  // **いちばん深く読む段を使う。** 対戦相手より弱い助言は助言にならない
-  const deepest = LEVELS.reduce((a, b) => (b.plies > a.plies ? b : a));
-  if (level.plies !== deepest.plies) {
-    fail(`ヒントの段が ${level.plies}-ply（最深は ${deepest.plies}-ply）`);
-  }
+  // **先読みする段であること。** 0-ply の助言では中級と同じ手しか出ず、
+  // 「最善手を教える」機能として弱い。どこまで深くするかは速度との兼ね合いで
+  // 選ぶ（いまは 2-ply。3-ply は 1 手 1〜3 秒で待たされ過ぎた）。
+  if (!(level.plies >= 2)) fail(`ヒントの段が ${level.plies}-ply（先読みしていない）`);
 
   // ── 仕組みの検証（速い段で数を回す） ──
   //
