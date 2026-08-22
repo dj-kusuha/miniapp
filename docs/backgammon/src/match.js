@@ -124,6 +124,22 @@ export class Match {
     this.scores[winner] = this.isMoney ? next : Math.min(next, this.length);
   }
 
+  /**
+   * キューブ判断に要るマッチの文脈。**アンリミテッドでは null。**
+   *
+   * `crawfordPlayed` は「**この局が終わった時点で**クロフォードが済んでいるか」。
+   * `startGame()` はクロフォード局を始めた時点で `crawfordDone` を立てるので、
+   * この局の結果として生まれるスコアを評価するにはこの値でよい。
+   */
+  cubeContext() {
+    if (this.isMoney) return null;
+    return {
+      length: this.length,
+      away: { [WHITE]: this.awayFor(WHITE), [BLACK]: this.awayFor(BLACK) },
+      crawfordPlayed: this.crawfordDone,
+    };
+  }
+
   /** `.mat` 書き出し用。局ごとの `{ log, result, scores }`。 */
   matGames() {
     return this.entries.map(({ game, scores }) => ({

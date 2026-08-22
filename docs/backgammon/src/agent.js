@@ -8,6 +8,7 @@
 
 import { WHITE, opponent, encodeBoard } from './board.js';
 import { equity, WIN } from './nn.js';
+import { matchWinChance, mwcWithCube, outcomeSpread } from './met.js';
 import { generateMoves, diceValues } from './rules.js';
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
@@ -120,6 +121,29 @@ export class Agent {
   }
 
   /**
+   * マッチでのキューブ判断に使う 3 つのマッチ勝率（**提案者から見た値**）。
+   *
+   * マネーゲームの equity（1 局あたりの期待得点）はマッチでは使えない。
+   * **同じ 1 点でも、スコアによって価値が違う**（マッチポイントの 1 点と
+   * 0-0 の 1 点は別物）。MET を通して**マッチに勝つ確率**へ換算する。
+   *
+   * @param {object} match `Match.cubeContext()` が返す文脈
+   * @returns {{noDouble: number, take: number, pass: number}}
+   */
+  matchCubeEquities(board, proposer, cubeValue, match) {
+    const spread = outcomeSpread(this.probabilitiesFor(board, proposer), proposer === WHITE);
+    const awayUs = match.away[proposer];
+    const awayThem = match.away[opponent(proposer)];
+    const played = match.crawfordPlayed;
+    return {
+      noDouble: mwcWithCube(spread, cubeValue, awayUs, awayThem, played),
+      take: mwcWithCube(spread, cubeValue * 2, awayUs, awayThem, played),
+      // ドロップされたら、いまのキューブの値ぶんを取って局が終わる
+      pass: matchWinChance(awayUs - cubeValue, awayThem, played),
+    };
+  }
+
+  /**
    * ダブルを提案すべきか。
    *
    * **キューブ判断は 0-ply。** engine 側は `cube_plies`（既定は着手と同じ深さ）
@@ -127,10 +151,23 @@ export class Agent {
    * backgammon_engine の docs/adr/0017-cube-measurement.md）。
    * 深く読む版が要るなら、確率ベクトルを伝播する探索（engine の
    * `search_vector`）の移植が要る。
+   *
+   * @param {?object} match `Match.cubeContext()`。**アンリミテッドでは null**
+   *   で、その場合は従来どおり equity の閾値で決める。
    */
-  shouldDouble(game) {
+  shouldDouble(game, match = null) {
     if (!game.canDouble()) return false;
     const proposer = game.currentPlayer;
+
+    if (match) {
+      const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
+      // **相手のテイク / パスはこちらが選べない。** 相手は自分に有利な方を
+      // 選ぶので、ダブルの価値は 2 つのうち**こちらにとって悪い方**。
+      //
+      // 「too good to double」も自然に入る: 打ち続けてギャモンを取る方が
+      // マッチ勝率が高ければ `noDouble` が勝つ。マネー側のような場合分けは要らない。
+      return Math.min(e.take, e.pass) > e.noDouble;
+    }
 
     // ジャコビー: キューブが回されるまでギャモンは 1 点なので、判断に使う
     // equity からギャモンぶんを外す
@@ -150,9 +187,17 @@ export class Agent {
   }
 
   /** 相手のダブルを受けるか（テイク = true / ドロップ = false）。 */
-  shouldAcceptDouble(game) {
+  shouldAcceptDouble(game, match = null) {
     const proposer = game.doublingProposer;
     const taker = opponent(proposer);
+
+    if (match) {
+      // 提案者視点の値をそのまま使う。MET は対称（`MWC(a,b) + MWC(b,a) = 1`）
+      // なので、**提案者のマッチ勝率が低い方**がテイク側にとって良い方。
+      const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
+      return e.take < e.pass;
+    }
+
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
     return this.wouldTake(this.equityFor(game.board, proposer, taker));

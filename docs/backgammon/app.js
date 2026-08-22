@@ -267,7 +267,7 @@ $('double').addEventListener('click', async () => {
   render();
   await pause();               // AI が考えているように見せる
 
-  const accepted = state.agent.shouldAcceptDouble(game);
+  const accepted = state.agent.shouldAcceptDouble(game, state.match.cubeContext());
   if (accepted) {
     game.acceptDouble();
     render();
@@ -987,7 +987,7 @@ async function runAiTurns() {
 
     // ── ダブルの提案（ロール前だけ）────────────────
     if (state.match.useCube && game.state === ROLLING && game.canDouble()
-        && state.agent.shouldDouble(game)) {
+        && state.agent.shouldDouble(game, state.match.cubeContext())) {
       game.proposeDouble();
       render();
       await pause();
