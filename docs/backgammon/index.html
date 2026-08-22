@@ -26,6 +26,22 @@
       </div>
     </div>
     <div class="field">
+      <span id="format-label">形式</span>
+      <div class="choices" role="radiogroup" aria-labelledby="format-label">
+        <button type="button" class="choice is-selected" data-format="money" role="radio" aria-checked="true">アンリミテッド</button>
+        <button type="button" class="choice" data-format="match" role="radio" aria-checked="false">ポイントマッチ</button>
+      </div>
+    </div>
+    <div class="field slider" id="length-field" hidden>
+      <div class="slider-head">
+        <label for="match-length">マッチの長さ</label>
+        <output id="match-length-value" for="match-length">5 ポイント</output>
+      </div>
+      <input type="range" id="match-length" min="1" max="7" step="1" value="5"
+             aria-describedby="length-note">
+      <p id="length-note" class="note">先に取った方が勝ち。相手がマッチポイントに達した直後の 1 局は、クロフォードルールでキューブを使えない。</p>
+    </div>
+    <div class="field">
       <span id="cube-label">ダブリングキューブ</span>
       <div class="choices" role="radiogroup" aria-labelledby="cube-label">
         <button type="button" class="choice is-selected" data-cube="on" role="radio" aria-checked="true">使う</button>
@@ -59,6 +75,7 @@
 
       <div class="panel status-panel">
         <p id="turn" class="turn" aria-live="polite">—</p>
+        <p id="score" class="score" aria-live="polite" hidden></p>
         <p id="cube-state" class="cube-state" aria-live="polite" hidden></p>
         <p id="hint" class="note"></p>
       </div>
@@ -71,8 +88,8 @@
       </div>
     </div>
 
-    <div class="panel speed-panel">
-      <div class="speed-head">
+    <div class="panel speed-panel slider">
+      <div class="slider-head">
         <label for="speed">AI の間合い</label>
         <output id="speed-value" for="speed">1.0 秒</output>
       </div>

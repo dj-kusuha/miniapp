@@ -428,9 +428,10 @@ button:disabled { opacity: .5; cursor: default; }
   .note.is-thinking { animation: none; }
 }
 
-/* AI の間合い。対局中に変えられるよう、盤と棋譜の間に置く。 */
-.speed-panel { display: grid; gap: 6px; }
-.speed-panel .speed-head {
+/* スライダー 1 つぶん（見出し + 現在値 + つまみ）。AI の間合いと
+   マッチの長さの 2 か所で使う。 */
+.slider { display: grid; gap: 6px; }
+.slider-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -438,15 +439,23 @@ button:disabled { opacity: .5; cursor: default; }
   font-size: .85rem;
   color: var(--muted);
 }
-.speed-panel output {
+.slider output {
   font-variant-numeric: tabular-nums;
   font-weight: 700;
   color: var(--ink);
 }
-.speed-panel input[type="range"] {
+.slider input[type="range"] {
   width: 100%;
   min-height: 44px;      /* タップ目標 */
   accent-color: var(--accent);
+}
+
+/* マッチのスコア。形式・点差・away・クロフォードをこの 1 行にまとめる。 */
+.score {
+  margin: 0;
+  font-size: .85rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* キューブの状態表示。値と持ち主が一目で分かるようにする。 */

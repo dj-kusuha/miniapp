@@ -23,12 +23,16 @@ export class Game {
    * @param {object} options
    * @param {boolean} options.jacoby ジャコビールール。**マネーゲーム専用**で、
    *   キューブが一度も回されていない局はギャモンも 1 点として数える。
-   *   マッチプレイには無いルールなので、マッチを実装するときは false にする。
+   *   マッチプレイには無いルールなので、マッチのときは false にする。
+   * @param {boolean} options.crawford クロフォード局。**この 1 局だけ
+   *   どちらもダブルを提案できない。** マッチで片方がマッチポイント
+   *   （あと 1 点）に達した直後の 1 局に立てる。
    */
-  constructor(board = null, rng = Math.random, { jacoby = true } = {}) {
+  constructor(board = null, rng = Math.random, { jacoby = true, crawford = false } = {}) {
     this.board = board ?? new Board();
     this.rng = rng;
     this.jacoby = jacoby;
+    this.crawford = crawford;
     this.cube = new DoublingCube();
     /** ダブルを提案した側（返事待ちの間だけ入る）。 */
     this.doublingProposer = null;
@@ -121,6 +125,8 @@ export class Game {
 
   /** いま手番側がダブルを提案できるか。ロール前だけ。 */
   canDouble() {
+    // クロフォード局はどちらもダブルできない
+    if (this.crawford) return false;
     return this.state === ROLLING && this.cube.canDouble(this.currentPlayer);
   }
 
