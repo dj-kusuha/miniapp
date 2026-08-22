@@ -301,7 +301,8 @@ function buildBoard() {
   board.replaceChildren();
 
   // 上段は index 12..23、下段は 11..0（White が右下から左回りに進む見え方）。
-  // バーは 7 列目に固定し、各点の列位置も明示する（auto-flow に任せない）。
+  // 列は「1: キューブ置き場 / 2-7: 点 / 8: バー / 9-14: 点 / 15: 上がりトレイ」。
+  // 位置は auto-flow に任せず全部明示する。
   const top = [];
   for (let i = 12; i <= 23; i += 1) top.push(i);
   const bottom = [];
@@ -323,15 +324,15 @@ function buildBoard() {
     label.style.gridRow = isBottom ? '5' : '1';
     board.appendChild(label);
   };
-  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 1); placeLabel(i, false, k + 1); });
-  top.slice(6).forEach((i, k) => { place(i, false, k + 8); placeLabel(i, false, k + 8); });
-  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 1); placeLabel(i, true, k + 1); });
-  bottom.slice(6).forEach((i, k) => { place(i, true, k + 8); placeLabel(i, true, k + 8); });
+  top.slice(0, 6).forEach((i, k) => { place(i, false, k + 2); placeLabel(i, false, k + 2); });
+  top.slice(6).forEach((i, k) => { place(i, false, k + 9); placeLabel(i, false, k + 9); });
+  bottom.slice(0, 6).forEach((i, k) => { place(i, true, k + 2); placeLabel(i, true, k + 2); });
+  bottom.slice(6).forEach((i, k) => { place(i, true, k + 9); placeLabel(i, true, k + 9); });
 
   const bar = document.createElement('div');
   bar.className = 'bar';
   bar.id = 'bar';
-  bar.style.gridColumn = '7';
+  bar.style.gridColumn = '8';
   bar.style.gridRow = '2 / 5';
   bar.setAttribute('role', 'button');
   bar.tabIndex = 0;
@@ -356,13 +357,19 @@ function buildBoard() {
   // Black は上段側、White は下段側に積む。
   board.appendChild(makeOffTray(BLACK, 2));
   board.appendChild(makeOffTray(WHITE, 4));
+
+  // キューブ置き場は上がりトレイの反対側（左端）。中身は render で入れ替える。
+  const cubeTray = document.createElement('div');
+  cubeTray.className = 'cube-tray';
+  cubeTray.id = 'cube-tray';
+  board.appendChild(cubeTray);
 }
 
 function makeOffTray(player, row) {
   const tray = document.createElement('div');
   tray.className = `off-tray ${player === WHITE ? 'white' : 'black'}`;
   tray.id = `off-${player}`;
-  tray.style.gridColumn = '14';
+  tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
   return tray;
 }
@@ -598,6 +605,36 @@ function renderCubeState() {
   el.hidden = false;
 }
 
+/**
+ * 盤の左端（上がりトレイの反対側）にダブリングキューブを描く。
+ *
+ * 持ち主がいなければ中央に置き、**数字は 64** を出す。実物のキューブには
+ * 1 の面が無く、まだ回っていない状態を 64 の面で表すのに合わせている。
+ * 誰かが持っていればその側（White は下、Black は上）へ移し、いまの値を出す。
+ */
+function renderCube() {
+  const tray = $('cube-tray');
+  tray.replaceChildren();
+  tray.classList.remove('at-center', 'at-top', 'at-bottom');
+  if (!state.useCube) {
+    tray.removeAttribute('aria-label');
+    return;
+  }
+
+  const cube = state.game.cube;
+  const center = cube.owner === null;
+  // 盤は White 視点固定なので、White が下・Black が上で決め打ってよい。
+  tray.classList.add(center ? 'at-center' : (cube.owner === WHITE ? 'at-bottom' : 'at-top'));
+
+  const box = document.createElement('span');
+  box.className = `cube${center ? ' is-center' : ''}`;
+  box.textContent = String(center ? 64 : cube.value);
+  tray.appendChild(box);
+
+  const who = center ? 'センター' : (cube.owner === state.humanSide ? 'あなた' : 'AI');
+  tray.setAttribute('aria-label', `ダブリングキューブ ${cube.value}（${who}）`);
+}
+
 function renderDiceTray(el, shown) {
   el.replaceChildren();
   if (!shown) return;
@@ -620,6 +657,7 @@ function renderStatus() {
   const midTurn = Boolean(state.turn && state.turn.applied.length > 0);
 
   renderCubeState();
+  renderCube();
 
   if (game.state === GAME_OVER) {
     const result = game.result;

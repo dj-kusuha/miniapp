@@ -132,14 +132,16 @@ button:disabled { opacity: .5; cursor: default; }
 .board {
   position: relative;
   display: grid;
-  /* 6 点 / バー / 6 点 / 上がりトレイ */
-  grid-template-columns: repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
+  /* キューブ置き場 / 6 点 / バー / 6 点 / 上がりトレイ。
+     **キューブは上がりトレイの反対側**（実物の盤と同じく、左の縁）に置く。 */
+  grid-template-columns:
+    minmax(22px, 6%) repeat(6, 1fr) minmax(26px, 7%) repeat(6, 1fr) minmax(22px, 6%);
   /* 上ラベル / 上段 / 中央の帯（バーとダイスの定位置） / 下段 / 下ラベル。
      番号は三角形の外（盤の縁）に出し、実物の盤と同じく三角形は帯に向かって尖る。 */
   grid-template-rows: 5% 1fr 14% 1fr 5%;
   gap: 2px;
   /* 駒 5 個を積んでも中央の帯を越えないように、実物より縦長にしてある。 */
-  aspect-ratio: 14 / 12.5;
+  aspect-ratio: 15 / 12.5;
   background: var(--board-dark);
   border: 6px solid var(--board-dark);
   border-radius: var(--radius);
@@ -266,6 +268,50 @@ button:disabled { opacity: .5; cursor: default; }
 .off-tray.black .off-count { bottom: 2px; }
 .off-tray.white .off-count { top: 2px; }
 
+/* ダブリングキューブの置き場。上がりトレイの反対側（盤の左の縁）に、
+   盤の高さいっぱいの帯として取る。キューブはその中で上 / 中央 / 下に動く:
+
+     センター（持ち主なし） → 中央。数字は 64（実物と同じ「1 の面が無い」表現）
+     Black が所有           → 上（Black のホーム側）
+     White が所有           → 下（White のホーム側。人間は常に White）
+
+   キューブを使わない設定のときは中身を空にする。**列そのものは残す**
+   （消すと盤の横幅が変わって、対局ごとに見え方が動いてしまう）。 */
+.cube-tray {
+  grid-column: 1;
+  grid-row: 2 / 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 2px;
+  background: var(--board-dark);
+  border-right: 2px solid var(--board);
+  overflow: hidden;
+}
+.cube-tray.at-center { justify-content: center; }
+.cube-tray.at-top { justify-content: flex-start; }
+.cube-tray.at-bottom { justify-content: flex-end; }
+
+.cube {
+  width: 92%;
+  aspect-ratio: 1;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 700;
+  /* 「64」の 2 桁が入る一番大きい字にする。狭い画面では詰まるので幅で縛る。 */
+  font-size: clamp(9px, 1.4vw, 15px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .35);
+}
+/* センターは「まだ誰も持っていない」ので、少し控えめに見せる。 */
+.cube.is-center { opacity: .85; }
+
 .status-panel { display: grid; gap: 6px; }
 .turn { margin: 0; font-weight: 700; }
 
@@ -278,8 +324,8 @@ button:disabled { opacity: .5; cursor: default; }
   justify-content: center;
   gap: 10%;
 }
-#dice { grid-column: 8 / 14; }
-#dice-ai { grid-column: 1 / 7; }
+#dice { grid-column: 9 / 15; }
+#dice-ai { grid-column: 2 / 8; }
 
 /* 盤の中央の帯に出すボタン。「振る」は自分のダイスと同じ右半分（手を伸ばす先を
    1 箇所にまとめる）、「ダブル」は左半分。どちらもロール前にしか出ないので、
@@ -294,8 +340,8 @@ button:disabled { opacity: .5; cursor: default; }
   white-space: nowrap;
   box-shadow: 0 2px 6px rgba(0, 0, 0, .35);
 }
-#roll { grid-column: 8 / 14; }
-#double { grid-column: 1 / 7; }
+#roll { grid-column: 9 / 15; }
+#double { grid-column: 2 / 8; }
 
 /* 振る（緑）と取り違えないよう、ダブルだけ別の色にする。 */
 .cube-action {
@@ -348,7 +394,9 @@ button:disabled { opacity: .5; cursor: default; }
 }
 
 @media (max-width: 420px) {
-  .board { grid-template-columns: repeat(6, 1fr) 20px repeat(6, 1fr); }
+  /* 狭い画面では両端の帯とバーを固定幅に落とし、点の幅を稼ぐ。
+     **列の数は変えない**（変えると帯の中身が別の列へずれる）。 */
+  .board { grid-template-columns: 18px repeat(6, 1fr) 20px repeat(6, 1fr) 18px; }
 }
 
 /* 長考中（3 手先読み）。固まったのではないと分かるように点滅させる。 */
