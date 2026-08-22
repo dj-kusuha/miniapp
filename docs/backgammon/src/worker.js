@@ -53,6 +53,26 @@ self.onmessage = async (event) => {
       return;
     }
 
+    // ヒント。**3-ply だと 1〜3 秒かかる**ので、着手と同じくここへ逃がす。
+    // 返すのは index と鍵と数値だけ（Move は盤面を抱えていて重い）。
+    if (kind === 'rank') {
+      const { board, player, die1, die2, level, limit } = event.data;
+      const moves = generateMoves(Board.fromJson(board), player, die1, die2);
+      const ranked = agentForLevel(level).rankMoves(moves, player, limit ?? 3);
+      self.postMessage({
+        id,
+        ok: true,
+        entries: ranked.map((entry) => ({
+          index: entry.index,
+          key: boardKey(entry.move.resultingBoard),
+          equity: entry.equity,
+          loss: entry.loss,
+          probabilities: entry.probabilities,
+        })),
+      });
+      return;
+    }
+
     throw new Error(`未知の要求: ${kind}`);
   } catch (error) {
     self.postMessage({ id, ok: false, error: String(error && error.message || error) });
