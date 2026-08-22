@@ -10,7 +10,8 @@
 // 「15 桁目以降の二重空白」に頼る経路へ落ち、実機で読み込めなかった。
 
 import { WHITE, BLACK, opponent as opponentOf } from '../../docs/backgammon/src/board.js';
-import { Game, GAME_OVER } from '../../docs/backgammon/src/game.js';
+import { GAME_OVER } from '../../docs/backgammon/src/game.js';
+import { Match, MONEY } from '../../docs/backgammon/src/match.js';
 import { toMat } from '../../docs/backgammon/src/mat.js';
 
 /** 決められた種を持つ乱数（対局を再現できるようにする）。 */
@@ -26,12 +27,9 @@ function seeded(seed) {
  * 合法手から適当に 1 つ選んで 1 局を終わりまで進める。
  *
  * `cube` を立てると、ロール前にときどきダブルを提案し、受けたり降りたりする。
- * ジャコビーは切る（点数の見え方を単純にするため）。
+ * **クロフォード局ではダブルできない**ので、`canDouble()` を必ず通す。
  */
-function playGame(seed, { cube = false } = {}) {
-  const rng = seeded(seed);
-  const game = new Game(null, rng, { jacoby: false });
-  game.start();
+function playGame(game, rng, cube) {
   for (let i = 0; i < 2000 && game.state !== GAME_OVER; i += 1) {
     if (cube && game.canDouble() && rng() < 0.08) {
       game.proposeDouble();
@@ -46,6 +44,24 @@ function playGame(seed, { cube = false } = {}) {
     game.applyMove(Math.floor(rng() * game.legalMoves.length));
   }
   return game;
+}
+
+/**
+ * マッチ（またはアンリミテッドのセッション）を最後まで進める。
+ *
+ * `games` を渡すとその局数で打ち切る（アンリミテッドは終わらないので必須）。
+ * ジャコビーは切る（点数の見え方を単純にするため）。
+ */
+function playSession(seed, { cube = false, length = MONEY, games = 40 } = {}) {
+  const rng = seeded(seed);
+  const match = new Match({ length, jacoby: false, useCube: cube, rng });
+  for (let i = 0; i < games; i += 1) {
+    const game = match.startGame();
+    if (!game) break;             // マッチが終わっている
+    playGame(game, rng, cube);
+    match.sync();
+  }
+  return match;
 }
 
 /**
@@ -99,13 +115,29 @@ function parseMat(text) {
   if (nLength === null) problems.push('ヘッダ "N point match" が無い');
   else if (nLength < 0) problems.push(`不正な match length: ${nLength}`);
 
-  // START_STRING " Game "
-  while (idx < lines.length && !lines[idx].startsWith(' Game ')) idx += 1;
-  if (idx >= lines.length) problems.push('" Game " 行が無い');
-  idx += 1;
+  // START_STRING " Game " ごとに 1 局。マッチでは何度も現れる。
+  const games = [];
+  while (idx < lines.length) {
+    while (idx < lines.length && !lines[idx].startsWith(' Game ')) idx += 1;
+    if (idx >= lines.length) break;
+    idx += 1;
+    const parsed = parseGame(lines, idx, problems);
+    idx = parsed.next;
+    games.push(parsed.game);
+  }
+  if (games.length === 0) problems.push('" Game " 行が無い');
+
+  return { problems, games, nLength };
+}
+
+/** 1 局ぶん（プレイヤー行 + 着手行）を読む。`idx` はプレイヤー行の位置。 */
+function parseGame(lines, start, problems) {
+  const cells = [];
+  let idx = start;
 
   // プレイヤー行。コロンが無いと ImportGame が return 0 する。
   let players = null;
+  let scores = null;
   if (idx < lines.length) {
     const psz = lines[idx].replace(/^\s+/, '');
     idx += 1;
@@ -124,10 +156,10 @@ function parseMat(text) {
         problems.push('プレイヤー行に 2 人目のコロンが無い → ImportGame が return 0');
       } else {
         players = [name0, tail.slice(0, c2).trimEnd()];
-        if (Number.isNaN(parseInt(rest, 10))
-            || Number.isNaN(parseInt(tail.slice(c2 + 1), 10))) {
-          problems.push('スコアが数値でない');
-        }
+        const s0 = parseInt(rest, 10);
+        const s1 = parseInt(tail.slice(c2 + 1), 10);
+        if (Number.isNaN(s0) || Number.isNaN(s1)) problems.push('スコアが数値でない');
+        else scores = [s0, s1];
       }
     }
   }
@@ -179,79 +211,110 @@ function parseMat(text) {
     }
   }
 
-  return { problems, cells, players, nLength };
+  return { next: idx, game: { cells, players, scores } };
 }
 
 // ── 実行 ────────────────────────────────────
 
-const GAMES = 60;
+const ROUNDS = 60;
 let blackFirst = 0;
 let whiteFirst = 0;
 const counts = { move: 0, dance: 0, double: 0, take: 0, drop: 0, win: 0 };
 const failures = [];
+let matchFiles = 0;
+let totalGames = 0;
 
-for (const cube of [false, true]) {
-  for (let seed = 1; seed <= GAMES; seed += 1) {
-    const label = `seed ${seed}${cube ? '（キューブあり）' : ''}`;
-    const game = playGame(seed, { cube });
-    const humanSide = seed % 2 ? WHITE : BLACK;
-    const text = toMat({
-      log: game.log,
-      result: game.state === GAME_OVER ? game.result : null,
-      humanSide,
-    });
+/** 1 本の .mat（1 局 / セッション / マッチ）を検証する。 */
+function check(label, match, humanSide) {
+  const text = toMat({
+    games: match.matGames(),
+    length: match.length,
+    humanSide,
+  });
+  const { problems, games, nLength } = parseMat(text);
+  for (const p of problems) failures.push(`${label}: ${p}`);
+  if (nLength !== match.length) {
+    failures.push(`${label}: ヘッダの長さが違う（${nLength} / ${match.length}）`);
+  }
+  if (games.length !== match.entries.length) {
+    failures.push(`${label}: 局数が違う（読み込み ${games.length} / ${match.entries.length}）`);
+    return;
+  }
 
-    const opening = game.log.find((e) => e.kind === 'open');
-    if (!cube) {
-      if (opening.player === BLACK) blackFirst += 1; else whiteFirst += 1;
+  // **列の順はファイル全体で固定**（1 局目の先手が左）。
+  const leftSide = match.entries[0].game.log.find((e) => e.kind === 'open').player;
+  const rightSide = opponentOf(leftSide);
+
+  games.forEach((parsed, gi) => {
+    const entry = match.entries[gi];
+    const at = `${label} 第 ${gi + 1} 局`;
+
+    // 名前が左右で入れ替わっていないか。**入れ替わるとスコアの帰属が壊れる。**
+    const wantLeft = leftSide === WHITE ? 'White' : 'Black';
+    if (parsed.players && !parsed.players[0].startsWith(wantLeft)) {
+      failures.push(`${at}: 左の名前が違う（${parsed.players[0]} / ${wantLeft}）`);
     }
-
-    const { problems, cells, players } = parseMat(text);
-    for (const p of problems) failures.push(`${label}: ${p}`);
-
-    // 先手が左の列に来ているか
-    const firstCell = cells.find((c) => c.kind === 'move' || c.kind === 'dance');
-    if (!firstCell || firstCell.who !== 0) {
-      failures.push(`${label}: 先手が左の列にいない（who=${firstCell ? firstCell.who : 'なし'}）`);
-    }
-    // 先手の色が左のプレイヤー名と一致しているか
-    const expected = opening.player === WHITE ? 'White' : 'Black';
-    if (players && !players[0].startsWith(expected)) {
-      failures.push(`${label}: 左の名前が先手と違う（${players[0]} / 先手は ${expected}）`);
-    }
-    // 空の左列に頼る分割が起きていないか。**着手が右列に来る行だけを見る**:
-    // キューブ行にはコロンが無く二重空白で割られるが、それは gnubg 自身の
-    // 書き出しもそうなので正常。危ないのは「左が空で着手が右」の組み合わせ。
-    for (const c of cells) {
-      if (c.who === 1 && c.splitBy === 'spaces' && c.leftEmpty
-          && (c.kind === 'move' || c.kind === 'dance')) {
-        failures.push(`${label}: 行 ${c.line} が二重空白で分割されている（左列が空）`);
+    // プレイヤー行のスコアが、その局を始めた時点の値になっているか
+    if (parsed.scores) {
+      const want = [entry.scores[leftSide], entry.scores[rightSide]];
+      if (parsed.scores[0] !== want[0] || parsed.scores[1] !== want[1]) {
+        failures.push(`${at}: スコアが違う（読み込み ${parsed.scores} / 期待 ${want}）`);
       }
     }
+    // **「左列が空」を弾く判定は置かない**（2026-08-22 に外した）。
+    //
+    // 以前は「左列が空の行は二重空白で割られる経路に落ちて読めない」として
+    // 弾いていたが、**マッチでは gnubg 自身がその形を書き出す**（先手が右の局の
+    // 1 行目）。実物の gnubg で往復させて、その行がそのまま戻ることも確かめた。
+    //
+    // 守りたいのは「どの手がどちらの列に入ったか」であって、行の見た目ではない。
+    // それは下のセル列の突き合わせが直接見ている。
 
     // 読み込み結果が、ログから作った並びと 1 セルずつ一致するか。
     // **どちらの列に入ったか**まで見るので、列の割り当ての誤りを捕まえられる。
-    const leftSide = opening.player;
-    const got = cells.filter((c) => c.kind !== 'empty')
-      .map((c) => ({ player: c.who === 0 ? leftSide : opponentOf(leftSide), kind: c.kind }));
-    const want = expectedCells(game);
+    const got = parsed.cells.filter((c) => c.kind !== 'empty')
+      .map((c) => ({ player: c.who === 0 ? leftSide : rightSide, kind: c.kind }));
+    const want = expectedCells(entry.game);
     if (got.length !== want.length) {
-      failures.push(`${label}: セル数が違う（読み込み ${got.length} / ログ ${want.length}）`);
-    } else {
-      for (let i = 0; i < want.length; i += 1) {
-        if (got[i].player !== want[i].player || got[i].kind !== want[i].kind) {
-          failures.push(`${label}: ${i + 1} 番目のセルが違う`
-            + `（読み込み ${got[i].player}/${got[i].kind} / ログ ${want[i].player}/${want[i].kind}）`);
-          break;
-        }
+      failures.push(`${at}: セル数が違う（読み込み ${got.length} / ログ ${want.length}）`);
+      return;
+    }
+    for (let i = 0; i < want.length; i += 1) {
+      if (got[i].player !== want[i].player || got[i].kind !== want[i].kind) {
+        failures.push(`${at}: ${i + 1} 番目のセルが違う`
+          + `（読み込み ${got[i].player}/${got[i].kind} / ログ ${want[i].player}/${want[i].kind}）`);
+        break;
       }
     }
-
     for (const c of got) counts[c.kind] += 1;
+  });
+  totalGames += games.length;
+}
+
+// 1 局だけ（アンリミテッド）。キューブ無し / あり。
+for (const cube of [false, true]) {
+  for (let seed = 1; seed <= ROUNDS; seed += 1) {
+    const match = playSession(seed, { cube, length: MONEY, games: 1 });
+    const opening = match.entries[0].game.log.find((e) => e.kind === 'open');
+    if (!cube) {
+      if (opening.player === BLACK) blackFirst += 1; else whiteFirst += 1;
+    }
+    check(`seed ${seed}${cube ? '（キューブあり）' : ''}`, match, seed % 2 ? WHITE : BLACK);
   }
 }
 
-console.log(`.mat 書き出し: ${GAMES * 2} 局（先手 White ${whiteFirst} / Black ${blackFirst}）`);
+// ポイントマッチ（1〜7）。**マッチは複数局にまたがる**ので、列の固定と
+// スコアの引き継ぎはここでしか確かめられない。
+for (const length of [1, 2, 3, 4, 5, 6, 7]) {
+  for (let seed = 1; seed <= 12; seed += 1) {
+    const match = playSession(seed * 31 + length, { cube: true, length });
+    check(`${length}pt seed ${seed}`, match, seed % 2 ? WHITE : BLACK);
+    matchFiles += 1;
+  }
+}
+
+console.log(`.mat 書き出し: ${totalGames} 局 / ${ROUNDS * 2 + matchFiles} 本`
+  + `（うちマッチ ${matchFiles} 本。1 局目の先手 White ${whiteFirst} / Black ${blackFirst}）`);
 console.log(`  着手欄 ${counts.move} 件 / ダンス ${counts.dance} 件`);
 console.log(`  キューブ: ダブル ${counts.double} 件 / テイク ${counts.take} 件 / ドロップ ${counts.drop} 件`);
 

@@ -8,7 +8,8 @@
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
 import { Agent, filtersFor } from './src/agent.js';
-import { Game, MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
+import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
+import { Match, MONEY } from './src/match.js';
 import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
 
@@ -26,11 +27,14 @@ const DEFAULT_DELAY = 1000;
 const state = {
   net: null,
   agent: null,
-  game: null,
+  match: null,        // Match。進行中の局は match.game
+  game: null,         // = match.game（既存のコードから触りやすいように持つ）
   humanSide: WHITE,   // 盤は White 視点固定なので、人間も White に固定する
   plies: 2,
   useCube: true,      // ダブリングキューブを使うか
-  jacoby: true,       // ジャコビールール（マネーゲーム専用）
+  jacoby: true,       // ジャコビールール（アンリミテッド専用）
+  isMatch: false,     // 形式。false = アンリミテッド
+  matchLength: MONEY, // 0 = アンリミテッド。1〜7 でポイントマッチ
   delay: DEFAULT_DELAY,   // AI の進行を見せる間合い（ms）
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
@@ -173,7 +177,7 @@ for (const button of document.querySelectorAll('[data-cube]')) {
   button.addEventListener('click', () => {
     selectChoice(button);
     state.useCube = button.dataset.cube === 'on';
-    syncJacobyField();
+    syncFormatFields();
   });
 }
 for (const button of document.querySelectorAll('[data-jacoby]')) {
@@ -183,16 +187,34 @@ for (const button of document.querySelectorAll('[data-jacoby]')) {
   });
 }
 
-/**
- * キューブを使わない設定なら、ジャコビールールの項目ごと隠す。
- *
- * ジャコビーは「キューブが一度も回っていない局のギャモンを 1 点にする」規則
- * なので、キューブ自体が無ければ選ばせる意味がない。
- */
-function syncJacobyField() {
-  $('jacoby-field').hidden = !state.useCube;
+// 形式とマッチの長さ。**長さのスライダーは形式と独立に覚えておく**ので、
+// アンリミテッドへ切り替えて戻しても選び直さなくてよい。
+const lengthInput = $('match-length');
+
+for (const button of document.querySelectorAll('[data-format]')) {
+  button.addEventListener('click', () => {
+    selectChoice(button);
+    state.isMatch = button.dataset.format === 'match';
+    syncFormatFields();
+  });
 }
-syncJacobyField();
+lengthInput.addEventListener('input', syncFormatFields);
+
+/**
+ * 形式に応じて設定項目を出し入れし、`state.matchLength` を決める。
+ *
+ * - **マッチの長さ**はポイントマッチのときだけ選ばせる
+ * - **ジャコビーはアンリミテッド専用**。マッチには無いルールなので隠す
+ *   （キューブを使わない設定のときも、選ばせる意味がないので隠す）
+ */
+function syncFormatFields() {
+  const points = Number(lengthInput.value);
+  state.matchLength = state.isMatch ? points : MONEY;
+  $('match-length-value').textContent = `${points} ポイント`;
+  $('length-field').hidden = !state.isMatch;
+  $('jacoby-field').hidden = !state.useCube || state.isMatch;
+}
+syncFormatFields();
 
 // ── AI の間合い ────────────────────────────────
 //
@@ -218,8 +240,12 @@ function selectChoice(button) {
   if (button.dataset.plies !== undefined) state.plies = Number(button.dataset.plies);
 }
 
-$('start').addEventListener('click', startGame);
-$('again').addEventListener('click', startGame);
+$('start').addEventListener('click', startMatch);
+// マッチが続いていれば次の局へ、終わっていれば同じ設定で新しいマッチへ。
+$('again').addEventListener('click', () => {
+  if (state.match && !state.match.isOver) nextGame();
+  else startMatch();
+});
 $('roll').addEventListener('click', async () => {
   const game = state.game;
   const before = game.currentPlayer;
@@ -235,7 +261,7 @@ $('roll').addEventListener('click', async () => {
 });
 $('double').addEventListener('click', async () => {
   const game = state.game;
-  if (!state.useCube || !game.canDouble()) return;
+  if (!state.match.useCube || !game.canDouble()) return;
   game.proposeDouble();
   state.history = [];          // ダブルを出したら戻せない
   render();
@@ -270,21 +296,32 @@ $('pass').addEventListener('click', () => {
 $('undo').addEventListener('click', undo);
 $('dice').addEventListener('click', flipDice);
 
-function startGame() {
+/** 設定画面から。新しいマッチ（アンリミテッドなら新しいセッション）を始める。 */
+function startMatch() {
   // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
   state.agent = new Agent(state.net, state.plies, filtersFor(state.plies));
-  state.game = new Game(null, Math.random, { jacoby: state.jacoby });
+  state.match = new Match({
+    length: state.matchLength,
+    jacoby: state.jacoby,
+    useCube: state.useCube,
+    rng: Math.random,
+  });
+  $('setup').hidden = true;
+  $('game').hidden = false;
+  buildBoard();
+  nextGame();
+}
+
+/** マッチの次の 1 局を始める。スコアとクロフォードの状態は Match が持つ。 */
+function nextGame() {
+  state.game = state.match.startGame();
   state.history = [];
   state.turn = null;
   state.anim = null;
   state.danceShow = null;
   state.busy = false;
   state.runId += 1;         // 進行中のアニメーションを打ち切る
-  state.game.start();
-  $('setup').hidden = true;
-  $('game').hidden = false;
   $('again').hidden = true;
-  buildBoard();
   afterChange();
 }
 
@@ -485,6 +522,10 @@ function finalizeTurn(move) {
 // ── 描画 ──────────────────────────────────────
 
 function render() {
+  // **局が決着していたらスコアへ反映する。** 局が終わる経路は複数ある
+  // （着手で上がる / ダブルを断る）ので、取りこぼさないよう描画のたびに通す。
+  // `Match.sync()` は冪等なので何度呼んでもよい。
+  state.match.sync();
   syncTurn();
   const game = state.game;
   const board = previewBoard();
@@ -599,14 +640,17 @@ function diceFor(player) {
 /** いまのキューブの値と持ち主を出す。使わない設定なら隠す。 */
 function renderCubeState() {
   const el = $('cube-state');
-  if (!state.useCube) {
+  if (!state.match.useCube) {
     el.hidden = true;
     return;
   }
-  const cube = state.game.cube;
+  const game = state.game;
+  const cube = game.cube;
   const who = cube.owner === null ? 'センター'
     : (cube.owner === state.humanSide ? 'あなた' : 'AI');
-  const jacoby = (state.jacoby && cube.untouched)
+  // **ジャコビーは局が持っている値を見る。** マッチでは設定に関わらず切られる
+  // ので、設定側（state.jacoby）を見ると嘘になる。
+  const jacoby = (game.jacoby && cube.untouched)
     ? '・ギャモンは 1 点（ジャコビー）' : '';
   el.textContent = `キューブ ${cube.value}（${who}）${jacoby}`;
   el.hidden = false;
@@ -630,7 +674,7 @@ function renderCube() {
   tray.removeAttribute('aria-label');
   offer.hidden = true;
   offer.classList.remove('at-left', 'at-right');
-  if (!state.useCube) return;
+  if (!state.match.useCube) return;
 
   const game = state.game;
   const cube = game.cube;
@@ -659,6 +703,36 @@ function renderCube() {
   tray.setAttribute('aria-label', `ダブリングキューブ ${cube.value}（${who}）`);
 }
 
+/**
+ * スコアと形式を出す。
+ *
+ * ポイントマッチでは**あと何点で勝てるか**（away）まで出す。キューブの判断も
+ * クロフォードも away で決まるので、点差より分かりやすい。クロフォード局は
+ * 「なぜダブルできないのか」が分からないと理不尽に見えるため必ず断る。
+ */
+function renderScore() {
+  const match = state.match;
+  const el = $('score');
+  const me = match.scores[state.humanSide];
+  const ai = match.scores[opponentSide()];
+
+  if (match.isMoney) {
+    // アンリミテッドは終わりが無いので、通算だけ出す（0-0 のうちは出さない）
+    el.hidden = me === 0 && ai === 0;
+    el.textContent = `通算 あなた ${me} - ${ai} AI`;
+    return;
+  }
+
+  const parts = [`${match.length} ポイントマッチ`, `あなた ${me} - ${ai} AI`];
+  if (!match.isOver) {
+    parts.push(`あと あなた ${match.awayFor(state.humanSide)} / AI ${match.awayFor(opponentSide())}`);
+    if (state.game.crawford) parts.push('クロフォード局（ダブル禁止）');
+    else if (match.postCrawford) parts.push('ポストクロフォード');
+  }
+  el.textContent = parts.join(' ・ ');
+  el.hidden = false;
+}
+
 function renderDiceTray(el, shown) {
   el.replaceChildren();
   if (!shown) return;
@@ -682,8 +756,10 @@ function renderStatus() {
 
   renderCubeState();
   renderCube();
+  renderScore();
 
   if (game.state === GAME_OVER) {
+    const match = state.match;
     const result = game.result;
     const who = result.winner === state.humanSide ? 'あなた' : 'AI';
     let kind;
@@ -692,7 +768,13 @@ function renderStatus() {
     } else {
       kind = { 1: 'シングル', 2: 'ギャモン', 3: 'バックギャモン' }[result.winType];
     }
-    $('turn').textContent = `${who}の勝ち（${kind} ${result.points} 点）`;
+    if (match.isOver) {
+      const winner = match.winner === state.humanSide ? 'あなた' : 'AI';
+      $('turn').textContent = `${winner}のマッチ勝ち`
+        + `（${match.scores[state.humanSide]} - ${match.scores[opponentSide()]}）`;
+    } else {
+      $('turn').textContent = `${who}の勝ち（${kind} ${result.points} 点）`;
+    }
     renderDiceTray($('dice'), null);
     renderDiceTray($('dice-ai'), null);
     if (result.jacobyApplied) {
@@ -705,6 +787,8 @@ function renderStatus() {
       $('hint').textContent = `白 ${game.board.off.WHITE} 個 / 黒 ${game.board.off.BLACK} 個 上がり`;
     }
     for (const id of ['roll', 'undo', 'double', 'take', 'pass']) $(id).hidden = true;
+    $('again').textContent = match.isOver ? '新しいマッチ'
+      : (match.isMoney ? 'もう一局' : '次の局');
     $('again').hidden = false;
     return;
   }
@@ -742,7 +826,7 @@ function renderStatus() {
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   $('again').hidden = true;
   // ダブルはロール前だけ。キューブを相手が持っていたら出せない
-  $('double').hidden = !(state.useCube && mine && game.state === ROLLING
+  $('double').hidden = !(state.match.useCube && mine && game.state === ROLLING
                          && game.canDouble());
 
   if (state.busy) {
@@ -797,10 +881,11 @@ function renderLog() {
 // 形式の細かい決まりごとは src/mat.js に置いてある。
 
 function toMat() {
-  const game = state.game;
+  // **マッチ（セッション）まるごと出す。** 1 局だけ出すと、ポイントマッチでは
+  // スコアの動きが分からない棋譜になる。
   return buildMat({
-    log: game.log,
-    result: game.state === GAME_OVER ? game.result : null,
+    games: state.match.matGames(),
+    length: state.match.length,
     humanSide: state.humanSide,
   });
 }
@@ -901,7 +986,7 @@ async function runAiTurns() {
     const ai = game.currentPlayer;
 
     // ── ダブルの提案（ロール前だけ）────────────────
-    if (state.useCube && game.state === ROLLING && game.canDouble()
+    if (state.match.useCube && game.state === ROLLING && game.canDouble()
         && state.agent.shouldDouble(game)) {
       game.proposeDouble();
       render();
