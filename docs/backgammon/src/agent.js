@@ -7,7 +7,7 @@
 // equity を求めて符号を反転**すると「自分の equity」になる。
 
 import { WHITE, opponent, encodeBoard } from './board.js';
-import { equity, WIN } from './nn.js';
+import { equity, flipPerspective, winLossMagnitudes, WIN } from './nn.js';
 import { matchWinChance, mwcWithCube, outcomeSpread } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
 
@@ -75,6 +75,30 @@ export const DEFAULT_DOUBLE_POINT = 0.45;
  * （backgammon_engine の docs/adr/0017-cube-measurement.md）
  */
 export const DEFAULT_CUBE_OWNERSHIP = 0.130;
+
+/**
+ * Janowski の cube efficiency（cubeModel === 'janowski' のときだけ効く）。
+ * **engine 側と必ず揃えること。**
+ *
+ * **0.92 は cube efficiency の理論値ではない**（gnubg は 0.6〜0.7）。
+ * engine の 32,400 局面の測定では 0.60 以降ずっと単調に下がり続けて 0.91 で底を
+ * 打つ。これは「x を上げると良くなる」＝「テイクし足りない」という意味で、
+ * **うちの勝率の過小評価（P(win) の平均のずれ -0.0059）を吸収した補正項**に
+ * なっている。モデルの較正が改善したら測り直すこと。
+ * （backgammon_engine の docs/adr/0017-cube-measurement.md）
+ */
+export const DEFAULT_CUBE_EFFICIENCY = 0.92;
+
+/**
+ * キューブ判断の方式。
+ *
+ *   'constant' : 2E + c >= -1                     （c は固定）
+ *   'janowski' : p >= (L - 0.5) / (W + L + 0.5x)   （W / L は局面ごと）
+ *
+ * engine の 32,400 局面では定数をどう最適化しても 16.28 mEMG が限界なのに対し
+ * Janowski は 14.91。ギャモンが濃い局面ほど差が開く（-3.3）。
+ */
+export const DEFAULT_CUBE_MODEL = 'janowski';
 
 // ── 弱い相手の作り方 ──────────────────────────────
 //
@@ -225,6 +249,8 @@ export class Agent {
   constructor(net, searchPlies = 0, filters = DEFAULT_FILTERS, {
     doublePoint = DEFAULT_DOUBLE_POINT,
     cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
+    cubeEfficiency = DEFAULT_CUBE_EFFICIENCY,
+    cubeModel = DEFAULT_CUBE_MODEL,
     noise = 0,
     maxLoss = Infinity,
   } = {}) {
@@ -233,6 +259,8 @@ export class Agent {
     this.filters = filters;
     this.doublePoint = doublePoint;
     this.cubeOwnership = cubeOwnership;
+    this.cubeEfficiency = cubeEfficiency;
+    this.cubeModel = cubeModel;
     this.noise = noise;
     this.maxLoss = maxLoss;
   }
@@ -304,6 +332,45 @@ export class Agent {
   }
 
   /**
+   * Janowski のテイクポイントで判断する（engine の would_take_janowski）。
+   *
+   *   テイク ⟺ p >= (L - 0.5) / (W + L + 0.5x)
+   *
+   * W（勝ったときの平均得点）と L（負けたときの平均失点）を**局面ごとに**
+   * 出すので、**ギャモン負けが多い局面では自動的にテイクポイントが上がる**。
+   * 定数 cubeOwnership は x·TP に相当するが、TP が W / L に依存する
+   * ため定数 1 個では表せない。
+   *
+   * @param {number[]} outputs **テイクする側から見た** 5 要素の確率ベクトル
+   */
+  wouldTakeJanowski(outputs) {
+    const { p, win, lose } = winLossMagnitudes(outputs);
+    const denominator = win + lose + 0.5 * this.cubeEfficiency;
+    if (denominator <= 1e-9) return false;
+    return p >= (lose - 0.5) / denominator;
+  }
+
+  /**
+   * テイクする側から見た確率ベクトル。
+   *
+   * `probabilitiesFor` は **White 視点**で返る（engine の `_vectors_for` と
+   * 同じ約束）。**欲しいのは taker の視点**なので、taker が White でなければ
+   * 反転する。**proposer で判定してはいけない**（1 度間違えた）。
+   */
+  takerProbabilities(board, proposer) {
+    const white = this.probabilitiesFor(board, proposer);
+    return opponent(proposer) === WHITE ? white : flipPerspective(white);
+  }
+
+  /** 提案された側がテイクするか（too good to double の判定用）。 */
+  opponentWouldTake(board, proposer) {
+    if (this.cubeModel === 'janowski') {
+      return this.wouldTakeJanowski(this.takerProbabilities(board, proposer));
+    }
+    return this.wouldTake(this.equityFor(board, proposer, opponent(proposer)));
+  }
+
+  /**
    * マッチでのキューブ判断に使う 3 つのマッチ勝率（**提案者から見た値**）。
    *
    * マネーゲームの equity（1 局あたりの期待得点）はマッチでは使えない。
@@ -364,7 +431,8 @@ export class Agent {
     // too good to double: 相手がドロップするなら +1 で終わってしまう。
     // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
     // 数えられないので「ダブルせずギャモンを狙う」に意味が無い）。
-    if (!jacobyNow && !this.wouldTake(-value) && value > 1) return false;
+    if (!jacobyNow && value > 1
+        && !this.opponentWouldTake(game.board, proposer)) return false;
 
     return true;
   }
@@ -383,6 +451,9 @@ export class Agent {
 
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
+    if (this.cubeModel === 'janowski') {
+      return this.wouldTakeJanowski(this.takerProbabilities(game.board, proposer));
+    }
     return this.wouldTake(this.equityFor(game.board, proposer, taker));
   }
 
