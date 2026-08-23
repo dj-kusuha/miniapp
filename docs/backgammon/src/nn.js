@@ -163,6 +163,44 @@ function toColumns(matrix, rows, cols) {
  *
  *   equity = 2·P(win) + P(win g) + P(win bg) − P(lose g) − P(lose bg) − 1
  */
+/**
+ * 出力を {p: 勝率, win: 勝ったときの平均得点 W, lose: 負けたときの平均失点 L}
+ * に分解する（engine の win_loss_magnitudes）。
+ *
+ * **Janowski のテイクポイントに要る。** 出力は累積確率なので:
+ *
+ *   W = (P(win) + P(wg) + P(wbg)) / P(win)
+ *   L = (P(lose) + P(lg) + P(lbg)) / P(lose)
+ *
+ * **equity(outputs) === p·W - (1-p)·L が恒等的に成り立つ。**
+ * 勝率が 0 / 1 に振り切ると W / L が定義できないので、その場合は 1 点に落とす
+ * （そこまで振り切った局面はドロップ一択なので影響しない）。
+ */
+export function winLossMagnitudes(outputs) {
+  const p = outputs[WIN];
+  if (outputs.length === 1) return { p, win: 1, lose: 1 };
+  const q = 1 - p;
+  const win = p > 1e-9
+    ? (p + outputs[WIN_GAMMON] + outputs[WIN_BACKGAMMON]) / p
+    : 1;
+  const lose = q > 1e-9
+    ? (q + outputs[LOSE_GAMMON] + outputs[LOSE_BACKGAMMON]) / q
+    : 1;
+  return { p, win, lose };
+}
+
+/** 確率ベクトルの視点を反転する（White ↔ Black）。 */
+export function flipPerspective(outputs) {
+  if (outputs.length === 1) return [1 - outputs[WIN]];
+  return [
+    1 - outputs[WIN],
+    outputs[LOSE_GAMMON],
+    outputs[LOSE_BACKGAMMON],
+    outputs[WIN_GAMMON],
+    outputs[WIN_BACKGAMMON],
+  ];
+}
+
 export function equity(outputs) {
   if (outputs.length === 1) return 2 * outputs[WIN] - 1;
   return (
