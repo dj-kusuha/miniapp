@@ -63,8 +63,18 @@ export function filtersFor(plies) {
  */
 export const DEFAULT_DOUBLE_POINT = 0.45;
 
-/** 「キューブを自分が持っている」ことの価値。engine と同じく 0（実測で改善せず）。 */
-export const DEFAULT_CUBE_OWNERSHIP = 0.0;
+/**
+ * 「キューブを自分が持っている」ことの価値（キューブ 1 単位あたり）。
+ * **Janowski の x=0.60 に相当する理論値。engine 側と必ず揃えること。**
+ *
+ * 長らく 0（死んだキューブの仮定）だった。理論上は正のはずなのに実測で
+ * 改善せず、2026-08-21 の測定では 0.145 で悪化していた。原因は評価器の誤差が
+ * 調整幅より大きかったこと。モデルの精度が上がって equity の絶対誤差が
+ * 0.087 → 0.060 になった 2026-08-23 に測り直したところ、テイク判断の損失が
+ * 26.0 → 17.5 mEMG（-33%）に改善した。3 つのベンチマークすべてで最小。
+ * （backgammon_engine の docs/adr/0017-cube-measurement.md）
+ */
+export const DEFAULT_CUBE_OWNERSHIP = 0.130;
 
 // ── 弱い相手の作り方 ──────────────────────────────
 //
