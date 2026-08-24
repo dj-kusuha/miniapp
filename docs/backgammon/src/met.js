@@ -94,3 +94,21 @@ export function mwcWithCube(spread, cubeValue, awayUs, awayThem, crawfordPlayed)
     + spread.lose2 * lose(cubeValue * 2)
     + spread.lose3 * lose(cubeValue * 3);
 }
+
+/**
+ * 受け手（相手）がさらにリダブル（2倍→4倍）できることによる追加ゲイン（MWC）。
+ *
+ * @param {number} awayUs    提案者の残り点数
+ * @param {number} awayThem  受け手（相手）の残り点数
+ * @param {number} nextCube  ダブル後のキューブ値（2, 4, 8...）
+ * @param {boolean} crawfordPlayed クロフォード消化済みか
+ * @returns {number} 受け手がさらにリダブルして勝ったときの追加 MWC ゲイン（0.0〜1.0）
+ */
+export function redoubleGain(awayUs, awayThem, nextCube, crawfordPlayed) {
+  const reCube = nextCube * 2;
+  // 受け手視点での勝率
+  const w2 = matchWinChance(awayThem - nextCube, awayUs, crawfordPlayed);
+  const w4 = matchWinChance(awayThem - reCube, awayUs, crawfordPlayed);
+  return Math.max(0, w4 - w2);
+}
+

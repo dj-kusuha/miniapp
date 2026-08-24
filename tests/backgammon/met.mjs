@@ -279,6 +279,37 @@ for (const probs of PROB_SAMPLES) {
   if (typeof before !== 'boolean') fail('マネーゲームの判断が真偽値でない');
 }
 
+// (g) 5-away 5-away（生きたキューブ）では序盤（P(win)=0.52〜0.60）でダブルせず、十分有利（~70%）でダブルすること
+{
+  const slightLead = [0.52, 0.10, 0.01, 0.10, 0.01];
+  const agent1 = new Agent(new StubNet(slightLead), 0);
+  if (agent1.shouldDouble(fakeGame(1, WHITE, slightLead), ctx(5, 5, false))) {
+    fail('5-away 5-away の勝率 52% でダブルしてしまった（生きたキューブのリダブルリスクが無視されている）');
+  }
+
+  const strongLead = [0.72, 0.20, 0.02, 0.08, 0.01];
+  const agent2 = new Agent(new StubNet(strongLead), 0);
+  if (!agent2.shouldDouble(fakeGame(1, WHITE, strongLead), ctx(5, 5, false))) {
+    fail('5-away 5-away の勝率 72% でダブルしなかった');
+  }
+}
+
+// (h) 4-away 2-away（相手が 2-away なので相手のリダブルパワーは 0 / 死んだキューブ）:
+//     勝率 52%（ほぼ互角）ではセンターキューブ保持（ノーダブル）し、勝率 62%（明確なリード）でダブルすること
+{
+  const slightLead = [0.52, 0.10, 0.01, 0.10, 0.01];
+  const agent1 = new Agent(new StubNet(slightLead), 0);
+  if (agent1.shouldDouble(fakeGame(1, WHITE, slightLead), ctx(4, 2, false))) {
+    fail('4-away 2-away の勝率 52% でダブルしてしまった（センターキューブ保持オプションが無視されている）');
+  }
+
+  const clearLead = [0.62, 0.15, 0.02, 0.10, 0.01];
+  const agent2 = new Agent(new StubNet(clearLead), 0);
+  if (!agent2.shouldDouble(fakeGame(1, WHITE, clearLead), ctx(4, 2, false))) {
+    fail('4-away 2-away の勝率 62% でダブルしなかった');
+  }
+}
+
 // ── 結果 ────────────────────────────────────
 
 console.log(`MET: ${MET_NAME}`);

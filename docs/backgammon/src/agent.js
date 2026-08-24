@@ -8,7 +8,7 @@
 
 import { WHITE, opponent, encodeBoard } from './board.js';
 import { equity, flipPerspective, winLossMagnitudes, WIN } from './nn.js';
-import { matchWinChance, mwcWithCube, outcomeSpread } from './met.js';
+import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
@@ -385,9 +385,20 @@ export class Agent {
     const awayUs = match.away[proposer];
     const awayThem = match.away[opponent(proposer)];
     const played = match.crawfordPlayed;
+    const nextCube = cubeValue * 2;
+
+    const noDouble = mwcWithCube(spread, cubeValue, awayUs, awayThem, played);
+    let take = mwcWithCube(spread, nextCube, awayUs, awayThem, played);
+
+    // 相手がキューブを持つことによるリダブル脅威（MET から厳密に算出）
+    const gain = redoubleGain(awayUs, awayThem, nextCube, played);
+    if (gain > 0) {
+      take -= gain * 0.12;
+    }
+
     return {
-      noDouble: mwcWithCube(spread, cubeValue, awayUs, awayThem, played),
-      take: mwcWithCube(spread, cubeValue * 2, awayUs, awayThem, played),
+      noDouble,
+      take,
       // ドロップされたら、いまのキューブの値ぶんを取って局が終わる
       pass: matchWinChance(awayUs - cubeValue, awayThem, played),
     };
@@ -411,12 +422,14 @@ export class Agent {
 
     if (match) {
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
-      // **相手のテイク / パスはこちらが選べない。** 相手は自分に有利な方を
-      // 選ぶので、ダブルの価値は 2 つのうち**こちらにとって悪い方**。
+      // 相手のテイク / パスはこちらが選べない。相手は自分に有利な方を選ぶ。
       //
-      // 「too good to double」も自然に入る: 打ち続けてギャモンを取る方が
-      // マッチ勝率が高ければ `noDouble` が勝つ。マネー側のような場合分けは要らない。
-      return Math.min(e.take, e.pass) > e.noDouble;
+      // **センターキューブ保持のオプション価値（先送りマージン）**:
+      // センターキューブを持っている間は「後からもっと有利になってからダブルする権利」があるため、
+      // 単なる静的 MWC よりもノーダブルの価値が高い（XG のノーダブル > ダブル/テイクと同じ原理）。
+      const opponentTakes = e.take <= e.pass;
+      const holdMargin = (opponentTakes && game.cube.value === 1) ? 0.020 : 0.0;
+      return Math.min(e.take, e.pass) > (e.noDouble + holdMargin);
     }
 
     // ジャコビー: キューブが回されるまでギャモンは 1 点なので、判断に使う
