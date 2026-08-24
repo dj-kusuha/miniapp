@@ -8,7 +8,7 @@
 
 import { WHITE, opponent, encodeBoard } from './board.js';
 import { equity, flipPerspective, winLossMagnitudes, WIN } from './nn.js';
-import { matchWinChance, mwcWithCube, outcomeSpread } from './met.js';
+import { matchWinChance, mwcWithCube, outcomeSpread, redoublePower } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
@@ -385,9 +385,23 @@ export class Agent {
     const awayUs = match.away[proposer];
     const awayThem = match.away[opponent(proposer)];
     const played = match.crawfordPlayed;
+    const nextCube = cubeValue * 2;
+
+    const noDouble = mwcWithCube(spread, cubeValue, awayUs, awayThem, played);
+    let take = mwcWithCube(spread, nextCube, awayUs, awayThem, played);
+
+    // 相手がキューブを持つことによるリダブルの脅威（生きたキューブの所有権ペナルティ）
+    const rp = redoublePower(awayUs, awayThem, nextCube);
+    if (rp > 0) {
+      const swing = matchWinChance(awayUs - nextCube, awayThem, played)
+                  - matchWinChance(awayUs, awayThem - nextCube, played);
+      // マネーゲームの cubeOwnership に準拠した MWC 補正
+      take -= swing * 0.08 * rp;
+    }
+
     return {
-      noDouble: mwcWithCube(spread, cubeValue, awayUs, awayThem, played),
-      take: mwcWithCube(spread, cubeValue * 2, awayUs, awayThem, played),
+      noDouble,
+      take,
       // ドロップされたら、いまのキューブの値ぶんを取って局が終わる
       pass: matchWinChance(awayUs - cubeValue, awayThem, played),
     };

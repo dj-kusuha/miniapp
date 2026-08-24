@@ -94,3 +94,20 @@ export function mwcWithCube(spread, cubeValue, awayUs, awayThem, crawfordPlayed)
     + spread.lose2 * lose(cubeValue * 2)
     + spread.lose3 * lose(cubeValue * 3);
 }
+
+/**
+ * 相手がリダブルする権利・余地の強さ（0.0: 死んだキューブ 〜 1.0: 生きたキューブ）。
+ *
+ * @param {number} awayUs    提案者の残り点数
+ * @param {number} awayThem  受け手（相手）の残り点数
+ * @param {number} nextCube  ダブル後のキューブ値
+ */
+export function redoublePower(awayUs, awayThem, nextCube) {
+  // 受け手が勝てばマッチ終了なら、受け手はリダブル不要（死んだキューブ）
+  if (awayThem <= nextCube) return 0.0;
+  // 提案者がリーチなら、受け手のリダブル価値は限定的
+  if (awayUs <= nextCube) return 0.5;
+  // 両者ともまだ点数が必要なら、完全な生きたキューブ
+  return 1.0;
+}
+

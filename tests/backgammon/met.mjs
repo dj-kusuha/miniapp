@@ -279,6 +279,31 @@ for (const probs of PROB_SAMPLES) {
   if (typeof before !== 'boolean') fail('マネーゲームの判断が真偽値でない');
 }
 
+// (g) 5-away 5-away（生きたキューブ）では序盤（P(win)=0.52〜0.60）でダブルせず、十分有利（~70%）でダブルすること
+{
+  const slightLead = [0.52, 0.10, 0.01, 0.10, 0.01];
+  const agent1 = new Agent(new StubNet(slightLead), 0);
+  if (agent1.shouldDouble(fakeGame(1, WHITE, slightLead), ctx(5, 5, false))) {
+    fail('5-away 5-away の勝率 52% でダブルしてしまった（生きたキューブのリダブルリスクが無視されている）');
+  }
+
+  const strongLead = [0.72, 0.20, 0.02, 0.08, 0.01];
+  const agent2 = new Agent(new StubNet(strongLead), 0);
+  if (!agent2.shouldDouble(fakeGame(1, WHITE, strongLead), ctx(5, 5, false))) {
+    fail('5-away 5-away の勝率 72% でダブルしなかった');
+  }
+}
+
+// (h) 4-away 2-away（相手が 2-away なので相手のリダブルパワーは 0 / 死んだキューブ）では、
+//     4-away 側がわずかでもリード（P(win)=0.52）していれば即ダブルすること
+{
+  const slightLead = [0.52, 0.10, 0.01, 0.10, 0.01];
+  const agent = new Agent(new StubNet(slightLead), 0);
+  if (!agent.shouldDouble(fakeGame(1, WHITE, slightLead), ctx(4, 2, false))) {
+    fail('4-away 2-away で 4-away 側が勝率 52% なのにダブルしなかった（死んだキューブの即ダブルが効いていない）');
+  }
+}
+
 // ── 結果 ────────────────────────────────────
 
 console.log(`MET: ${MET_NAME}`);
