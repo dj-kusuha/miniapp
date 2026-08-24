@@ -96,18 +96,19 @@ export function mwcWithCube(spread, cubeValue, awayUs, awayThem, crawfordPlayed)
 }
 
 /**
- * 相手がリダブルする権利・余地の強さ（0.0: 死んだキューブ 〜 1.0: 生きたキューブ）。
+ * 受け手（相手）がさらにリダブル（2倍→4倍）できることによる追加ゲイン（MWC）。
  *
  * @param {number} awayUs    提案者の残り点数
  * @param {number} awayThem  受け手（相手）の残り点数
- * @param {number} nextCube  ダブル後のキューブ値
+ * @param {number} nextCube  ダブル後のキューブ値（2, 4, 8...）
+ * @param {boolean} crawfordPlayed クロフォード消化済みか
+ * @returns {number} 受け手がさらにリダブルして勝ったときの追加 MWC ゲイン（0.0〜1.0）
  */
-export function redoublePower(awayUs, awayThem, nextCube) {
-  // 受け手が勝てばマッチ終了なら、受け手はリダブル不要（死んだキューブ）
-  if (awayThem <= nextCube) return 0.0;
-  // 提案者がリーチなら、受け手のリダブル価値は限定的
-  if (awayUs <= nextCube) return 0.5;
-  // 両者ともまだ点数が必要なら、完全な生きたキューブ
-  return 1.0;
+export function redoubleGain(awayUs, awayThem, nextCube, crawfordPlayed) {
+  const reCube = nextCube * 2;
+  // 受け手視点での勝率
+  const w2 = matchWinChance(awayThem - nextCube, awayUs, crawfordPlayed);
+  const w4 = matchWinChance(awayThem - reCube, awayUs, crawfordPlayed);
+  return Math.max(0, w4 - w2);
 }
 
