@@ -422,12 +422,14 @@ export class Agent {
 
     if (match) {
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
-      // **相手のテイク / パスはこちらが選べない。** 相手は自分に有利な方を
-      // 選ぶので、ダブルの価値は 2 つのうち**こちらにとって悪い方**。
+      // 相手のテイク / パスはこちらが選べない。相手は自分に有利な方を選ぶ。
       //
-      // 「too good to double」も自然に入る: 打ち続けてギャモンを取る方が
-      // マッチ勝率が高ければ `noDouble` が勝つ。マネー側のような場合分けは要らない。
-      return Math.min(e.take, e.pass) > e.noDouble;
+      // **センターキューブ保持のオプション価値（先送りマージン）**:
+      // センターキューブを持っている間は「後からもっと有利になってからダブルする権利」があるため、
+      // 単なる静的 MWC よりもノーダブルの価値が高い（XG のノーダブル > ダブル/テイクと同じ原理）。
+      const opponentTakes = e.take <= e.pass;
+      const holdMargin = (opponentTakes && game.cube.value === 1) ? 0.020 : 0.0;
+      return Math.min(e.take, e.pass) > (e.noDouble + holdMargin);
     }
 
     // ジャコビー: キューブが回されるまでギャモンは 1 点なので、判断に使う
