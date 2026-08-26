@@ -430,7 +430,12 @@ export class Agent {
    * @returns {{noDouble: number, take: number, pass: number}}
    */
   matchCubeEquities(board, proposer, cubeValue, match) {
-    const spread = outcomeSpread(this.probabilitiesFor(board, proposer), proposer === WHITE);
+    // **マッチのキューブ判断も cubePlies 段で読む。** MET に渡すのは equity では
+    // なく確率ベクトルなので、`searchedVectorFor` の White 視点をそのまま使う。
+    // **engine にマッチ対応が無いので判断そのものは突き合わせられない**が、
+    // 入力のベクトルは `cube-parity.json` の searched_vectors で検証している。
+    const spread = outcomeSpread(this.searchedVectorFor(board, proposer, WHITE),
+                                 proposer === WHITE);
     const awayUs = match.away[proposer];
     const awayThem = match.away[opponent(proposer)];
     const played = match.crawfordPlayed;

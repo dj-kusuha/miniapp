@@ -109,6 +109,36 @@ for (const [key, want] of Object.entries(data.defaults ?? {})) {
   }
 }
 
+// ── 深さ 2 の確率ベクトル ────────────────────────────────────
+//
+// **マッチのキューブ判断は engine と突き合わせられない**（engine にマッチ対応が
+// 無い）。だが MET へ渡す入力は確率ベクトルなので、**そこだけは突き合わせられる。**
+// ベクトルが一致していれば、あとは検証済みの MET の計算に渡すだけになる。
+let vectorBad = 0;
+let vectorMaxDiff = 0;
+for (const c of data.searched_vectors ?? []) {
+  const agent2 = agentFor(c.cube_plies);
+  const board = new Board([...c.points], { WHITE: c.bar[0], BLACK: c.bar[1] },
+                          { WHITE: c.off[0], BLACK: c.off[1] });
+  const got = agent2.searchedVectorFor(board, c.turn, 'WHITE');
+  for (let i = 0; i < c.vector.length; i += 1) {
+    const diff = Math.abs(got[i] - c.vector[i]);
+    vectorMaxDiff = Math.max(vectorMaxDiff, diff);
+    if (diff > 1e-5) {
+      vectorBad += 1;
+      if (vectorBad <= 3) {
+        console.log(`  ベクトル turn=${c.turn} [${i}] `
+          + `js=${got[i].toFixed(6)} engine=${c.vector[i].toFixed(6)}`);
+      }
+    }
+  }
+}
+if (data.searched_vectors) {
+  console.log(`  深さ 2 のベクトル: ${data.searched_vectors.length} 件 `
+    + `不一致 ${vectorBad} / 最大誤差 ${vectorMaxDiff.toExponential(2)}`);
+  bad += vectorBad;
+}
+
 console.log(`キューブ判断: ダブル ${data.positions.length} 件 / テイク ${takeChecked} 件 `
   + `中 不一致 ${bad}`);
 console.log(`  テイクの境界値: 定数 ${data.take_threshold.length} 件 不一致 ${borderBad}`
