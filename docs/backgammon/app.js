@@ -51,6 +51,22 @@ const state = {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * **画面が実際に描かれるまで待つ。**
+ *
+ * `render()` は DOM を書き換えるだけで、ブラウザが描くのは次のフレーム。
+ * その前に重い同期処理へ入ると、**盤面が古いまま固まって見える**
+ * （人が指し終わった直後に AI のキューブ判断が走るのがまさにこれ）。
+ *
+ * **`setTimeout(0)` では足りない。** 描画より先に回ることがある。
+ * requestAnimationFrame を 2 回待つと、1 回目のコールバックの後に描画が入り、
+ * 2 回目で「描き終わった後」に戻ってこられる。
+ */
+const nextFrame = () => new Promise((resolve) => {
+  if (typeof requestAnimationFrame !== 'function') { setTimeout(resolve, 0); return; }
+  requestAnimationFrame(() => requestAnimationFrame(resolve));
+});
+
 /** いまの設定ぶんだけ待つ。スライダーを動かすと次の待ちから効く。 */
 const pause = () => sleep(state.delay);
 
@@ -1189,6 +1205,11 @@ async function runAiTurns() {
 
   state.busy = true;
   render();
+  // **ここで 1 フレーム待つ。** 直後のキューブ判断（`shouldDouble`）は
+  // メインスレッドで同期に走り、2 段の展開だと 1 秒を超えることがある。
+  // 待たないと**人が指した手が盤に出ないまま固まる。**
+  await nextFrame();
+  if (!alive()) return;
 
   while (alive() && game.state !== GAME_OVER && game.currentPlayer !== state.humanSide) {
     const ai = game.currentPlayer;
@@ -1211,6 +1232,11 @@ async function runAiTurns() {
       if (game.currentPlayer !== ai) state.danceShow = ai;
     }
     render();
+
+    // **Worker が使えないときは `chooseMove` が同期で走る。** 出目を見せる
+    // 描画を挟んでから考え始めないと、出目が出ないまま固まる。
+    await nextFrame();
+    if (!alive()) return;
 
     // **出目を見せている間に裏で考えさせる。** 3-ply の思考時間のうち
     // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
