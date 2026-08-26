@@ -6,6 +6,9 @@
 // 隠れ層の数は `hidden_dims` の長さで決まる。同梱モデルは 2 層（128 -> 64）
 // だが、1 層の旧モデルもそのまま読める（`hidden_dims` を持たない世代は
 // `hidden_dim` から 1 層とみなす）。
+//
+// 隠れ層の活性化関数は `activation`（既定 `'sigmoid'`）で切り替える。
+// SiLU モデル（'silu'）にも対応する（出力層は常にシグモイド）。
 
 /** 出力ユニットの意味（engine の nn.py と同じ並び）。 */
 export const WIN = 0;
@@ -25,6 +28,14 @@ function sigmoid(x) {
   return 1 / (1 + Math.exp(-z));
 }
 
+/**
+ * SiLU (Swish) 活性化関数: x * sigmoid(x)。
+ * 隠れ層の活性化関数として使用（出力層は常に sigmoid）。
+ */
+function silu(x) {
+  return x * sigmoid(x);
+}
+
 export class NeuralNet {
   /**
    * @param {object} data engine の `models/*.json` をそのまま渡す。
@@ -36,6 +47,8 @@ export class NeuralNet {
     this.perspective = data.perspective ?? 'white';
     this.features = data.features ?? 'none';
     this.totalEpisodes = data.total_episodes ?? 0;
+    //: 隠れ層の活性化関数（'sigmoid' または 'silu'）。出力層は常にシグモイド。
+    this.activation = data.activation ?? 'sigmoid';
     //: engine が保存した日付（YYYY-MM-DD）。**古いモデルには入っていない**ので
     //: 空文字に落とす。対戦前の画面に「どの世代を配っているか」を出すために使う。
     this.savedAt = data.saved_at ?? '';
@@ -126,21 +139,25 @@ export class NeuralNet {
       const row = rowsFirst[nonzeroIndex[k]];
       for (let j = 0; j < hidden; j += 1) accumulator[j] += value * row[j];
     }
-    // engine の nn.py と同じく、出力層まで含めて全層シグモイド。
+    // 隠れ層の活性化（activation 設定に応じて sigmoid または silu）。
+    const activate = this.activation === 'silu' ? silu : sigmoid;
     let activation = this.hiddenBuffers[0];
-    for (let j = 0; j < hidden; j += 1) activation[j] = sigmoid(accumulator[j]);
+    for (let j = 0; j < hidden; j += 1) activation[j] = activate(accumulator[j]);
 
     const last = this.layers.length - 1;
     for (let l = 0; l < this.layers.length; l += 1) {
       const { columns, bias } = this.layers[l];
-      const next = l === last
+      const isLast = l === last;
+      const next = isLast
         ? new Float32Array(bias.length)
         : this.hiddenBuffers[l + 1];
+      // 出力層（最終層）は常にシグモイド、隠れ層は activation 設定に従う。
+      const act = isLast ? sigmoid : activate;
       for (let j = 0; j < next.length; j += 1) {
         const column = columns[j];
         let sum = bias[j];
         for (let i = 0; i < activation.length; i += 1) sum += activation[i] * column[i];
-        next[j] = sigmoid(sum);
+        next[j] = act(sum);
       }
       activation = next;
     }
