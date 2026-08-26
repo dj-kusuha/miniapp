@@ -7,7 +7,16 @@
 // equity を求めて符号を反転**すると「自分の equity」になる。
 
 import { WHITE, opponent, encodeBoard } from './board.js';
-import { equity, flipPerspective, winLossMagnitudes, WIN } from './nn.js';
+import {
+  equity,
+  flipPerspective,
+  winLossMagnitudes,
+  WIN,
+  WIN_GAMMON,
+  WIN_BACKGAMMON,
+  LOSE_GAMMON,
+  LOSE_BACKGAMMON,
+} from './nn.js';
 import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
 
@@ -251,6 +260,7 @@ export class Agent {
     cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
     cubeEfficiency = DEFAULT_CUBE_EFFICIENCY,
     cubeModel = DEFAULT_CUBE_MODEL,
+    cubePlies = null,
     noise = 0,
     maxLoss = Infinity,
   } = {}) {
@@ -261,6 +271,7 @@ export class Agent {
     this.cubeOwnership = cubeOwnership;
     this.cubeEfficiency = cubeEfficiency;
     this.cubeModel = cubeModel;
+    this.cubePlies = cubePlies ?? Math.min(searchPlies, 2);
     this.noise = noise;
     this.maxLoss = maxLoss;
   }
@@ -302,11 +313,21 @@ export class Agent {
   /**
    * ジャコビールール下の equity（**キューブがまだ回されていない**局面用）。
    *
-   * ギャモンが数えられないので `2·P(win) - 1`。
+   * ギャモンが数えられないので `2·P(win) - 1`。**equity ではなく確率
+   * ベクトルを伝播する必要がある**ため、`searchedVectorFor` を使う。
    * **マネーゲーム専用**で、マッチプレイには無い。
+   *
+   * @param {Board} board
+   * @param {string} turn
+   * @param {string} player
+   * @param {?number} plies 省略時は this.cubePlies
    */
-  jacobyEquityFor(board, turn, player) {
-    const whiteView = 2 * this.probabilitiesFor(board, turn)[WIN] - 1;
+  jacobyEquityFor(board, turn, player, plies = null) {
+    const depth = plies ?? this.cubePlies;
+    const vector = depth < 1
+      ? this.probabilitiesFor(board, turn)
+      : this.expandRollsVector(board, turn, depth, 0);
+    const whiteView = 2 * vector[WIN] - 1;
     return player === WHITE ? whiteView : -whiteView;
   }
 
@@ -319,6 +340,38 @@ export class Agent {
   equityFor(board, turn, player) {
     const mover = this.equitiesFor([board], turn)[0] + this.noiseFor(board);
     return player === turn ? mover : -mover;
+  }
+
+  /**
+   * `plies` 段ぶんダイスを展開した cubeless equity（キューブ判断用）。
+   *
+   * @param {Board} board
+   * @param {string} turn
+   * @param {string} player
+   * @param {?number} plies 省略時は this.cubePlies
+   */
+  searchedEquityFor(board, turn, player, plies = null) {
+    const depth = plies ?? this.cubePlies;
+    if (depth < 1) {
+      return this.equityFor(board, turn, player);
+    }
+    return this.expandRolls(board, turn, player, depth, 0);
+  }
+
+  /**
+   * `searchedEquityFor` の確率ベクトル版（`player` 視点）。
+   *
+   * @param {Board} board
+   * @param {string} turn
+   * @param {string} player
+   * @param {?number} plies 省略時は this.cubePlies
+   */
+  searchedVectorFor(board, turn, player, plies = null) {
+    const depth = plies ?? this.cubePlies;
+    const vector = depth < 1
+      ? this.probabilitiesFor(board, turn)
+      : this.expandRollsVector(board, turn, depth, 0);
+    return player === WHITE ? vector : flipPerspective(vector);
   }
 
   /**
@@ -352,22 +405,18 @@ export class Agent {
 
   /**
    * テイクする側から見た確率ベクトル。
-   *
-   * `probabilitiesFor` は **White 視点**で返る（engine の `_vectors_for` と
-   * 同じ約束）。**欲しいのは taker の視点**なので、taker が White でなければ
-   * 反転する。**proposer で判定してはいけない**（1 度間違えた）。
    */
   takerProbabilities(board, proposer) {
-    const white = this.probabilitiesFor(board, proposer);
-    return opponent(proposer) === WHITE ? white : flipPerspective(white);
+    return this.searchedVectorFor(board, proposer, opponent(proposer));
   }
 
   /** 提案された側がテイクするか（too good to double の判定用）。 */
   opponentWouldTake(board, proposer) {
+    const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
-      return this.wouldTakeJanowski(this.takerProbabilities(board, proposer));
+      return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker));
     }
-    return this.wouldTake(this.equityFor(board, proposer, opponent(proposer)));
+    return this.wouldTake(this.searchedEquityFor(board, proposer, taker));
   }
 
   /**
@@ -407,12 +456,7 @@ export class Agent {
   /**
    * ダブルを提案すべきか。
    *
-   * **キューブ判断は 0-ply。** engine 側は `cube_plies`（既定は着手と同じ深さ）
-   * で読むが、**実測では 0-ply の方が良かった**（1,200 局面で 11.2 対 12.6 mEMG。
-   * backgammon_engine の docs/adr/0017-cube-measurement.md）。
-   * 深く読む版が要るなら、確率ベクトルを伝播する探索（engine の
-   * `search_vector`）の移植が要る。
-   *
+   * @param {Game} game
    * @param {?object} match `Match.cubeContext()`。**アンリミテッドでは null**
    *   で、その場合は従来どおり equity の閾値で決める。
    */
@@ -437,7 +481,7 @@ export class Agent {
     const jacobyNow = game.jacoby && game.cube.untouched;
     const value = jacobyNow
       ? this.jacobyEquityFor(game.board, proposer, proposer)
-      : this.equityFor(game.board, proposer, proposer);
+      : this.searchedEquityFor(game.board, proposer, proposer);
 
     if (value < this.doublePoint) return false;
 
@@ -465,9 +509,9 @@ export class Agent {
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
     if (this.cubeModel === 'janowski') {
-      return this.wouldTakeJanowski(this.takerProbabilities(game.board, proposer));
+      return this.wouldTakeJanowski(this.searchedVectorFor(game.board, proposer, taker));
     }
-    return this.wouldTake(this.equityFor(game.board, proposer, taker));
+    return this.wouldTake(this.searchedEquityFor(game.board, proposer, taker));
   }
 
   /**
@@ -592,6 +636,114 @@ export class Agent {
       const values = picks.map((i) =>
         this.expandRolls(boards[i], opponent(toMove), viewer, depth - 1, level + 1));
       total += weight * (toMove === viewer ? Math.max(...values) : Math.min(...values));
+    }
+    return total;
+  }
+
+  /** 決着済みなら White 視点の確定ベクトル、まだなら null。 */
+  terminalVector(board) {
+    for (const player of [WHITE, opponent(WHITE)]) {
+      if (board.hasWon(player)) {
+        const winType = board.winType(opponent(player));
+        const target = [0, 0, 0, 0, 0];
+        if (player === WHITE) {
+          target[WIN] = 1.0;
+          if (winType >= 2) target[WIN_GAMMON] = 1.0;
+          if (winType >= 3) target[WIN_BACKGAMMON] = 1.0;
+        } else {
+          if (winType >= 2) target[LOSE_GAMMON] = 1.0;
+          if (winType >= 3) target[LOSE_BACKGAMMON] = 1.0;
+        }
+        return target;
+      }
+    }
+    return null;
+  }
+
+  /** `toMove` にとって最良のベクトルの index。 */
+  pickOwnBest(vectors, toMove) {
+    let bestIndex = 0;
+    let bestEquity = equity(vectors[0]);
+    if (toMove === WHITE) {
+      for (let i = 1; i < vectors.length; i += 1) {
+        const val = equity(vectors[i]);
+        if (val > bestEquity) {
+          bestEquity = val;
+          bestIndex = i;
+        }
+      }
+    } else {
+      for (let i = 1; i < vectors.length; i += 1) {
+        const val = equity(vectors[i]);
+        if (val < bestEquity) {
+          bestEquity = val;
+          bestIndex = i;
+        }
+      }
+    }
+    return bestIndex;
+  }
+
+  /**
+   * 出目 21 通りを展開し、最善を尽くしたときの White 視点ベクトル。
+   * 最深段（残り 1 段）専用。応手は 0-ply で選ぶ。
+   */
+  expectedVectorAfterMove(board, toMove) {
+    const total = [0, 0, 0, 0, 0];
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMoves(board, toMove, die1, die2);
+      let boards;
+      if (moves.length === 0) {
+        boards = [board];                       // 動かせなければ手番が移るだけ
+      } else {
+        boards = moves.map((m) => m.resultingBoard);
+      }
+      const vectors = boards.map((b) => {
+        const terminal = this.terminalVector(b);
+        if (terminal !== null) return terminal;
+        return this.net.predict(encodeBoard(b, WHITE, opponent(toMove)));
+      });
+      const bestIdx = this.pickOwnBest(vectors, toMove);
+      const bestVec = vectors[bestIdx];
+      for (let k = 0; k < 5; k += 1) {
+        total[k] += weight * bestVec[k];
+      }
+    }
+    return total;
+  }
+
+  /**
+   * `board`（`toMove` の手番）を depth 段ぶん展開し、White 視点の確率ベクトルを返す。
+   * 絞り込みはスカラー側と同じ `shortlist` を使う。
+   */
+  expandRollsVector(board, toMove, depth, level) {
+    const terminal = this.terminalVector(board);
+    if (terminal !== null) return terminal;
+    if (depth <= 0) {
+      return this.net.predict(encodeBoard(board, WHITE, toMove));
+    }
+    if (depth === 1) return this.expectedVectorAfterMove(board, toMove);
+
+    const total = [0, 0, 0, 0, 0];
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMoves(board, toMove, die1, die2);
+      if (moves.length === 0) {
+        // 合法手が無ければ手番が相手に移るだけ（1段は消費する）
+        const next = this.expandRollsVector(board, opponent(toMove), depth - 1, level + 1);
+        for (let k = 0; k < 5; k += 1) {
+          total[k] += weight * next[k];
+        }
+        continue;
+      }
+      const boards = moves.map((m) => m.resultingBoard);
+      const picks = this.shortlist(boards, toMove, level);
+      const vectors = picks.map((i) =>
+        this.expandRollsVector(boards[i], opponent(toMove), depth - 1, level + 1));
+      const bestIdx = this.pickOwnBest(vectors, toMove);
+      const bestVec = vectors[bestIdx];
+      for (let k = 0; k < 5; k += 1) {
+        total[k] += weight * bestVec[k];
+      }
     }
     return total;
   }

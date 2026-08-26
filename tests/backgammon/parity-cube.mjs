@@ -22,6 +22,12 @@ const net = new NeuralNet(JSON.parse(
   readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
 const agent = new Agent(net, 0);
 
+// **ケースごとに cube_plies が違う。** 既定が min(searchPlies, 2) になったので、
+// 上級・エキスパートの実戦は 2 段を通る。**0 段のケースだけで検証すると、
+// 探索を実装していなくても全部通ってしまう**（実際に JS 側は 0-ply のまま
+// だった。2026-08-26）。engine 側は tools/export_cube_parity.py で書き出す。
+const agentFor = (plies) => (plies ? new Agent(net, 0, undefined, { cubePlies: plies }) : agent);
+
 function setup(c) {
   const board = new Board([...c.points], { WHITE: c.bar[0], BLACK: c.bar[1] },
                           { WHITE: c.off[0], BLACK: c.off[1] });
@@ -36,12 +42,13 @@ function setup(c) {
 let bad = 0;
 let takeChecked = 0;
 for (const c of data.positions) {
+  const agent = agentFor(c.cube_plies ?? 0);
   const got = agent.shouldDouble(setup(c));
   if (got !== c.should_double) {
     bad += 1;
     if (bad <= 3) {
       console.log(`  ダブル cube=${c.cube_value}/${c.cube_owner} jacoby=${c.jacoby} `
-        + `js=${got} engine=${c.should_double}`);
+        + `plies=${c.cube_plies ?? 0} js=${got} engine=${c.should_double}`);
     }
   }
 
@@ -55,7 +62,7 @@ for (const c of data.positions) {
     bad += 1;
     if (bad <= 6) {
       console.log(`  テイク cube=${c.cube_value}/${c.cube_owner} jacoby=${c.jacoby} `
-        + `js=${take} engine=${c.should_accept_double}`);
+        + `plies=${c.cube_plies ?? 0} js=${take} engine=${c.should_accept_double}`);
     }
   }
 }
