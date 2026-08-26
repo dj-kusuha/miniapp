@@ -148,13 +148,15 @@ async function chooseMove(board, player, roll, moves, level) {
  * 差し替えたときに古い表示が残るため。
  */
 function describeModel(net) {
-  const shape = [net.inputDim, ...net.hiddenDims, net.outputDim].join('-');
-  const episodes = net.totalEpisodes.toLocaleString();
-  const features = net.features === 'none' ? '' : ` / 特徴量 ${net.features}`;
+  const parts = [[net.inputDim, ...net.hiddenDims, net.outputDim].join('-')];
+  // **オフラインの教師あり学習はエピソードを進めない**ので 0 になる。
+  // 「0 エピソード学習」と出ても何の情報にもならないため、そのときは出さない。
+  if (net.totalEpisodes > 0) parts.push(`${net.totalEpisodes.toLocaleString()} エピソード`);
+  if (net.features !== 'none') parts.push(`特徴量 ${net.features}`);
   // **日付も覚え書きも古いモデルには入っていない**ので、無ければ出さない
-  const date = net.savedAt ? ` / ${net.savedAt} 版` : '';
-  const note = net.note ? ` / ${net.note}` : '';
-  return `${shape}（${episodes} エピソード学習${features}）${date}${note}`;
+  if (net.savedAt) parts.push(net.savedAt);
+  if (net.note) parts.push(net.note);
+  return parts.join(' / ');
 }
 
 NeuralNet.load('./src/model.json')
