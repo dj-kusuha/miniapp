@@ -20,10 +20,18 @@ const boardToJson = (board) => ({
   off: [board.off.WHITE, board.off.BLACK],
 });
 
-const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+// **`equal_notations` は照合の対象にしない。** engine が「同点だった手」を
+// 参考情報として入れているだけで、JS 側は持たない（上の同点処理で使う）。
+const strip = (v) => {
+  if (!v || typeof v !== 'object' || !('equal_notations' in v)) return v;
+  const { equal_notations: _ignored, ...rest } = v;
+  return rest;
+};
+const same = (a, b) => JSON.stringify(strip(a)) === JSON.stringify(strip(b));
 
 const traces = fixture.traces.filter((t) => !t.use_cube);
 let checked = 0;
+let tiesAccepted = 0;
 let mismatch = 0;
 const details = [];
 
@@ -60,7 +68,21 @@ for (const [index, trace] of traces.entries()) {
     drainSkips();
     if (game.prepareTurn() === null) break;
     drainSkips();
-    const move = game.legalMoves[agent.selectMove(game.legalMoves, game.currentPlayer)];
+    let move = game.legalMoves[agent.selectMove(game.legalMoves, game.currentPlayer)];
+
+    // **同点の手は、engine が選んだものに合わせて進める。**
+    // 探索の値が完全に同じ手が複数ある局面では、どれを選ぶかは同点崩しの
+    // 順序だけで決まる。engine は float32、JS は Float64 で累算するため
+    // （ADR-0016 の高速化）、**同点のときだけ順序が割れる**。どちらを選んでも
+    // 価値は同じなので不一致とは見なさないが、**ここで engine の手に
+    // 揃えないと以降の盤面が全部ずれる**ので合わせて進める。
+    const expected = trace.events[seen.length];
+    if (expected && expected.type === 'move' && expected.notation !== move.toString()
+        && expected.equal_notations?.includes(move.toString())) {
+      const forced = game.legalMoves.find((m) => m.toString() === expected.notation);
+      if (forced) { move = forced; tiesAccepted += 1; }
+    }
+
     const player = game.currentPlayer;
     const roll = [game.roll.die1, game.roll.die2];
     game.applyMove(game.legalMoves.indexOf(move));
@@ -105,6 +127,7 @@ for (const [index, trace] of traces.entries()) {
 }
 
 const plies = traces.map((t) => `${t.search_plies}-ply ${t.events.length} イベント`).join(' / ');
-console.log(`1局まるごと: ${traces.length} 局（${plies}）中 ${checked} 件一致 / 不一致 ${mismatch}`);
+console.log(`1局まるごと: ${traces.length} 局（${plies}）中 ${checked} 件一致 / 不一致 ${mismatch}`
+  + (tiesAccepted ? ` / 同点で engine に合わせた手 ${tiesAccepted}` : ''));
 details.forEach((line) => console.log(line));
 process.exit(mismatch ? 1 : 0);
