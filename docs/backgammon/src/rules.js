@@ -257,3 +257,138 @@ export function nextSingles(board, player, remaining, allowedKeys) {
   }
   return out;
 }
+
+/**
+ * targetIndex (0-23) に自駒のポイントを新しくメイク（空きマスにゼロから2枚置く）する着手を返す。
+ * 作れない場合は null。
+ *
+ * - 非ゾロ目: 2 つの出目を両方使って targetIndex へ 2 駒移動する手（全出目消費・ターン確定）。
+ * - ゾロ目: その出目を使って sourceIndex から targetIndex へ 2 駒移動する手（2 回分消費）。
+ */
+export function findPointMakeAction(board, legalMoves, player, roll, applied, targetIndex) {
+  if (!legalMoves || legalMoves.length === 0) return null;
+
+  const rest = diceValues(roll.die1, roll.die2);
+  for (const s of applied) {
+    const at = rest.indexOf(s.die);
+    if (at >= 0) rest.splice(at, 1);
+  }
+  if (rest.length < 2) return null;
+
+  // 着手前時点で 0 枚（空きマス）でなければならない
+  if (board.count(targetIndex, player) !== 0) return null;
+
+  // 相手のブロックポイント（2個以上）なら置けない
+  if (!board.canLand(targetIndex, player)) return null;
+
+  const { die1, die2 } = roll;
+
+  // ── 1. 非ゾロ目の場合 (die1 !== die2) ──
+  if (die1 !== die2) {
+    if (applied.length > 0) return null;
+
+    const candidates = legalMoves.filter((move) => {
+      const endCount = move.resultingBoard.count(targetIndex, player);
+      if (endCount < 2) return false;
+      return move.singles.length === 2 && move.singles.every((s) => s.to === targetIndex);
+    });
+    if (candidates.length === 0) return null;
+    return { singles: candidates[0].singles, isFullTurn: true, move: candidates[0] };
+  }
+
+  // ── 2. ゾロ目の場合 (die1 === die2) ──
+  const die = die1;
+  const dir = direction(player);
+  const sourceIndex = targetIndex - dir * die;
+  if (sourceIndex < 0 || sourceIndex >= 24) return null;
+
+  if (board.bar[player] > 0) return null;
+  if (board.count(sourceIndex, player) < 2) return null;
+
+  const hit = board.isBlot(targetIndex, player);
+  const single1 = new SingleMove(sourceIndex, targetIndex, die, hit);
+  const single2 = new SingleMove(sourceIndex, targetIndex, die, false);
+
+  const workBoard = board.clone();
+  applySingle(workBoard, player, single1);
+  applySingle(workBoard, player, single2);
+
+  const allowedKeys = new Set(legalMoves.map((m) => boardKey(m.resultingBoard)));
+  const remainingAfter = rest.slice(2);
+  if (!canReach(workBoard, player, remainingAfter, allowedKeys)) {
+    return null;
+  }
+
+  const isFullTurn = remainingAfter.length === 0;
+  return { singles: [single1, single2], isFullTurn, resultingBoard: workBoard };
+}
+
+/**
+ * ベアオフ位置（上がりトレイ）への着手を返す。
+ * 出目を 2 つ使って 2 駒ベアオフできる場合のみアクションを返し、できない場合は null。
+ *
+ * - 非ゾロ目: 2 つの出目を両方使って 2 駒ベアオフする手（全出目消費・ターン確定）。
+ * - ゾロ目: その出目を使って 2 駒ベアオフする手（2 回分消費）。
+ */
+export function findBearOffAction(board, legalMoves, player, roll, applied) {
+  if (!legalMoves || legalMoves.length === 0) return null;
+  if (!board.allInHome(player)) return null;
+
+  const rest = diceValues(roll.die1, roll.die2);
+  for (const s of applied) {
+    const at = rest.indexOf(s.die);
+    if (at >= 0) rest.splice(at, 1);
+  }
+  if (rest.length < 2) return null;
+
+  const { die1, die2 } = roll;
+
+  // ── 1. 非ゾロ目の場合 (die1 !== die2) ──
+  if (die1 !== die2) {
+    if (applied.length > 0) return null;
+
+    const candidates = legalMoves.filter((move) => {
+      return move.singles.length === 2 && move.singles.every((s) => s.to === null);
+    });
+    if (candidates.length === 0) return null;
+    return { singles: candidates[0].singles, isFullTurn: true, move: candidates[0] };
+  }
+
+  // ── 2. ゾロ目の場合 (die1 === die2) ──
+  const allowedKeys = new Set(legalMoves.map((m) => boardKey(m.resultingBoard)));
+  const availableSingles = nextSingles(board, player, rest, allowedKeys)
+    .filter((s) => s.to === null);
+  if (availableSingles.length === 0) return null;
+
+  for (const s1 of availableSingles) {
+    const boardAfter1 = board.clone();
+    applySingle(boardAfter1, player, s1);
+
+    const secondSingles = nextSingles(boardAfter1, player, rest.slice(1), allowedKeys)
+      .filter((s) => s.to === null);
+
+    for (const s2 of secondSingles) {
+      const boardAfter2 = boardAfter1.clone();
+      applySingle(boardAfter2, player, s2);
+
+      const remainingAfter = rest.slice(2);
+      if (canReach(boardAfter2, player, remainingAfter, allowedKeys)) {
+        const isFullTurn = remainingAfter.length === 0;
+        return { singles: [s1, s2], isFullTurn, resultingBoard: boardAfter2 };
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 指定したプレイヤーがダブルを提案できるか判定する。
+ * （手番、キューブ使用マッチ、ロール前、クロフォード局でない、キューブ所有権がある）
+ */
+export function canPlayerDouble(game, match, player) {
+  if (!match || !match.useCube || !game) return false;
+  if (game.state !== 'ROLLING') return false;
+  if (game.currentPlayer !== player) return false;
+  return game.canDouble();
+}

@@ -10,7 +10,7 @@ import { NeuralNet } from './src/nn.js';
 import { agentFor, levelById, DEFAULT_LEVEL, ADVICE_LEVEL } from './src/agent.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
-import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach } from './src/rules.js';
+import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach, findPointMakeAction, findBearOffAction, canPlayerDouble } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
@@ -357,11 +357,9 @@ $('again').addEventListener('click', () => {
   if (state.match && !state.match.isOver) nextGame();
   else startMatch();
 });
-/** 人間がダブルを提案できる状態か（ロール前かつ権利がある）。 */
+/** 人間がダブルを提案できる状態か（手番、ロール前かつ権利がある）。 */
 function canHumanDouble() {
-  const game = state.game;
-  return Boolean(state.match && state.match.useCube && game
-    && game.state === ROLLING && game.canDouble());
+  return canPlayerDouble(state.game, state.match, state.humanSide);
 }
 
 /** 人間のダイスロール。手動クリックと自動ロールの両方から使う。 */
@@ -644,95 +642,20 @@ function makePoint(index, isBottom) {
   return point;
 }
 
-/**
- * targetIndex (0-23) にポイントを作るための着手（SingleMove の配列）を返す。
- * 作れない場合は null。
- * 
- * - 非ゾロ目: 2 つの出目を両方使って targetIndex へ 2 駒移動する手（全出目消費・ターン確定）。
- * - ゾロ目: その出目を使って sourceIndex から targetIndex へ 2 駒移動する手（2 回分消費）。
- */
-function findPointMakeSingles(targetIndex) {
-  const game = state.game;
-  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return null;
-
-  const player = state.humanSide;
-  const board = previewBoard();
-  const rest = remainingDice();
-  if (rest.length < 2) return null;
-
-  // 着手前時点で 0 枚（空きマス）でなければならない（1枚以上の場所へのカバーや追加スタックは除外）
-  const initialCount = board.count(targetIndex, player);
-  if (initialCount !== 0) return null;
-
-  const targetVal = board.points[targetIndex];
-  if (targetVal < -1) return null; // 相手のブロックポイント
-
-  const { die1, die2 } = game.roll;
-
-  // ── 1. 非ゾロ目の場合 (die1 !== die2) ──
-  if (die1 !== die2) {
-    if (state.turn.applied.length > 0) return null;
-
-    const candidates = game.legalMoves.filter((move) => {
-      const endCount = move.resultingBoard.count(targetIndex, player);
-      if (endCount < 2) return false;
-      return move.singles.length === 2 && move.singles.every((s) => s.to === targetIndex);
-    });
-    if (candidates.length === 0) return null;
-
-    let bestMove = candidates[0];
-    if (candidates.length > 1) {
-      const agent = state.adviceAgent || state.agent;
-      if (agent) {
-        const bestIdx = agent.selectMove(candidates, player);
-        bestMove = candidates[bestIdx];
-      }
-    }
-    return { singles: bestMove.singles, isFullTurn: true, move: bestMove };
-  }
-
-  // ── 2. ゾロ目の場合 (die1 === die2) ──
-  const die = die1;
-  const sourceIndex = targetIndex + die; // White はインデックス減衰方向
-  if (sourceIndex < 0 || sourceIndex >= 24) return null;
-
-  // 移動元に 2 枚以上あること（バーに駒がある時は sourceIndex から動かせない）
-  if (board.bar[player] > 0) return null;
-  if (board.count(sourceIndex, player) < 2) return null;
-
-  // 2 枚移動する 2 つの SingleMove を作成
-  const hit = targetVal === -1;
-  const single1 = new SingleMove(sourceIndex, targetIndex, die, hit);
-  const single2 = new SingleMove(sourceIndex, targetIndex, die, false);
-
-  // 2 手適用した後の作業盤面を作成
-  const workBoard = board.clone();
-  applySingle(workBoard, player, single1);
-  applySingle(workBoard, player, single2);
-
-  // 残りの出目で合法な終了盤面に到達できるか確認
-  const remainingAfter = rest.slice(2);
-  if (!canReach(workBoard, player, remainingAfter, state.turn.allowedKeys)) {
-    return null;
-  }
-
-  const isFullTurn = remainingAfter.length === 0;
-  return { singles: [single1, single2], isFullTurn };
-}
-
 function handlePointDblClick(targetIndex) {
   if (state.busy) return;
   const game = state.game;
-  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide) return;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
 
-  const action = findPointMakeSingles(targetIndex);
+  const action = findPointMakeAction(
+    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, targetIndex
+  );
   if (!action) return;
 
   if (action.isFullTurn && action.move) {
     state.turn = null;
     finalizeTurn(action.move);
   } else {
-    // ゾロ目で 2 回分だけ使った場合（または残り 2 回を使い切った場合）
     for (const single of action.singles) {
       state.turn.applied.push(single);
     }
@@ -745,79 +668,14 @@ function handlePointDblClick(targetIndex) {
   }
 }
 
-/**
- * ベアオフ位置（上がりトレイ）への着手を返す。
- * 出目を 2 つ使って 2 駒ベアオフできる場合のみアクションを返し、できない場合は null。
- * 
- * - 非ゾロ目: 2 つの出目を両方使って 2 駒ベアオフする手（全出目消費・ターン確定）。
- * - ゾロ目: その出目を使って 2 駒ベアオフする手（2 回分消費）。
- */
-function findBearOffSingles() {
-  const game = state.game;
-  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return null;
-
-  const player = state.humanSide;
-  const board = previewBoard();
-  if (!board.allInHome(player)) return null;
-
-  const rest = remainingDice();
-  if (rest.length < 2) return null;
-
-  const { die1, die2 } = game.roll;
-
-  // ── 1. 非ゾロ目の場合 (die1 !== die2) ──
-  if (die1 !== die2) {
-    if (state.turn.applied.length > 0) return null;
-
-    const candidates = game.legalMoves.filter((move) => {
-      return move.singles.length === 2 && move.singles.every((s) => s.to === null);
-    });
-    if (candidates.length === 0) return null;
-
-    let bestMove = candidates[0];
-    if (candidates.length > 1) {
-      const agent = state.adviceAgent || state.agent;
-      if (agent) {
-        const bestIdx = agent.selectMove(candidates, player);
-        bestMove = candidates[bestIdx];
-      }
-    }
-    return { singles: bestMove.singles, isFullTurn: true, move: bestMove };
-  }
-
-  // ── 2. ゾロ目の場合 (die1 === die2) ──
-  const availableSingles = nextSingles(board, player, rest, state.turn.allowedKeys)
-    .filter((s) => s.to === null);
-  if (availableSingles.length === 0) return null;
-
-  for (const s1 of availableSingles) {
-    const boardAfter1 = board.clone();
-    applySingle(boardAfter1, player, s1);
-
-    const secondSingles = nextSingles(boardAfter1, player, rest.slice(1), state.turn.allowedKeys)
-      .filter((s) => s.to === null);
-
-    for (const s2 of secondSingles) {
-      const boardAfter2 = boardAfter1.clone();
-      applySingle(boardAfter2, player, s2);
-
-      const remainingAfter = rest.slice(2);
-      if (canReach(boardAfter2, player, remainingAfter, state.turn.allowedKeys)) {
-        const isFullTurn = remainingAfter.length === 0;
-        return { singles: [s1, s2], isFullTurn };
-      }
-    }
-  }
-
-  return null;
-}
-
 function handleBearOffDblClick() {
   if (state.busy) return;
   const game = state.game;
-  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide) return;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
 
-  const action = findBearOffSingles();
+  const action = findBearOffAction(
+    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied
+  );
   if (!action) return;
 
   if (action.isFullTurn && action.move) {
@@ -1245,8 +1103,7 @@ function renderStatus() {
   adviceButton.textContent = state.advising ? '考えています…' : 'ヒント';
   $('again').hidden = true;
   // ダブルはロール前だけ。キューブを相手が持っていたら出せない
-  $('double').hidden = !(state.match.useCube && mine && game.state === ROLLING
-                         && game.canDouble());
+  $('double').hidden = !canHumanDouble();
 
   if (state.busy) {
     // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
@@ -1328,7 +1185,7 @@ function renderHighlights() {
     $(`point-${i}`).classList.remove('selectable', 'advised', 'makeable');
   }
   $('bar').classList.remove('selectable', 'advised');
-  $('off-0')?.classList.remove('makeable');
+  $(`off-${state.humanSide}`)?.classList.remove('makeable');
 
   // ヒントの最善手の移動元に印を付ける。**表記だけだと盤上で探すのが大変。**
   if (state.advice) {
@@ -1345,16 +1202,22 @@ function renderHighlights() {
     else $(`point-${single.from}`)?.classList.add('selectable');
   }
 
+  const board = previewBoard();
+  const legalMoves = state.game.legalMoves;
+  const player = state.humanSide;
+  const roll = state.game.roll;
+  const applied = state.turn.applied;
+
   // ダブルクリックでポイントを作れる（メイクできる）マスを光らせる
   for (let i = 0; i < 24; i += 1) {
-    if (findPointMakeSingles(i)) {
+    if (findPointMakeAction(board, legalMoves, player, roll, applied, i)) {
       $(`point-${i}`)?.classList.add('makeable');
     }
   }
 
   // ダブルクリックで 2 駒ベアオフできるときは上がりトレイを光らせる
-  if (findBearOffSingles()) {
-    $('off-0')?.classList.add('makeable');
+  if (findBearOffAction(board, legalMoves, player, roll, applied)) {
+    $(`off-${state.humanSide}`)?.classList.add('makeable');
   }
 }
 
@@ -1494,6 +1357,16 @@ async function afterChange() {
     }
     // ダブルが打てない状態（権利がない、クロフォード、キューブなし等）なら自動でダイスを振る
     if (game.state === ROLLING && !canHumanDouble() && !state.busy) {
+      const runId = state.runId;
+      state.busy = true;
+      render();
+      await pause();
+      if (state.runId !== runId || state.game !== game || game.state !== ROLLING
+          || game.currentPlayer !== state.humanSide) {
+        state.busy = false;
+        return;
+      }
+      state.busy = false;
       await humanRollDice();
       return;
     }
