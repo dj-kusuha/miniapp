@@ -126,6 +126,46 @@ function ask(payload) {
   });
 }
 
+
+/**
+ * キューブ判断を **Worker に投げる**（駄目ならこのスレッドで）。
+ *
+ * **cubePlies=2 だと 1 回 1〜2 秒かかる。** しかも `shouldDouble` は
+ * 手番のたびに呼ばれるので、メインスレッドに置くと人が指した直後に必ず
+ * 固まる（1 フレーム待っても、その後止まる）。
+ *
+ * **Game をまるごと送らない。** 判断に要るのは盤面・手番・キューブの値と
+ * 所有者・ジャコビーだけ。
+ */
+async function askCube(game, kind) {
+  const match = state.match.cubeContext();
+  if (thinker.worker) {
+    try {
+      const reply = await ask({
+        kind: 'cube',
+        ask: kind,
+        board: {
+          points: game.board.points,
+          bar: [game.board.bar[WHITE], game.board.bar[BLACK]],
+          off: [game.board.off[WHITE], game.board.off[BLACK]],
+        },
+        player: game.currentPlayer,
+        cubeValue: game.cube.value,
+        cubeOwner: game.cube.owner,
+        jacoby: game.jacoby,
+        level: state.level,
+        match,
+      });
+      return reply.answer;
+    } catch (error) {
+      console.warn('Worker でのキューブ判断に失敗しました。こちらで決めます', error);
+    }
+  }
+  return kind === 'accept'
+    ? state.agent.shouldAcceptDouble(game, match)
+    : state.agent.shouldDouble(game, match);
+}
+
 /**
  * AI に着手を選ばせる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
  * 返すのは `moves` の index。
@@ -297,7 +337,7 @@ $('double').addEventListener('click', async () => {
   render();
   await pause();               // AI が考えているように見せる
 
-  const accepted = state.agent.shouldAcceptDouble(game, state.match.cubeContext());
+  const accepted = await askCube(game, 'accept');
   if (accepted) {
     game.acceptDouble();
     render();
@@ -1216,7 +1256,7 @@ async function runAiTurns() {
 
     // ── ダブルの提案（ロール前だけ）────────────────
     if (state.match.useCube && game.state === ROLLING && game.canDouble()
-        && state.agent.shouldDouble(game, state.match.cubeContext())) {
+        && await askCube(game, 'double')) {
       game.proposeDouble();
       render();
       await pause();

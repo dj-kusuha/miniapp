@@ -8,6 +8,7 @@
 // Move オブジェクト（盤面を含む）を構造化コピーで往復させずに済む。
 
 import { Board } from './board.js';
+import { Game, ROLLING } from './game.js';
 import { NeuralNet } from './nn.js';
 import { agentFor } from './agent.js';
 import { generateMoves, boardKey } from './rules.js';
@@ -70,6 +71,34 @@ self.onmessage = async (event) => {
           probabilities: entry.probabilities,
         })),
       });
+      return;
+    }
+
+    // キューブ判断。**着手と同じくらい重い。**
+    // cubePlies=2 だと shouldDouble 1 回で 1〜2 秒かかる（engine の実測で
+    // 0-ply の 1 万倍）。しかも**手番のたびに呼ばれる**ので、メインスレッドに
+    // 置くと人が指した直後に必ず固まる。
+    //
+    // **Game をまるごと送らない。** キューブ判断に要るのは盤面・手番・
+    // キューブの値と所有者・ジャコビーだけなので、それだけ送って
+    // こちらで組み立て直す。
+    if (kind === 'cube') {
+      const { board, player, cubeValue, cubeOwner, jacoby, level, match, ask } = event.data;
+      const game = new Game(Board.fromJson(board), Math.random, { jacoby });
+      game.currentPlayer = player;
+      game.state = ROLLING;
+      game.cube.value = cubeValue;
+      game.cube.owner = cubeOwner;
+      const agent = agentForLevel(level);
+      let answer;
+      if (ask === 'accept') {
+        // **テイク判断は「提案された状態」でしか呼べない。**
+        game.proposeDouble();
+        answer = agent.shouldAcceptDouble(game, match ?? null);
+      } else {
+        answer = agent.shouldDouble(game, match ?? null);
+      }
+      self.postMessage({ id, ok: true, answer: Boolean(answer) });
       return;
     }
 
