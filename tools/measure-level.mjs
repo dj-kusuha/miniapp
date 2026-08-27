@@ -38,6 +38,9 @@ const opt = (name, def) => {
 };
 const games = opt('games', 30);
 const seed0 = opt('seed', 1);
+//: --cube を付けるとキューブありで対局し、gnubg のキューブ解析も入れる。
+//: **ジャコビーあり・ビーバー無し**（engine 側にビーバーの実装が無い）。
+const useCube = args.includes('--cube');
 
 /** `intro` のような段名でも `noise=0.1,maxLoss=0.4` でも受ける。 */
 function settingsFor(text) {
@@ -64,16 +67,27 @@ function seeded(s0) {
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 }
 
-// **キューブは切って測る。** ER は着手の損失を見るための指標で、キューブが
-// 入ると局が早く終わって手数が減り、比較しづらくなる。
+// **既定ではキューブを切って測る。** ER は着手の損失を見るための指標で、
+// キューブが入ると局が早く終わって手数が減り、比較しづらくなる。
+// `--cube` を付けると実戦に近い形（ジャコビーあり）で測る。
 const rng = seeded(seed0 * 7919 + 13);
-const match = new Match({ length: MONEY, jacoby: false, useCube: false, rng });
+const match = new Match({ length: MONEY, jacoby: useCube, useCube, rng });
 let plies = 0;
 for (let i = 0; i < games; i += 1) {
   const game = match.startGame();
   let steps = 0;
   while (game.state !== GAME_OVER && steps < 4000) {
     steps += 1;
+    // **ロール前にダブルを検討する。** マネーゲームなので cubeContext() は
+    // null を返し、ジャコビー込みのマネーの経路が使われる。
+    // **ビーバーは engine 側に実装が無いので出さない。**
+    if (useCube && game.state === ROLLING && game.canDouble()
+        && agent.shouldDouble(game, match.cubeContext())) {
+      game.proposeDouble();
+      if (agent.shouldAcceptDouble(game, match.cubeContext())) game.acceptDouble();
+      else { game.declineDouble(); break; }
+      continue;
+    }
     if (game.legalMoves.length === 0) { game.rollDice(); continue; }
     game.applyMove(agent.selectMove(game.legalMoves, game.currentPlayer));
     plies += 1;
@@ -89,8 +103,11 @@ const script = [
   'set sound enable off',
   'set sound system none',
   'set automatic game off',
-  // **着手だけを見る。** キューブ解析は切る（棋譜にキューブが無いので無意味）
-  'set analysis cube off',
+  // **着手だけを見る。** キューブ解析は既定で切る（棋譜にキューブが無いので無意味）。
+  // --cube のときは入れる。**ジャコビーあり・ビーバー無し**で engine と揃える。
+  ...(useCube
+    ? ['set analysis cube on', 'set jacoby on', 'set beavers 0']
+    : ['set analysis cube off']),
   'set analysis chequerplay on',
   'set analysis moves on',
   'set analysis chequer eval plies 2',
@@ -138,6 +155,32 @@ function chequerStats(text) {
   return er ? { er, rating, unforced } : null;
 }
 
+/**
+ * 任意の節から「Error rate mEMG」と rating を拾う（キューブ / 全体用）。
+ *
+ * gnubg は `Cube statistics` に `Error rate mEMG` と `Cube decision rating`、
+ * `Overall statistics` に `Error rate mEMG` と `Overall rating` を出す。
+ */
+function sectionStats(text, heading, ratingLabel) {
+  const lines = text.split('\n');
+  const from = lines.findIndex((l) => l.includes(heading));
+  if (from < 0) return null;
+  const cell = (line) => line.trim().split(/\s{2,}/);
+  let er = null;
+  let rating = null;
+  for (const line of lines.slice(from, from + 24)) {
+    if (er === null && line.trim().startsWith('Error rate mEMG')) {
+      const m = [...line.matchAll(/(-?\d+\.\d+)\s+\(/g)].map((x) => Number(x[1]));
+      if (m.length >= 2) er = [Math.abs(m[0]), Math.abs(m[1])];
+    }
+    if (rating === null && line.trim().startsWith(ratingLabel)) {
+      const parts = cell(line);
+      if (parts.length >= 3) rating = [parts[1], parts[2]];
+    }
+  }
+  return er ? { er, rating } : null;
+}
+
 const stats = chequerStats(out);
 console.log(`段 ${level.id}: noise=${level.noise} maxLoss=${level.maxLoss} plies=${level.plies}`);
 console.log(`  ${games} 局 / ${plies} 手`);
@@ -152,6 +195,29 @@ if (!stats) {
   const [ra, rb] = stats.rating ?? ['?', '?'];
   if (stats.unforced) console.log(`  強制でない手 ${stats.unforced[0]} / ${stats.unforced[1]}`);
   console.log(`  White ${a.toFixed(1)} mEMG（${ra}） / Black ${b.toFixed(1)} mEMG（${rb}）`);
-  console.log(`  **平均 ${mean.toFixed(1)} mEMG**`);
+  console.log(`  チェッカー 平均 ${mean.toFixed(1)} mEMG（White ${a.toFixed(1)} / Black ${b.toFixed(1)}）`);
+}
+
+// **キューブありのときは 3 つ揃えて出す。** どこが足を引っ張っているかは
+// チェッカーとキューブを分けないと分からない（gnubg 自身もそう報告する）。
+if (useCube) {
+  for (const [heading, label, name] of [
+    ['Cube statistics', 'Cube decision rating', 'キューブ'],
+    ['Overall statistics', 'Overall rating', '全体    '],
+  ]) {
+    const sec = sectionStats(out, heading, label);
+    // **判断回数を一緒に出す。** キューブは 1 局に数回しか起きないので、
+    // ER が大きくても「2〜3 回のミス」なのか「毎回外している」のかは
+    // 回数を見ないと分からない。
+    if (heading === 'Cube statistics') {
+      const counts = out.split('\n').filter((l) => /Total cube decisions|Actual or close cube/i.test(l));
+      for (const c of counts.slice(0, 2)) console.log(`    ${c.trim()}`);
+    }
+    if (!sec) { console.log(`  ${name}: 読み取れませんでした`); continue; }
+    const [x, y] = sec.er;
+    const [rx, ry] = sec.rating ?? ['?', '?'];
+    console.log(`  ${name} 平均 ${((x + y) / 2).toFixed(1)} mEMG`
+      + `（White ${x.toFixed(1)}・${rx} / Black ${y.toFixed(1)}・${ry}）`);
+  }
 }
 rmSync(dir, { recursive: true, force: true });
