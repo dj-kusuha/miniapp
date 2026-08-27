@@ -12,6 +12,8 @@
   --white-checker: #fbf7ef;
   --black-checker: #3a3430;
   --accent: #2f6f4f;
+  /* ポイント作成可能（メイク可能）なマスのハイライト（アンバーゴールド）。 */
+  --makeable: #d97706;
   /* ダブル用。「サイコロを振る」と並んで盤の上に出るので、**緑と間違えない
      色**にする。盤（金茶）の上に白抜きで置いても読める濃さを選んである。
      盤の色はテーマで変わらないので、この色も 1 つで通す。 */
@@ -37,6 +39,7 @@
     --white-checker: #ede7dc;
     --black-checker: #16130f;
     --accent: #4f9d74;
+    --makeable: #f59e0b;
     /* 暗い背景では沈むので明るい側へ。盤の色はテーマで変わらないが、
        クリーム / 茶のどちらの上でも読める範囲。 */
     --advice: #ff5c8a;
@@ -205,11 +208,23 @@ button:disabled { opacity: .5; cursor: default; }
 /* 選択できる駒はマス全体を囲う（三角形に切り取られる ::before ではなく本体に描く）。 */
 .point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
 
+/* ポイントを作れる場所（ダブルクリックでメイク可能）。 */
+.point.makeable { box-shadow: inset 0 0 0 3px var(--makeable); }
+.point.selectable.makeable {
+  box-shadow: inset 0 0 0 3px var(--makeable), inset 0 0 0 6px var(--accent);
+}
+
 /* ヒントの最善手の移動元。**選択できる印（緑）と重なるので別の色にする。**
    両方付くことがあるため、内側と外側で描き分けて共存させる。 */
 .point.advised { box-shadow: inset 0 0 0 3px var(--advice); }
 .point.selectable.advised {
   box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--accent);
+}
+.point.makeable.advised {
+  box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--makeable);
+}
+.point.selectable.makeable.advised {
+  box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--makeable), inset 0 0 0 9px var(--accent);
 }
 .bar.advised { box-shadow: inset 0 0 0 3px var(--advice); }
 .bar.selectable.advised {
@@ -275,6 +290,11 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .off-tray.black { justify-content: flex-start; }   /* 上段が黒のホーム側 */
 .off-tray.white { justify-content: flex-end; }
+/* 出目を使って2駒ベアオフできるときはトレイを黄色枠でハイライトし、ダブルクリック可能にする */
+.off-tray.makeable {
+  box-shadow: inset 0 0 0 3px var(--makeable);
+  cursor: pointer;
+}
 .off-checker {
   width: 100%;
   height: 7px;
@@ -498,6 +518,27 @@ button:disabled { opacity: .5; cursor: default; }
   width: 100%;
   min-height: 44px;      /* タップ目標 */
   accent-color: var(--accent);
+}
+
+.toggle-field {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: .85rem;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+.toggle-label input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 /* マッチのスコア。形式・点差・away・クロフォードをこの 1 行にまとめる。 */

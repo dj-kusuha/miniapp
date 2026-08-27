@@ -199,7 +199,7 @@ export function generateMoves(board, player, die1, die2) {
  * `remaining` の出目を使って `allowedKeys` のどれかに到達できるか。
  * 出目を使い切る必要はない（使えなくなった時点で終わる手順も合法）。
  */
-function canReach(board, player, remaining, allowedKeys) {
+export function canReach(board, player, remaining, allowedKeys) {
   if (allowedKeys.has(boardKey(board))) return true;
   if (remaining.length === 0) return false;
 

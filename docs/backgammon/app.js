@@ -10,7 +10,7 @@ import { NeuralNet } from './src/nn.js';
 import { agentFor, levelById, DEFAULT_LEVEL, ADVICE_LEVEL } from './src/agent.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
-import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
+import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
@@ -39,6 +39,7 @@ const state = {
   isMatch: false,     // 形式。false = アンリミテッド
   matchLength: MONEY, // 0 = アンリミテッド。1〜7 でポイントマッチ
   delay: DEFAULT_DELAY,   // AI の進行を見せる間合い（ms）
+  autoForce: false,   // フォースムーブを自動で動かすか
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -277,20 +278,60 @@ function syncFormatFields() {
 }
 syncFormatFields();
 
-// ── AI の間合い ────────────────────────────────
+// ── AI の間合い・設定 ────────────────────────────
 //
 // 出目を見せる時間と、駒 1 個ぶんの着手の間。既定の 1 秒は「AI が何をしたか
 // 追える」代わりに待たされるので、対局中でも変えられるようにする。
 
+const STORAGE_KEY_SPEED = 'backgammon_speed';
+const STORAGE_KEY_AUTO_FORCE = 'backgammon_auto_force';
+
 const speedInput = $('speed');
+const autoForceInput = $('auto-force');
 
 function syncSpeed() {
   const seconds = Number(speedInput.value);
   state.delay = Math.round(seconds * 1000);
   $('speed-value').textContent = `${seconds.toFixed(1)} 秒`;
+  saveSetting(STORAGE_KEY_SPEED, speedInput.value);
 }
 speedInput.addEventListener('input', syncSpeed);
+
+function syncAutoForce() {
+  state.autoForce = autoForceInput.checked;
+  saveSetting(STORAGE_KEY_AUTO_FORCE, state.autoForce);
+}
+autoForceInput.addEventListener('change', syncAutoForce);
+
+function loadSettings() {
+  try {
+    const savedSpeed = localStorage.getItem(STORAGE_KEY_SPEED);
+    if (savedSpeed !== null) {
+      const val = parseFloat(savedSpeed);
+      if (!Number.isNaN(val) && val >= 0.1 && val <= 2) {
+        speedInput.value = String(val);
+      }
+    }
+    const savedAutoForce = localStorage.getItem(STORAGE_KEY_AUTO_FORCE);
+    if (savedAutoForce !== null) {
+      autoForceInput.checked = savedAutoForce === 'true';
+    }
+  } catch {
+    // localStorage が使えない環境でも安全に落とす
+  }
+}
+
+function saveSetting(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // 保存に失敗しても対局は継続する
+  }
+}
+
+loadSettings();
 syncSpeed();
+syncAutoForce();
 
 function selectChoice(button) {
   const group = button.parentElement;
@@ -316,8 +357,17 @@ $('again').addEventListener('click', () => {
   if (state.match && !state.match.isOver) nextGame();
   else startMatch();
 });
-$('roll').addEventListener('click', async () => {
+/** 人間がダブルを提案できる状態か（ロール前かつ権利がある）。 */
+function canHumanDouble() {
   const game = state.game;
+  return Boolean(state.match && state.match.useCube && game
+    && game.state === ROLLING && game.canDouble());
+}
+
+/** 人間のダイスロール。手動クリックと自動ロールの両方から使う。 */
+async function humanRollDice() {
+  const game = state.game;
+  if (!game || game.state !== ROLLING || game.currentPlayer !== state.humanSide || state.busy) return;
   const before = game.currentPlayer;
   game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
   // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
@@ -328,7 +378,9 @@ $('roll').addEventListener('click', async () => {
     state.danceShow = null;
   }
   await afterChange();
-});
+}
+
+$('roll').addEventListener('click', humanRollDice);
 $('double').addEventListener('click', async () => {
   const game = state.game;
   if (!state.match.useCube || !game.canDouble()) return;
@@ -569,6 +621,12 @@ function makeOffTray(player, row) {
   tray.id = `off-${player}`;
   tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
+  if (player === WHITE) {
+    tray.addEventListener('dblclick', (event) => {
+      event.preventDefault();
+      handleBearOffDblClick();
+    });
+  }
   return tray;
 }
 
@@ -579,7 +637,203 @@ function makePoint(index, isBottom) {
   point.dataset.index = String(index);
   point.id = `point-${index}`;
   point.addEventListener('click', () => handleSourceClick(index));
+  point.addEventListener('dblclick', (event) => {
+    event.preventDefault();
+    handlePointDblClick(index);
+  });
   return point;
+}
+
+/**
+ * targetIndex (0-23) にポイントを作るための着手（SingleMove の配列）を返す。
+ * 作れない場合は null。
+ * 
+ * - 非ゾロ目: 2 つの出目を両方使って targetIndex へ 2 駒移動する手（全出目消費・ターン確定）。
+ * - ゾロ目: その出目を使って sourceIndex から targetIndex へ 2 駒移動する手（2 回分消費）。
+ */
+function findPointMakeSingles(targetIndex) {
+  const game = state.game;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return null;
+
+  const player = state.humanSide;
+  const board = previewBoard();
+  const rest = remainingDice();
+  if (rest.length < 2) return null;
+
+  // 着手前時点で 0 枚（空きマス）でなければならない（1枚以上の場所へのカバーや追加スタックは除外）
+  const initialCount = board.count(targetIndex, player);
+  if (initialCount !== 0) return null;
+
+  const targetVal = board.points[targetIndex];
+  if (targetVal < -1) return null; // 相手のブロックポイント
+
+  const { die1, die2 } = game.roll;
+
+  // ── 1. 非ゾロ目の場合 (die1 !== die2) ──
+  if (die1 !== die2) {
+    if (state.turn.applied.length > 0) return null;
+
+    const candidates = game.legalMoves.filter((move) => {
+      const endCount = move.resultingBoard.count(targetIndex, player);
+      if (endCount < 2) return false;
+      return move.singles.length === 2 && move.singles.every((s) => s.to === targetIndex);
+    });
+    if (candidates.length === 0) return null;
+
+    let bestMove = candidates[0];
+    if (candidates.length > 1) {
+      const agent = state.adviceAgent || state.agent;
+      if (agent) {
+        const bestIdx = agent.selectMove(candidates, player);
+        bestMove = candidates[bestIdx];
+      }
+    }
+    return { singles: bestMove.singles, isFullTurn: true, move: bestMove };
+  }
+
+  // ── 2. ゾロ目の場合 (die1 === die2) ──
+  const die = die1;
+  const sourceIndex = targetIndex + die; // White はインデックス減衰方向
+  if (sourceIndex < 0 || sourceIndex >= 24) return null;
+
+  // 移動元に 2 枚以上あること（バーに駒がある時は sourceIndex から動かせない）
+  if (board.bar[player] > 0) return null;
+  if (board.count(sourceIndex, player) < 2) return null;
+
+  // 2 枚移動する 2 つの SingleMove を作成
+  const hit = targetVal === -1;
+  const single1 = new SingleMove(sourceIndex, targetIndex, die, hit);
+  const single2 = new SingleMove(sourceIndex, targetIndex, die, false);
+
+  // 2 手適用した後の作業盤面を作成
+  const workBoard = board.clone();
+  applySingle(workBoard, player, single1);
+  applySingle(workBoard, player, single2);
+
+  // 残りの出目で合法な終了盤面に到達できるか確認
+  const remainingAfter = rest.slice(2);
+  if (!canReach(workBoard, player, remainingAfter, state.turn.allowedKeys)) {
+    return null;
+  }
+
+  const isFullTurn = remainingAfter.length === 0;
+  return { singles: [single1, single2], isFullTurn };
+}
+
+function handlePointDblClick(targetIndex) {
+  if (state.busy) return;
+  const game = state.game;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide) return;
+
+  const action = findPointMakeSingles(targetIndex);
+  if (!action) return;
+
+  if (action.isFullTurn && action.move) {
+    state.turn = null;
+    finalizeTurn(action.move);
+  } else {
+    // ゾロ目で 2 回分だけ使った場合（または残り 2 回を使い切った場合）
+    for (const single of action.singles) {
+      state.turn.applied.push(single);
+    }
+    const key = boardKey(previewBoard());
+    if (state.turn.allowedKeys.has(key)) {
+      finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
+    } else {
+      render();
+    }
+  }
+}
+
+/**
+ * ベアオフ位置（上がりトレイ）への着手を返す。
+ * 出目を 2 つ使って 2 駒ベアオフできる場合のみアクションを返し、できない場合は null。
+ * 
+ * - 非ゾロ目: 2 つの出目を両方使って 2 駒ベアオフする手（全出目消費・ターン確定）。
+ * - ゾロ目: その出目を使って 2 駒ベアオフする手（2 回分消費）。
+ */
+function findBearOffSingles() {
+  const game = state.game;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return null;
+
+  const player = state.humanSide;
+  const board = previewBoard();
+  if (!board.allInHome(player)) return null;
+
+  const rest = remainingDice();
+  if (rest.length < 2) return null;
+
+  const { die1, die2 } = game.roll;
+
+  // ── 1. 非ゾロ目の場合 (die1 !== die2) ──
+  if (die1 !== die2) {
+    if (state.turn.applied.length > 0) return null;
+
+    const candidates = game.legalMoves.filter((move) => {
+      return move.singles.length === 2 && move.singles.every((s) => s.to === null);
+    });
+    if (candidates.length === 0) return null;
+
+    let bestMove = candidates[0];
+    if (candidates.length > 1) {
+      const agent = state.adviceAgent || state.agent;
+      if (agent) {
+        const bestIdx = agent.selectMove(candidates, player);
+        bestMove = candidates[bestIdx];
+      }
+    }
+    return { singles: bestMove.singles, isFullTurn: true, move: bestMove };
+  }
+
+  // ── 2. ゾロ目の場合 (die1 === die2) ──
+  const availableSingles = nextSingles(board, player, rest, state.turn.allowedKeys)
+    .filter((s) => s.to === null);
+  if (availableSingles.length === 0) return null;
+
+  for (const s1 of availableSingles) {
+    const boardAfter1 = board.clone();
+    applySingle(boardAfter1, player, s1);
+
+    const secondSingles = nextSingles(boardAfter1, player, rest.slice(1), state.turn.allowedKeys)
+      .filter((s) => s.to === null);
+
+    for (const s2 of secondSingles) {
+      const boardAfter2 = boardAfter1.clone();
+      applySingle(boardAfter2, player, s2);
+
+      const remainingAfter = rest.slice(2);
+      if (canReach(boardAfter2, player, remainingAfter, state.turn.allowedKeys)) {
+        const isFullTurn = remainingAfter.length === 0;
+        return { singles: [s1, s2], isFullTurn };
+      }
+    }
+  }
+
+  return null;
+}
+
+function handleBearOffDblClick() {
+  if (state.busy) return;
+  const game = state.game;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide) return;
+
+  const action = findBearOffSingles();
+  if (!action) return;
+
+  if (action.isFullTurn && action.move) {
+    state.turn = null;
+    finalizeTurn(action.move);
+  } else {
+    for (const single of action.singles) {
+      state.turn.applied.push(single);
+    }
+    const key = boardKey(previewBoard());
+    if (state.turn.allowedKeys.has(key)) {
+      finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
+    } else {
+      render();
+    }
+  }
 }
 
 // ── ターンの進行（出目 1 個ぶんずつ確定させる） ─────────
@@ -1068,12 +1322,13 @@ function renderAdvice() {
   el.hidden = false;
 }
 
-/** 次の 1 手で動かせる駒（＝出目の移動元）を光らせる。 */
+/** 次の 1 手で動かせる駒（＝出目の移動元）や、ポイントを作れる場所を光らせる。 */
 function renderHighlights() {
   for (let i = 0; i < 24; i += 1) {
-    $(`point-${i}`).classList.remove('selectable', 'advised');
+    $(`point-${i}`).classList.remove('selectable', 'advised', 'makeable');
   }
   $('bar').classList.remove('selectable', 'advised');
+  $('off-0')?.classList.remove('makeable');
 
   // ヒントの最善手の移動元に印を付ける。**表記だけだと盤上で探すのが大変。**
   if (state.advice) {
@@ -1088,6 +1343,18 @@ function renderHighlights() {
   for (const single of currentOptions()) {
     if (single.from === null) $('bar').classList.add('selectable');
     else $(`point-${single.from}`)?.classList.add('selectable');
+  }
+
+  // ダブルクリックでポイントを作れる（メイクできる）マスを光らせる
+  for (let i = 0; i < 24; i += 1) {
+    if (findPointMakeSingles(i)) {
+      $(`point-${i}`)?.classList.add('makeable');
+    }
+  }
+
+  // ダブルクリックで 2 駒ベアオフできるときは上がりトレイを光らせる
+  if (findBearOffSingles()) {
+    $('off-0')?.classList.add('makeable');
   }
 }
 
@@ -1223,6 +1490,27 @@ async function afterChange() {
       await pause();
       state.danceShow = null;
       await afterChange();
+      return;
+    }
+    // ダブルが打てない状態（権利がない、クロフォード、キューブなし等）なら自動でダイスを振る
+    if (game.state === ROLLING && !canHumanDouble() && !state.busy) {
+      await humanRollDice();
+      return;
+    }
+    // フォースムーブ（唯一の合法手）なら自動で動かす
+    if (state.autoForce && game.state === MOVING && game.legalMoves.length === 1 && !state.busy) {
+      const move = game.legalMoves[0];
+      const runId = state.runId;
+      state.busy = true;
+      render();
+      await pause();
+      if (state.runId !== runId || state.game !== game || game.state !== MOVING
+          || game.currentPlayer !== state.humanSide) {
+        state.busy = false;
+        return;
+      }
+      state.busy = false;
+      finalizeTurn(move);
       return;
     }
     render();
