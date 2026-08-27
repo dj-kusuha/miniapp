@@ -96,7 +96,7 @@ export const DEFAULT_CUBE_OWNERSHIP = 0.130;
  * なっている。モデルの較正が改善したら測り直すこと。
  * （backgammon_engine の docs/adr/0017-cube-measurement.md）
  */
-export const DEFAULT_CUBE_EFFICIENCY = 0.92;
+export const DEFAULT_CUBE_EFFICIENCY = 0.50;
 
 /**
  * キューブ判断の方式。
