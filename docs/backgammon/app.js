@@ -40,6 +40,9 @@ const state = {
   matchLength: MONEY, // 0 = アンリミテッド。1〜7 でポイントマッチ
   delay: DEFAULT_DELAY,   // AI の進行を見せる間合い（ms）
   autoForce: false,   // フォースムーブを自動で動かすか
+  autoRoll: true,     // ダブルできない時に自動でダイスを振るか
+  autoRolling: false, // 自動ロールの待機中か
+  autoForcing: false, // 自動フォースムーブの待機中か
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -285,9 +288,11 @@ syncFormatFields();
 
 const STORAGE_KEY_SPEED = 'backgammon_speed';
 const STORAGE_KEY_AUTO_FORCE = 'backgammon_auto_force';
+const STORAGE_KEY_AUTO_ROLL = 'backgammon_auto_roll';
 
 const speedInput = $('speed');
 const autoForceInput = $('auto-force');
+const autoRollInput = $('auto-roll');
 
 function syncSpeed() {
   const seconds = Number(speedInput.value);
@@ -295,26 +300,38 @@ function syncSpeed() {
   $('speed-value').textContent = `${seconds.toFixed(1)} 秒`;
   saveSetting(STORAGE_KEY_SPEED, speedInput.value);
 }
-speedInput.addEventListener('input', syncSpeed);
+speedInput?.addEventListener('input', syncSpeed);
 
 function syncAutoForce() {
+  if (!autoForceInput) return;
   state.autoForce = autoForceInput.checked;
   saveSetting(STORAGE_KEY_AUTO_FORCE, state.autoForce);
 }
-autoForceInput.addEventListener('change', syncAutoForce);
+autoForceInput?.addEventListener('change', syncAutoForce);
+
+function syncAutoRoll() {
+  if (!autoRollInput) return;
+  state.autoRoll = autoRollInput.checked;
+  saveSetting(STORAGE_KEY_AUTO_ROLL, state.autoRoll);
+}
+autoRollInput?.addEventListener('change', syncAutoRoll);
 
 function loadSettings() {
   try {
     const savedSpeed = localStorage.getItem(STORAGE_KEY_SPEED);
-    if (savedSpeed !== null) {
+    if (savedSpeed !== null && speedInput) {
       const val = parseFloat(savedSpeed);
       if (!Number.isNaN(val) && val >= 0.1 && val <= 2) {
         speedInput.value = String(val);
       }
     }
     const savedAutoForce = localStorage.getItem(STORAGE_KEY_AUTO_FORCE);
-    if (savedAutoForce !== null) {
+    if (savedAutoForce !== null && autoForceInput) {
       autoForceInput.checked = savedAutoForce === 'true';
+    }
+    const savedAutoRoll = localStorage.getItem(STORAGE_KEY_AUTO_ROLL);
+    if (autoRollInput) {
+      autoRollInput.checked = savedAutoRoll !== null ? (savedAutoRoll === 'true') : true;
     }
   } catch {
     // localStorage が使えない環境でも安全に落とす
@@ -332,6 +349,7 @@ function saveSetting(key, value) {
 loadSettings();
 syncSpeed();
 syncAutoForce();
+syncAutoRoll();
 
 function selectChoice(button) {
   const group = button.parentElement;
@@ -366,7 +384,8 @@ function canHumanDouble() {
 async function humanRollDice() {
   const game = state.game;
   if (!game || game.state !== ROLLING || game.currentPlayer !== state.humanSide) return;
-  if (state.busy && !state.autoRolling) return;
+  state.autoRolling = false;
+  state.busy = false;
   const before = game.currentPlayer;
   game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
   // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
@@ -525,6 +544,8 @@ function nextGame() {
   state.anim = null;
   state.danceShow = null;
   state.busy = false;
+  state.autoRolling = false;
+  state.autoForcing = false;
   state.runId += 1;         // 進行中のアニメーションを打ち切る
   $('again').hidden = true;
   afterChange();
@@ -624,10 +645,6 @@ function makeOffTray(player, row) {
     tray.addEventListener('click', () => {
       handleBearOffDblClick();
     });
-    tray.addEventListener('dblclick', (event) => {
-      event.preventDefault();
-      handleBearOffDblClick();
-    });
   }
   return tray;
 }
@@ -639,10 +656,6 @@ function makePoint(index, isBottom) {
   point.dataset.index = String(index);
   point.id = `point-${index}`;
   point.addEventListener('click', () => handleSourceClick(index));
-  point.addEventListener('dblclick', (event) => {
-    event.preventDefault();
-    handlePointDblClick(index);
-  });
   return point;
 }
 
@@ -1103,7 +1116,6 @@ function renderStatus() {
   renderDiceTray($('dice-ai'), diceFor(opponentSide()));
 
   $('roll').hidden = !(mine && game.state === ROLLING);
-  $('roll').disabled = Boolean(state.busy && mine && !state.autoRolling);
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   // ヒントは手番の最初だけ。駒を動かし始めたら引っ込める。
   // **深い段にすると数秒かかる**ので、計算中はそう見せて二度押しも止める
@@ -1374,16 +1386,18 @@ async function afterChange() {
       return;
     }
     // ダブルが打てない状態（権利がない、クロフォード、キューブなし等）なら自動でダイスを振る
-    if (game.state === ROLLING && !canHumanDouble() && !state.busy) {
+    if (state.autoRoll && game.state === ROLLING && !canHumanDouble() && !state.busy) {
       const runId = state.runId;
       state.busy = true;
       state.autoRolling = true;
       render();
       await pause();
+      const wasAutoRolling = state.autoRolling;
       state.autoRolling = false;
       if (state.runId !== runId || state.game !== game || game.state !== ROLLING
-          || game.currentPlayer !== state.humanSide) {
+          || game.currentPlayer !== state.humanSide || !wasAutoRolling) {
         state.busy = false;
+        render();
         return;
       }
       state.busy = false;
@@ -1398,10 +1412,12 @@ async function afterChange() {
       state.autoForcing = true;
       render();
       await pause();
+      const wasAutoForcing = state.autoForcing;
       state.autoForcing = false;
       if (state.runId !== runId || state.game !== game || game.state !== MOVING
-          || game.currentPlayer !== state.humanSide) {
+          || game.currentPlayer !== state.humanSide || !wasAutoForcing) {
         state.busy = false;
+        render();
         return;
       }
       state.busy = false;

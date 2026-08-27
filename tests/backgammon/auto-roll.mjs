@@ -192,16 +192,26 @@ const fail = (label, message) => failures.push(`${label}: ${message}`);
 
   const allowedKeys = new Set(moves.map((m) => boardKey(m.resultingBoard)));
 
-  // 4pt (index 3) をメイク -> 2 回分消費 (isFullTurn = false) (allowedKeys を渡して検証)
+  // (a) 正しい allowedKeys を渡した場合はメイク可能
   const act4 = findPointMakeAction(board, moves, WHITE, roll, [], 3, allowedKeys);
   if (!act4 || act4.isFullTurn !== false) {
     fail('make-point-white-22-partial', 'ゾロ目で 2 回分消費時に isFullTurn が false になっていない');
   }
 
+  // (b) 空の allowedKeys を渡した場合は到達不能として null が返ること（allowedKeys 引数が実際に使われていることの証明）
+  const act4Restricted = findPointMakeAction(board, moves, WHITE, roll, [], 3, new Set());
+  if (act4Restricted !== null) {
+    fail('make-point-white-22-restricted', '制限された allowedKeys を渡したのにアクションが返された');
+  }
+
   // 4pt メイク後の盤面から 11pt (index 10) をメイク -> 4 回消費完了 (isFullTurn = true)
-  const act11 = findPointMakeAction(act4.resultingBoard, moves, WHITE, roll, act4.singles, 10, allowedKeys);
-  if (!act11 || act11.isFullTurn !== true) {
-    fail('make-point-white-22-final', 'ゾロ目で 4 回使い切った時に isFullTurn が true になっていない');
+  if (act4 && act4.resultingBoard && act4.singles) {
+    const act11 = findPointMakeAction(act4.resultingBoard, moves, WHITE, roll, act4.singles, 10, allowedKeys);
+    if (!act11 || act11.isFullTurn !== true) {
+      fail('make-point-white-22-final', 'ゾロ目で 4 回使い切った時に isFullTurn が true になっていない');
+    }
+  } else {
+    fail('make-point-white-22-step1-missing', 'ステップ1 (act4) の resultingBoard が取得できなかった');
   }
 }
 
