@@ -365,7 +365,8 @@ function canHumanDouble() {
 /** 人間のダイスロール。手動クリックと自動ロールの両方から使う。 */
 async function humanRollDice() {
   const game = state.game;
-  if (!game || game.state !== ROLLING || game.currentPlayer !== state.humanSide || state.busy) return;
+  if (!game || game.state !== ROLLING || game.currentPlayer !== state.humanSide) return;
+  if (state.busy && !state.autoRolling) return;
   const before = game.currentPlayer;
   game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
   // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
@@ -619,7 +620,10 @@ function makeOffTray(player, row) {
   tray.id = `off-${player}`;
   tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
-  if (player === WHITE) {
+  if (player === state.humanSide) {
+    tray.addEventListener('click', () => {
+      handleBearOffDblClick();
+    });
     tray.addEventListener('dblclick', (event) => {
       event.preventDefault();
       handleBearOffDblClick();
@@ -648,7 +652,7 @@ function handlePointDblClick(targetIndex) {
   if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
 
   const action = findPointMakeAction(
-    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, targetIndex
+    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, targetIndex, state.turn.allowedKeys
   );
   if (!action) return;
 
@@ -674,7 +678,7 @@ function handleBearOffDblClick() {
   if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
 
   const action = findBearOffAction(
-    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied
+    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, state.turn.allowedKeys
   );
   if (!action) return;
 
@@ -748,7 +752,13 @@ function previewBoard() {
 function handleSourceClick(from) {
   if (state.busy || !state.turn) return;
   const options = currentOptions().filter((single) => single.from === from);
-  if (options.length === 0) return;
+  if (options.length === 0) {
+    // 動かせる自駒がないマスをクリックした時、メイク可能ならタップでメイクを実行
+    if (from !== null && typeof from === 'number') {
+      handlePointDblClick(from);
+    }
+    return;
+  }
 
   // 同じ駒を複数の目で動かせるときは、出目キューの左（die1）を優先する。
   // 右の目を使いたいときはサイコロをクリックして並びを入れ替える。
@@ -1093,6 +1103,7 @@ function renderStatus() {
   renderDiceTray($('dice-ai'), diceFor(opponentSide()));
 
   $('roll').hidden = !(mine && game.state === ROLLING);
+  $('roll').disabled = Boolean(state.busy && mine && !state.autoRolling);
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   // ヒントは手番の最初だけ。駒を動かし始めたら引っ込める。
   // **深い段にすると数秒かかる**ので、計算中はそう見せて二度押しも止める
@@ -1106,12 +1117,18 @@ function renderStatus() {
   $('double').hidden = !canHumanDouble();
 
   if (state.busy) {
-    // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
-    // 終わらないことがある。
-    // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
-    if (state.anim) $('hint').textContent = 'AI が指しています…';
-    else if (state.thinking) $('hint').textContent = 'AI が長考しています…';
-    else $('hint').textContent = 'AI が考えています…';
+    if (mine) {
+      if (state.autoRolling) $('hint').textContent = '自動でダイスを振っています…';
+      else if (state.autoForcing) $('hint').textContent = '自動で着手しています…';
+      else $('hint').textContent = '';
+    } else {
+      // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
+      // 終わらないことがある。
+      // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
+      if (state.anim) $('hint').textContent = 'AI が指しています…';
+      else if (state.thinking) $('hint').textContent = 'AI が長考しています…';
+      else $('hint').textContent = 'AI が考えています…';
+    }
   }
   else if (mine && game.state === MOVING) {
     $('hint').textContent = midTurn
@@ -1207,16 +1224,17 @@ function renderHighlights() {
   const player = state.humanSide;
   const roll = state.game.roll;
   const applied = state.turn.applied;
+  const allowedKeys = state.turn.allowedKeys;
 
   // ダブルクリックでポイントを作れる（メイクできる）マスを光らせる
   for (let i = 0; i < 24; i += 1) {
-    if (findPointMakeAction(board, legalMoves, player, roll, applied, i)) {
+    if (findPointMakeAction(board, legalMoves, player, roll, applied, i, allowedKeys)) {
       $(`point-${i}`)?.classList.add('makeable');
     }
   }
 
   // ダブルクリックで 2 駒ベアオフできるときは上がりトレイを光らせる
-  if (findBearOffAction(board, legalMoves, player, roll, applied)) {
+  if (findBearOffAction(board, legalMoves, player, roll, applied, allowedKeys)) {
     $(`off-${state.humanSide}`)?.classList.add('makeable');
   }
 }
@@ -1359,8 +1377,10 @@ async function afterChange() {
     if (game.state === ROLLING && !canHumanDouble() && !state.busy) {
       const runId = state.runId;
       state.busy = true;
+      state.autoRolling = true;
       render();
       await pause();
+      state.autoRolling = false;
       if (state.runId !== runId || state.game !== game || game.state !== ROLLING
           || game.currentPlayer !== state.humanSide) {
         state.busy = false;
@@ -1375,8 +1395,10 @@ async function afterChange() {
       const move = game.legalMoves[0];
       const runId = state.runId;
       state.busy = true;
+      state.autoForcing = true;
       render();
       await pause();
+      state.autoForcing = false;
       if (state.runId !== runId || state.game !== game || game.state !== MOVING
           || game.currentPlayer !== state.humanSide) {
         state.busy = false;

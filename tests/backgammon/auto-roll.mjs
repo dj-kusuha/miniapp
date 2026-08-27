@@ -5,7 +5,7 @@ import { Game, ROLLING, MOVING, GAME_OVER } from '../../docs/backgammon/src/game
 import { Match, MONEY } from '../../docs/backgammon/src/match.js';
 import {
   generateMoves,
-  SingleMove,
+  boardKey,
   canPlayerDouble,
   findPointMakeAction,
   findBearOffAction,
@@ -190,14 +190,16 @@ const fail = (label, message) => failures.push(`${label}: ${message}`);
     fail('make-point-white-22-targets', `White 初期 2-2 のメイク対象が違う: ${targets.join(',')}`);
   }
 
-  // 4pt (index 3) をメイク -> 2 回分消費 (isFullTurn = false)
-  const act4 = findPointMakeAction(board, moves, WHITE, roll, [], 3);
+  const allowedKeys = new Set(moves.map((m) => boardKey(m.resultingBoard)));
+
+  // 4pt (index 3) をメイク -> 2 回分消費 (isFullTurn = false) (allowedKeys を渡して検証)
+  const act4 = findPointMakeAction(board, moves, WHITE, roll, [], 3, allowedKeys);
   if (!act4 || act4.isFullTurn !== false) {
     fail('make-point-white-22-partial', 'ゾロ目で 2 回分消費時に isFullTurn が false になっていない');
   }
 
   // 4pt メイク後の盤面から 11pt (index 10) をメイク -> 4 回消費完了 (isFullTurn = true)
-  const act11 = findPointMakeAction(act4.resultingBoard, moves, WHITE, roll, act4.singles, 10);
+  const act11 = findPointMakeAction(act4.resultingBoard, moves, WHITE, roll, act4.singles, 10, allowedKeys);
   if (!act11 || act11.isFullTurn !== true) {
     fail('make-point-white-22-final', 'ゾロ目で 4 回使い切った時に isFullTurn が true になっていない');
   }

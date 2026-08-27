@@ -265,7 +265,7 @@ export function nextSingles(board, player, remaining, allowedKeys) {
  * - 非ゾロ目: 2 つの出目を両方使って targetIndex へ 2 駒移動する手（全出目消費・ターン確定）。
  * - ゾロ目: その出目を使って sourceIndex から targetIndex へ 2 駒移動する手（2 回分消費）。
  */
-export function findPointMakeAction(board, legalMoves, player, roll, applied, targetIndex) {
+export function findPointMakeAction(board, legalMoves, player, roll, applied, targetIndex, allowedKeys = null) {
   if (!legalMoves || legalMoves.length === 0) return null;
 
   const rest = diceValues(roll.die1, roll.die2);
@@ -313,9 +313,9 @@ export function findPointMakeAction(board, legalMoves, player, roll, applied, ta
   applySingle(workBoard, player, single1);
   applySingle(workBoard, player, single2);
 
-  const allowedKeys = new Set(legalMoves.map((m) => boardKey(m.resultingBoard)));
+  const keys = allowedKeys || new Set(legalMoves.map((m) => boardKey(m.resultingBoard)));
   const remainingAfter = rest.slice(2);
-  if (!canReach(workBoard, player, remainingAfter, allowedKeys)) {
+  if (!canReach(workBoard, player, remainingAfter, keys)) {
     return null;
   }
 
@@ -330,7 +330,7 @@ export function findPointMakeAction(board, legalMoves, player, roll, applied, ta
  * - 非ゾロ目: 2 つの出目を両方使って 2 駒ベアオフする手（全出目消費・ターン確定）。
  * - ゾロ目: その出目を使って 2 駒ベアオフする手（2 回分消費）。
  */
-export function findBearOffAction(board, legalMoves, player, roll, applied) {
+export function findBearOffAction(board, legalMoves, player, roll, applied, allowedKeys = null) {
   if (!legalMoves || legalMoves.length === 0) return null;
   if (!board.allInHome(player)) return null;
 
@@ -355,8 +355,8 @@ export function findBearOffAction(board, legalMoves, player, roll, applied) {
   }
 
   // ── 2. ゾロ目の場合 (die1 === die2) ──
-  const allowedKeys = new Set(legalMoves.map((m) => boardKey(m.resultingBoard)));
-  const availableSingles = nextSingles(board, player, rest, allowedKeys)
+  const keys = allowedKeys || new Set(legalMoves.map((m) => boardKey(m.resultingBoard)));
+  const availableSingles = nextSingles(board, player, rest, keys)
     .filter((s) => s.to === null);
   if (availableSingles.length === 0) return null;
 
@@ -364,7 +364,7 @@ export function findBearOffAction(board, legalMoves, player, roll, applied) {
     const boardAfter1 = board.clone();
     applySingle(boardAfter1, player, s1);
 
-    const secondSingles = nextSingles(boardAfter1, player, rest.slice(1), allowedKeys)
+    const secondSingles = nextSingles(boardAfter1, player, rest.slice(1), keys)
       .filter((s) => s.to === null);
 
     for (const s2 of secondSingles) {
@@ -372,7 +372,7 @@ export function findBearOffAction(board, legalMoves, player, roll, applied) {
       applySingle(boardAfter2, player, s2);
 
       const remainingAfter = rest.slice(2);
-      if (canReach(boardAfter2, player, remainingAfter, allowedKeys)) {
+      if (canReach(boardAfter2, player, remainingAfter, keys)) {
         const isFullTurn = remainingAfter.length === 0;
         return { singles: [s1, s2], isFullTurn, resultingBoard: boardAfter2 };
       }
