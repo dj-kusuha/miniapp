@@ -109,6 +109,21 @@ export const DEFAULT_CUBE_EFFICIENCY = 0.68;
  */
 export const DEFAULT_CUBE_MODEL = 'janowski';
 
+/**
+ * キューブ判断の方式（既定）。
+ *
+ *   'search'    : ダイスを展開した各ノードでもキューブを検討する（段 B-1）
+ *   'cubeful'   : ノーダブル / ダブル・テイク / ダブル・パスの3つを比べる（段 A）
+ *   'threshold' : equity >= doublePoint + too good（旧方式）
+ */
+export const DEFAULT_CUBE_DECISION = 'search';
+
+/** cubeDecision === 'search' のときにダイスを展開する段数。 */
+export const DEFAULT_CUBE_SEARCH_DEPTH = 1;
+
+/** キューブ探索の葉で展開する段数。0 なら生のネット評価。 */
+export const DEFAULT_CUBE_LEAF_PLIES = 0;
+
 // ── 弱い相手の作り方 ──────────────────────────────
 //
 // **先読み 0 が床なので、それより弱くするには別の軸が要る。**
@@ -261,6 +276,10 @@ export class Agent {
     cubeEfficiency = DEFAULT_CUBE_EFFICIENCY,
     cubeModel = DEFAULT_CUBE_MODEL,
     cubePlies = null,
+    cubeDecision = DEFAULT_CUBE_DECISION,
+    cubeSearchDepth = DEFAULT_CUBE_SEARCH_DEPTH,
+    cubeLeafPlies = DEFAULT_CUBE_LEAF_PLIES,
+    jacoby = true,
     noise = 0,
     maxLoss = Infinity,
   } = {}) {
@@ -272,6 +291,10 @@ export class Agent {
     this.cubeEfficiency = cubeEfficiency;
     this.cubeModel = cubeModel;
     this.cubePlies = cubePlies ?? Math.min(searchPlies, 2);
+    this.cubeDecision = cubeDecision;
+    this.cubeSearchDepth = cubeSearchDepth;
+    this.cubeLeafPlies = cubeLeafPlies;
+    this.jacoby = jacoby;
     this.noise = noise;
     this.maxLoss = maxLoss;
   }
@@ -459,6 +482,152 @@ export class Agent {
   }
 
   /**
+   * キューブ込みの equity を返す（現在のキューブ値を 1 とした点数）。
+   *
+   * `owner` は 'me'（手番側が保持）/ 'opponent'（相手が保持）/
+   * 'center'（センター）。すべて手番側から見た値。
+   *
+   * @param {number[]} outputs 手番側から見た 5 要素の確率ベクトル
+   * @param {'me'|'opponent'|'center'} owner
+   */
+  cubefulEquity(outputs, owner) {
+    const { p, win, lose } = winLossMagnitudes(outputs);
+    const dead = p * win - (1.0 - p) * lose;
+    const denominator = win + lose + 0.5;
+    if (denominator <= 1e-9) return dead;
+
+    const takePoint = (lose - 0.5) / denominator;
+    const cashPoint = (lose + 1.0) / denominator;
+
+    let liveMine;
+    if (cashPoint > 1e-9) {
+      liveMine = Math.min(1.0, -lose + p * (1.0 + lose) / cashPoint);
+    } else {
+      liveMine = 1.0;
+    }
+
+    const span = 1.0 - takePoint;
+    let liveTheirs;
+    if (span > 1e-9) {
+      liveTheirs = Math.max(-1.0, win - (1.0 - p) * (win + 1.0) / span);
+    } else {
+      liveTheirs = win;
+    }
+
+    let live;
+    if (owner === 'me') {
+      live = liveMine;
+    } else if (owner === 'opponent') {
+      live = liveTheirs;
+    } else {
+      const low = 1.0 - (win + 1.0) / denominator;
+      const width = cashPoint - low;
+      live = width > 1e-9 ? (-1.0 + (p - low) * 2.0 / width) : 0.0;
+      live = Math.max(-1.0, Math.min(1.0, live));
+    }
+
+    const x = this.cubeEfficiency;
+    return (1.0 - x) * dead + x * live;
+  }
+
+  /** キューブが一度も回されていないか（ジャコビーの適用条件）。 */
+  cubeUntouched(game) {
+    return game.cube.untouched;
+  }
+
+  /** キューブの所在を提案者から見た owner に直す。 */
+  cubeOwnerKind(game, proposer) {
+    if (game.cube.owner === null) return 'center';
+    return game.cube.owner === proposer ? 'me' : 'opponent';
+  }
+
+  /** 手番が移ったときのキューブの所在（視点が入れ替わる）。 */
+  static flipOwner(owner) {
+    if (owner === 'me') return 'opponent';
+    if (owner === 'opponent') return 'me';
+    return 'center';
+  }
+
+  /** 葉の値。模型で cubeless から cubeful に直す。 */
+  cubeLeaf(board, turn, owner, jacoby) {
+    let vector = this.searchedVectorFor(board, turn, turn, this.cubeLeafPlies);
+    if (jacoby && owner === 'center') {
+      const flat = [0, 0, 0, 0, 0];
+      flat[WIN] = vector[WIN];
+      vector = flat;
+    }
+    return this.cubefulEquity(vector, owner);
+  }
+
+  /** 手番側がキューブを検討できるなら 3 択も評価する（turn 視点）。 */
+  cubeNode(board, turn, owner, depth, jacoby) {
+    const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby);
+    if (owner === 'opponent') return noDouble;
+
+    const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false);
+    return Math.max(noDouble, Math.min(take, 1.0));
+  }
+
+  /** turn 視点のキューブ込み equity（現在のキューブ値を 1 とする）。 */
+  cubefulSearch(board, turn, owner, depth, jacoby) {
+    const terminal = this.terminalEquity(board, turn);
+    if (terminal !== null) return terminal;
+    if (depth <= 0) return this.cubeLeaf(board, turn, owner, jacoby);
+
+    let total = 0;
+    const flipped = Agent.flipOwner(owner);
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMoves(board, turn, die1, die2);
+      if (moves.length === 0) {
+        total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby);
+        continue;
+      }
+      const boards = moves.map((m) => m.resultingBoard);
+      const picks = this.shortlist(boards, turn, 0);
+      let best = null;
+      for (const i of picks) {
+        const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby);
+        if (best === null || value > best) {
+          best = value;
+        }
+      }
+      total += weight * best;
+    }
+    return total;
+  }
+
+  /** キューブの分岐まで展開してダブルするか決める（ADR-0017 段 B-1）。 */
+  shouldDoubleSearch(game) {
+    const proposer = game.currentPlayer;
+    const owner = this.cubeOwnerKind(game, proposer);
+    const jacoby = (this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game);
+    const depth = this.cubeSearchDepth;
+
+    const noDouble = this.cubefulSearch(game.board, proposer, owner, depth, jacoby);
+    const take = 2.0 * this.cubefulSearch(game.board, proposer, 'opponent', depth, false);
+    return Math.min(take, 1.0) > noDouble;
+  }
+
+  /** 3 つのキューブ込み equity を比べてダブルするか決める（ADR-0017 段 A）。 */
+  shouldDoubleCubeful(game) {
+    const proposer = game.currentPlayer;
+    const vector = this.searchedVectorFor(game.board, proposer, proposer);
+    const owner = this.cubeOwnerKind(game, proposer);
+
+    let noDouble;
+    if ((this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game)) {
+      const flat = [0, 0, 0, 0, 0];
+      flat[WIN] = vector[WIN];
+      noDouble = this.cubefulEquity(flat, owner);
+    } else {
+      noDouble = this.cubefulEquity(vector, owner);
+    }
+
+    const take = 2.0 * this.cubefulEquity(vector, 'opponent');
+    return Math.min(take, 1.0) > noDouble;
+  }
+
+  /**
    * ダブルを提案すべきか。
    *
    * @param {Game} game
@@ -481,9 +650,16 @@ export class Agent {
       return Math.min(e.take, e.pass) > (e.noDouble + holdMargin);
     }
 
+    if (this.cubeDecision === 'cubeful') {
+      return this.shouldDoubleCubeful(game);
+    }
+    if (this.cubeDecision === 'search') {
+      return this.shouldDoubleSearch(game);
+    }
+
     // ジャコビー: キューブが回されるまでギャモンは 1 点なので、判断に使う
     // equity からギャモンぶんを外す
-    const jacobyNow = game.jacoby && game.cube.untouched;
+    const jacobyNow = (this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game);
     const value = jacobyNow
       ? this.jacobyEquityFor(game.board, proposer, proposer)
       : this.searchedEquityFor(game.board, proposer, proposer);
