@@ -256,11 +256,26 @@ export function levelById(id) {
 /**
  * 段から Agent を作る。**アプリ・Worker・テストはここだけを通すこと。**
  */
+/**
+ * 全 Agent で共有するベアオフ DB（`bearoff.js`）。
+ *
+ * **1 ファイル 3.9 MB を段ごとに持つ意味がない**ので、読み込んだものを
+ * ここに置いて `agentFor()` が配る。メインスレッドと Worker はそれぞれ
+ * 自分の側で 1 度読む（同じ URL なのでブラウザのキャッシュが効く）。
+ */
+let sharedBearoff = null;
+
+/** 読み込んだベアオフ DB を全 Agent で使うようにする。 */
+export function setBearoffDatabase(database) {
+  sharedBearoff = database;
+}
+
 export function agentFor(net, levelId) {
   const level = levelById(levelId);
   return new Agent(net, level.plies, filtersFor(level.plies), {
     noise: level.noise,
     maxLoss: level.maxLoss,
+    bearoff: sharedBearoff,
   });
 }
 
@@ -282,6 +297,7 @@ export class Agent {
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
+    bearoff = null,
   } = {}) {
     this.net = net;
     this.searchPlies = searchPlies;
@@ -297,6 +313,29 @@ export class Agent {
     this.jacoby = jacoby;
     this.noise = noise;
     this.maxLoss = maxLoss;
+    /**
+     * 両者が自陣に入りきった局面を**厳密解で置き換える**データベース
+     * （`bearoff.js`。既定 null = 使わない）。
+     *
+     * engine 側の実測（32,000 局面・2-ply）で標準ベンチが **-0.159 mEMG**。
+     * 適用範囲は 11.8% だが、**着手が変わるのは 1.6%（502 局面）**で、
+     * その局面の損失が 11.77 → 1.64 mEMG になる。
+     */
+    this.bearoff = bearoff;
+  }
+
+  /**
+   * `(board, turn)` の **White 視点**の確率ベクトル。
+   *
+   * **ネットを引く経路はここに 1 本化する。** 厳密解があるならそちらを返す。
+   * 散らばっていると「片方だけ DB を通し忘れる」形で静かに壊れる。
+   */
+  vectorFor(board, turn) {
+    if (this.bearoff !== null) {
+      const exact = this.bearoff.boardProbabilities(board, turn);
+      if (exact !== null) return exact;
+    }
+    return this.net.predict(encodeBoard(board, WHITE, turn));
   }
 
   /**
@@ -317,7 +356,7 @@ export class Agent {
    * ため、生の出力が要る。
    */
   probabilitiesFor(board, turn) {
-    const probs = this.net.predict(encodeBoard(board, WHITE, turn));
+    const probs = this.vectorFor(board, turn);
     const noise = this.noiseFor(board);
     if (noise === 0) return probs;
     // **確率の側でも同じだけ読み違える。** equity ≒ 2·P(win) − 1 なので、
@@ -739,7 +778,7 @@ export class Agent {
   equitiesFor(boards, turn) {
     // perspective='white' のモデルなので White 視点で評価して符号を合わせる
     const sign = turn === WHITE ? 1 : -1;
-    return boards.map((b) => sign * equity(this.net.predict(encodeBoard(b, WHITE, turn))));
+    return boards.map((b) => sign * equity(this.vectorFor(b, turn)));
   }
 
   /** 決着済みなら viewer 視点の確定 equity、まだなら null。 */
@@ -882,7 +921,7 @@ export class Agent {
       const vectors = boards.map((b) => {
         const terminal = this.terminalVector(b);
         if (terminal !== null) return terminal;
-        return this.net.predict(encodeBoard(b, WHITE, opponent(toMove)));
+        return this.vectorFor(b, opponent(toMove));
       });
       const bestIdx = this.pickOwnBest(vectors, toMove);
       const bestVec = vectors[bestIdx];
@@ -901,7 +940,7 @@ export class Agent {
     const terminal = this.terminalVector(board);
     if (terminal !== null) return terminal;
     if (depth <= 0) {
-      return this.net.predict(encodeBoard(board, WHITE, toMove));
+      return this.vectorFor(board, toMove);
     }
     if (depth === 1) return this.expectedVectorAfterMove(board, toMove);
 

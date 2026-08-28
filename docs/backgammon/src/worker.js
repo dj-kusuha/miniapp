@@ -10,7 +10,8 @@
 import { Board } from './board.js';
 import { Game, ROLLING } from './game.js';
 import { NeuralNet } from './nn.js';
-import { agentFor } from './agent.js';
+import { agentFor, setBearoffDatabase } from './agent.js';
+import { BearoffDatabase } from './bearoff.js';
 import { generateMoves, boardKey } from './rules.js';
 
 let net = null;
@@ -37,6 +38,15 @@ self.onmessage = async (event) => {
   try {
     if (kind === 'load') {
       net = await NeuralNet.load(event.data.url);
+      // **ベアオフ DB もここで読む。** 無くても動く（ネットの推定に落ちる）ので、
+      // 読めなかったら警告だけ出して先へ進む。
+      if (event.data.bearoffUrl) {
+        try {
+          setBearoffDatabase(await BearoffDatabase.load(event.data.bearoffUrl));
+        } catch (error) {
+          console.warn('ベアオフ DB を読めませんでした', error);
+        }
+      }
       self.postMessage({ id, ok: true });
       return;
     }
