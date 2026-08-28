@@ -3,9 +3,9 @@
 // クリックによるポイントメイク/ベアオフ・二重発火防止（F1/F2/F3/F4/F6 回帰）を検証する。
 
 import { readFileSync } from 'node:fs';
-import { WHITE, BLACK } from '../../docs/backgammon/src/board.js';
-import { ROLLING, MOVING, Game } from '../../docs/backgammon/src/game.js';
-import { generateMoves } from '../../docs/backgammon/src/rules.js';
+import { Board, WHITE, BLACK } from '../../docs/backgammon/src/board.js';
+import { ROLLING, MOVING, GAME_OVER, Game } from '../../docs/backgammon/src/game.js';
+import { generateMoves, boardKey, applySingle } from '../../docs/backgammon/src/rules.js';
 
 // ── DOM シムの構築 ──────────────────────────────
 
@@ -58,7 +58,7 @@ class DOMElement {
     for (const h of handlers) h(event);
   }
   click() {
-    this.dispatchEvent({ type: 'click', preventDefault() {} });
+    this.dispatchEvent({ type: 'click', detail: 0, preventDefault() {} });
   }
   appendChild(child) {
     this.children.push(child);
@@ -77,15 +77,17 @@ class DOMElement {
   querySelectorAll(sel) { return []; }
 }
 
-function getOrCreateElement(id, tag = 'div') {
+// index.html から存在する id をすべて抽出して要素を生成する
+const html = readFileSync(new URL('../../docs/backgammon/index.html', import.meta.url), 'utf8');
+for (const match of html.matchAll(/\bid=["']([^"']+)["']/g)) {
+  const id = match[1];
   if (!elements.has(id)) {
-    new DOMElement(tag, id);
+    new DOMElement('div', id);
   }
-  return elements.get(id);
 }
 
 const documentShim = {
-  getElementById: (id) => getOrCreateElement(id),
+  getElementById: (id) => elements.get(id) ?? null,
   createElement: (tag) => new DOMElement(tag),
   querySelectorAll: (sel) => [],
 };
@@ -120,10 +122,17 @@ const fail = (label, message) => failures.push(`${label}: ${message}`);
 
 // ── app.js のロードと対局開始 ──────────────────
 
-await import('../../docs/backgammon/app.js');
+const { state, render } = await import('../../docs/backgammon/app.js');
+state.delay = 0;
 
-const startBtn = getOrCreateElement('start');
-startBtn.click(); // startMatch() 実行
+const startBtn = document.getElementById('start');
+if (!startBtn) {
+  fail('dom-start-button', 'start ボタンが存在しない');
+} else {
+  startBtn.click(); // startMatch() 実行
+  // バックグラウンドで非同期対局ループが走り続けないよう中断する
+  state.runId += 1;
+}
 
 // ── 1. DOM セレクタ配線の検証 ──────────────────
 
@@ -133,23 +142,68 @@ const offBlack = elements.get(`off-${BLACK}`);
 if (!offWhite) fail('dom-off-white', `off-${WHITE} 要素が存在しない`);
 if (!offBlack) fail('dom-off-black', `off-${BLACK} 要素が存在しない`);
 
-const autoRollToggle = getOrCreateElement('auto-roll');
-const autoForceToggle = getOrCreateElement('auto-force');
+const autoRollToggle = document.getElementById('auto-roll');
+const autoForceToggle = document.getElementById('auto-force');
 if (!autoRollToggle) fail('dom-auto-roll', 'auto-roll チェックボックス要素が存在しない');
 if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボックス要素が存在しない');
 
 // ── 2. ポイントメイクのクリック動作と二重発火防止（F2 回帰テスト） ──
 {
-  const point6 = getOrCreateElement('point-6');
-  if (point6) {
-    const clickListeners = point6._listeners['click'] || [];
+  const point3 = document.getElementById('point-3');
+  if (!point3) {
+    fail('point-3-exists', 'point-3 要素が存在しない');
+  } else {
+    const clickListeners = point3._listeners['click'] || [];
     if (clickListeners.length === 0) {
-      fail('point-click-listener', 'point-6 に click リスナーが登録されていない');
+      fail('point-click-listener', 'point-3 に click リスナーが登録されていない');
     }
-    // dblclick リスナーが存在しないこと（二重発火の防止）
-    const dblclickListeners = point6._listeners['dblclick'] || [];
+    const dblclickListeners = point3._listeners['dblclick'] || [];
     if (dblclickListeners.length > 0) {
-      fail('point-dblclick-removed', 'point-6 に dblclick リスナーが残っている（二重発火の危険）');
+      fail('point-dblclick-removed', 'point-3 に dblclick リスナーが残っている（二重発火の危険）');
+    }
+
+    // 局面: White 初期配置・ロール 2-2（4pt index 3 をメイク可能）
+    const board = new Board();
+    const moves = generateMoves(board, WHITE, 2, 2);
+    const game = new Game(board);
+    game.currentPlayer = WHITE;
+    game.state = MOVING;
+    game.roll = { die1: 2, die2: 2 };
+    game.legalMoves = moves;
+
+    state.game = game;
+    state.turn = null;
+    state.busy = false;
+    render();
+
+    if (!point3.classList.contains('makeable')) {
+      fail('point-3-makeable', '2-2 で 4pt メイク可能なのに point-3 が makeable になっていない');
+    }
+
+    // click① (detail: 1) -> 4pt メイク成立 (5->3, 5->3)
+    point3.dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+
+    // click② (detail: 2) -> event.detail > 1 により無視されるべき
+    point3.dispatchEvent({ type: 'click', detail: 2, preventDefault() {} });
+
+    // 判定: index 3 に自駒が 2 枚残っていること（blot になっていない）、index 1 に自駒が増えていないこと
+    const preview = board.clone();
+    if (state.turn) {
+      for (const single of state.turn.applied) {
+        applySingle(preview, WHITE, single);
+      }
+    }
+    const count3 = preview.points[3];
+    const count1 = preview.points[1];
+
+    if (count3 !== 2) {
+      fail('point-make-doubleclick-count3', `ダブルクリック後に 4pt (index 3) の駒数が ${count3}（2 枚のはず）`);
+    }
+    if (count1 !== 0) {
+      fail('point-make-doubleclick-count1', `ダブルクリック後に 2pt (index 1) に駒が移動した (count=${count1})`);
+    }
+    if (!state.turn || state.turn.applied.length !== 2) {
+      fail('point-make-doubleclick-applied', `ダブルクリック後の applied が ${state.turn?.applied.length}（2 手のはず）`);
     }
   }
 }
@@ -161,10 +215,53 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
     if (clickListeners.length === 0) {
       fail('off-tray-click-listener', 'off-WHITE に click リスナーが登録されていない');
     }
-    // dblclick リスナーが存在しないこと（ゾロ目で 4 駒一気上がりの防止）
     const dblclickListeners = offWhite._listeners['dblclick'] || [];
     if (dblclickListeners.length > 0) {
       fail('off-tray-dblclick-removed', 'off-WHITE に dblclick リスナーが残っている（二重発火の危険）');
+    }
+
+    // 局面: White 全駒インナー・6pt (index 5) に 6 枚・オフに 9 枚・ロール 6-6
+    const board = new Board();
+    for (let i = 0; i < 24; i += 1) board.points[i] = 0;
+    board.points[5] = 6;
+    board.off[WHITE] = 9;
+    board.points[23] = -15;
+    board.bar[WHITE] = 0;
+    board.bar[BLACK] = 0;
+    board.off[BLACK] = 0;
+
+    const moves = generateMoves(board, WHITE, 6, 6);
+    const game = new Game(board);
+    game.currentPlayer = WHITE;
+    game.state = MOVING;
+    game.roll = { die1: 6, die2: 6 };
+    game.legalMoves = moves;
+
+    state.game = game;
+    state.turn = null;
+    state.busy = false;
+    render();
+
+    // Checkpoint C の検証（セレクタ不一致なら makeable が付かない）
+    if (!offWhite.classList.contains('makeable')) {
+      fail('off-tray-makeable', 'ベアオフ可能なのに off-WHITE が makeable になっていない');
+    }
+
+    // click① (detail: 1) -> 2 駒ベアオフ
+    offWhite.dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+    const appliedAfter1 = state.turn ? state.turn.applied.length : 4;
+    if (appliedAfter1 !== 2) {
+      fail('off-tray-click1', `1 回目のクリックで 2 駒上がっていない (applied=${appliedAfter1})`);
+    }
+
+    // click② (detail: 2) -> event.detail > 1 により無視されるべき
+    offWhite.dispatchEvent({ type: 'click', detail: 2, preventDefault() {} });
+
+    // 判定: off が 2 枚しか増えていないこと、isFullTurn が立っていないこと（state.turn が null になっていない）
+    if (state.turn === null) {
+      fail('off-tray-doubleclick-finished', 'ダブルクリックの 2 回目でターンが確定してしまった（4 駒上がった）');
+    } else if (state.turn.applied.length !== 2) {
+      fail('off-tray-doubleclick-applied', `ダブルクリック後に ${state.turn.applied.length} 駒上がっている（2 駒のはず）`);
     }
   }
 }
@@ -183,6 +280,46 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
     fail('auto-roll-storage-true', 'auto-roll 設定 (true) の変更が localStorage に保存されていない');
   }
 }
+
+// ── 5. 自動ロールの間合い中はロールボタンを無効化する ──
+// humanRollDice() は state.busy で早期 return するので、ボタンが出たままだと
+// 「押せるように見えて無反応」になる。表示は保ったまま disabled にすること。
+{
+  const rollBtn = document.getElementById('roll');
+  if (!rollBtn) {
+    fail('roll-button-exists', 'roll ボタンが存在しない');
+  } else {
+    const game = new Game(new Board());
+    game.currentPlayer = WHITE;
+    game.state = ROLLING;
+
+    state.game = game;
+    state.turn = null;
+
+    // 自動ロールの pause() 中を再現する
+    state.busy = true;
+    state.autoRolling = true;
+    render();
+    if (rollBtn.hidden) {
+      fail('roll-hidden-while-autorolling', '自動ロール中にロールボタンが消えている（無効化して見せる想定）');
+    }
+    if (!rollBtn.disabled) {
+      fail('roll-enabled-while-busy', '自動ロールの間合い中にロールボタンが有効のまま（押しても無反応になる）');
+    }
+
+    // 間合いが明けたら押せること
+    state.busy = false;
+    state.autoRolling = false;
+    render();
+    if (rollBtn.disabled) {
+      fail('roll-disabled-after-busy', 'busy が解けてもロールボタンが無効のまま');
+    }
+  }
+}
+
+// ── テスト終了処理 ───────────────────────────
+state.runId += 1;
+if (state.game) state.game.state = GAME_OVER;
 
 // ── 結果の出力 ───────────────────────────────
 

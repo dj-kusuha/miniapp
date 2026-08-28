@@ -317,6 +317,9 @@ function syncAutoRoll() {
 autoRollInput?.addEventListener('change', syncAutoRoll);
 
 function loadSettings() {
+  if (autoRollInput) {
+    autoRollInput.checked = true;
+  }
   try {
     const savedSpeed = localStorage.getItem(STORAGE_KEY_SPEED);
     if (savedSpeed !== null && speedInput) {
@@ -330,8 +333,8 @@ function loadSettings() {
       autoForceInput.checked = savedAutoForce === 'true';
     }
     const savedAutoRoll = localStorage.getItem(STORAGE_KEY_AUTO_ROLL);
-    if (autoRollInput) {
-      autoRollInput.checked = savedAutoRoll !== null ? (savedAutoRoll === 'true') : true;
+    if (savedAutoRoll !== null && autoRollInput) {
+      autoRollInput.checked = savedAutoRoll === 'true';
     }
   } catch {
     // localStorage が使えない環境でも安全に落とす
@@ -381,11 +384,14 @@ function canHumanDouble() {
 }
 
 /** 人間のダイスロール。手動クリックと自動ロールの両方から使う。 */
-async function humanRollDice() {
+async function humanRollDice(fromAutoRoll = false) {
   const game = state.game;
   if (!game || game.state !== ROLLING || game.currentPlayer !== state.humanSide) return;
-  state.autoRolling = false;
-  state.busy = false;
+  if (!fromAutoRoll && state.busy) return;
+  if (fromAutoRoll) {
+    state.autoRolling = false;
+    state.busy = false;
+  }
   const before = game.currentPlayer;
   game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
   // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
@@ -398,7 +404,7 @@ async function humanRollDice() {
   await afterChange();
 }
 
-$('roll').addEventListener('click', humanRollDice);
+$('roll').addEventListener('click', () => humanRollDice());
 $('double').addEventListener('click', async () => {
   const game = state.game;
   if (!state.match.useCube || !game.canDouble()) return;
@@ -642,7 +648,8 @@ function makeOffTray(player, row) {
   tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
   if (player === state.humanSide) {
-    tray.addEventListener('click', () => {
+    tray.addEventListener('click', (event) => {
+      if (event.detail > 1) return;
       handleBearOffDblClick();
     });
   }
@@ -655,7 +662,10 @@ function makePoint(index, isBottom) {
   point.className = `point${index % 2 ? ' odd' : ''}${isBottom ? ' bottom' : ''}`;
   point.dataset.index = String(index);
   point.id = `point-${index}`;
-  point.addEventListener('click', () => handleSourceClick(index));
+  point.addEventListener('click', (event) => {
+    if (event.detail > 1) return;
+    handleSourceClick(index);
+  });
   return point;
 }
 
@@ -1116,6 +1126,9 @@ function renderStatus() {
   renderDiceTray($('dice-ai'), diceFor(opponentSide()));
 
   $('roll').hidden = !(mine && game.state === ROLLING);
+  // 自動ロールの間合い中はこちらの手番のままボタンが出るが、humanRollDice() は
+  // state.busy で弾く。押せるように見えて無反応にならないよう明示的に止める。
+  $('roll').disabled = state.busy;
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   // ヒントは手番の最初だけ。駒を動かし始めたら引っ込める。
   // **深い段にすると数秒かかる**ので、計算中はそう見せて二度押しも止める
@@ -1238,14 +1251,14 @@ function renderHighlights() {
   const applied = state.turn.applied;
   const allowedKeys = state.turn.allowedKeys;
 
-  // ダブルクリックでポイントを作れる（メイクできる）マスを光らせる
+  // クリックでポイントを作れる（メイクできる）マスを光らせる
   for (let i = 0; i < 24; i += 1) {
     if (findPointMakeAction(board, legalMoves, player, roll, applied, i, allowedKeys)) {
       $(`point-${i}`)?.classList.add('makeable');
     }
   }
 
-  // ダブルクリックで 2 駒ベアオフできるときは上がりトレイを光らせる
+  // クリックで 2 駒ベアオフできるときは上がりトレイを光らせる
   if (findBearOffAction(board, legalMoves, player, roll, applied, allowedKeys)) {
     $(`off-${state.humanSide}`)?.classList.add('makeable');
   }
@@ -1396,12 +1409,12 @@ async function afterChange() {
       state.autoRolling = false;
       if (state.runId !== runId || state.game !== game || game.state !== ROLLING
           || game.currentPlayer !== state.humanSide || !wasAutoRolling) {
-        state.busy = false;
+        if (wasAutoRolling) state.busy = false;
         render();
         return;
       }
       state.busy = false;
-      await humanRollDice();
+      await humanRollDice(true);
       return;
     }
     // フォースムーブ（唯一の合法手）なら自動で動かす
@@ -1416,7 +1429,7 @@ async function afterChange() {
       state.autoForcing = false;
       if (state.runId !== runId || state.game !== game || game.state !== MOVING
           || game.currentPlayer !== state.humanSide || !wasAutoForcing) {
-        state.busy = false;
+        if (wasAutoForcing) state.busy = false;
         render();
         return;
       }
@@ -1523,3 +1536,5 @@ async function runAiTurns() {
   state.history = [];   // AI が指したら戻せない
   await afterChange();
 }
+
+export { state, render };
