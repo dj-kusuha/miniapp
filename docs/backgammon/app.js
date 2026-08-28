@@ -7,7 +7,10 @@
 
 import { WHITE, BLACK } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
-import { agentFor, levelById, DEFAULT_LEVEL, ADVICE_LEVEL } from './src/agent.js';
+import {
+  agentFor, levelById, setBearoffDatabase, DEFAULT_LEVEL, ADVICE_LEVEL,
+} from './src/agent.js';
+import { BearoffDatabase } from './src/bearoff.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
 import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach, findPointMakeAction, findBearOffAction, canPlayerDouble } from './src/rules.js';
@@ -87,6 +90,9 @@ const thinker = {
   pending: new Map(),
 };
 
+/** ベアオフ DB の置き場（モデルと同じ src/ の下）。 */
+const BEAROFF_URL = './src/bearoff-6x15.bin';
+
 function startThinker(modelUrl) {
   let worker;
   try {
@@ -110,7 +116,11 @@ function startThinker(modelUrl) {
     thinker.worker = null;
   };
   thinker.worker = worker;
-  return ask({ kind: 'load', url: new URL(modelUrl, import.meta.url).href })
+  return ask({
+    kind: 'load',
+    url: new URL(modelUrl, import.meta.url).href,
+    bearoffUrl: new URL(BEAROFF_URL, import.meta.url).href,
+  })
     .then(() => true)
     .catch((error) => {
       console.warn('Worker でモデルを読めませんでした', error);
@@ -223,6 +233,15 @@ NeuralNet.load('./src/model.json')
   .then(async (net) => {
     state.net = net;
     $('model-info').textContent = describeModel(net);
+    // **ベアオフ DB はモデルと一緒に読む。** 終盤の競走を厳密解で評価する
+    // ためのもので（`src/bearoff.js`）、1 MB ほど。**読めなくても対局は
+    // できる**（ネットの推定に落ちるだけ）ので、失敗しても止めない。
+    $('loading').textContent = 'ベアオフ表を読み込んでいます…';
+    try {
+      setBearoffDatabase(await BearoffDatabase.load(BEAROFF_URL));
+    } catch (error) {
+      console.warn('ベアオフ DB を読めませんでした', error);
+    }
     state.threaded = await startThinker('./src/model.json');
     $('loading').textContent = state.threaded
       ? '準備できました'
