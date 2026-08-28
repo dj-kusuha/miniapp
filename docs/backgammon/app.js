@@ -10,7 +10,7 @@ import { NeuralNet } from './src/nn.js';
 import { agentFor, levelById, DEFAULT_LEVEL, ADVICE_LEVEL } from './src/agent.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
-import { diceValues, applySingle, nextSingles, boardKey } from './src/rules.js';
+import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach, findPointMakeAction, findBearOffAction, canPlayerDouble } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
 
 const $ = (id) => document.getElementById(id);
@@ -39,6 +39,10 @@ const state = {
   isMatch: false,     // 形式。false = アンリミテッド
   matchLength: MONEY, // 0 = アンリミテッド。1〜7 でポイントマッチ
   delay: DEFAULT_DELAY,   // AI の進行を見せる間合い（ms）
+  autoForce: false,   // フォースムーブを自動で動かすか
+  autoRoll: true,     // ダブルできない時に自動でダイスを振るか
+  autoRolling: false, // 自動ロールの待機中か
+  autoForcing: false, // 自動フォースムーブの待機中か
   turn: null,         // { root, allowedKeys, applied } 今のターンで確定させた出目
   history: [],         // 1 ターン戻す用のスナップショット
   anim: null,          // AI の着手を 1 手ずつ見せる途中経過
@@ -277,20 +281,78 @@ function syncFormatFields() {
 }
 syncFormatFields();
 
-// ── AI の間合い ────────────────────────────────
+// ── AI の間合い・設定 ────────────────────────────
 //
 // 出目を見せる時間と、駒 1 個ぶんの着手の間。既定の 1 秒は「AI が何をしたか
 // 追える」代わりに待たされるので、対局中でも変えられるようにする。
 
+const STORAGE_KEY_SPEED = 'backgammon_speed';
+const STORAGE_KEY_AUTO_FORCE = 'backgammon_auto_force';
+const STORAGE_KEY_AUTO_ROLL = 'backgammon_auto_roll';
+
 const speedInput = $('speed');
+const autoForceInput = $('auto-force');
+const autoRollInput = $('auto-roll');
 
 function syncSpeed() {
   const seconds = Number(speedInput.value);
   state.delay = Math.round(seconds * 1000);
   $('speed-value').textContent = `${seconds.toFixed(1)} 秒`;
+  saveSetting(STORAGE_KEY_SPEED, speedInput.value);
 }
-speedInput.addEventListener('input', syncSpeed);
+speedInput?.addEventListener('input', syncSpeed);
+
+function syncAutoForce() {
+  if (!autoForceInput) return;
+  state.autoForce = autoForceInput.checked;
+  saveSetting(STORAGE_KEY_AUTO_FORCE, state.autoForce);
+}
+autoForceInput?.addEventListener('change', syncAutoForce);
+
+function syncAutoRoll() {
+  if (!autoRollInput) return;
+  state.autoRoll = autoRollInput.checked;
+  saveSetting(STORAGE_KEY_AUTO_ROLL, state.autoRoll);
+}
+autoRollInput?.addEventListener('change', syncAutoRoll);
+
+function loadSettings() {
+  if (autoRollInput) {
+    autoRollInput.checked = true;
+  }
+  try {
+    const savedSpeed = localStorage.getItem(STORAGE_KEY_SPEED);
+    if (savedSpeed !== null && speedInput) {
+      const val = parseFloat(savedSpeed);
+      if (!Number.isNaN(val) && val >= 0.1 && val <= 2) {
+        speedInput.value = String(val);
+      }
+    }
+    const savedAutoForce = localStorage.getItem(STORAGE_KEY_AUTO_FORCE);
+    if (savedAutoForce !== null && autoForceInput) {
+      autoForceInput.checked = savedAutoForce === 'true';
+    }
+    const savedAutoRoll = localStorage.getItem(STORAGE_KEY_AUTO_ROLL);
+    if (savedAutoRoll !== null && autoRollInput) {
+      autoRollInput.checked = savedAutoRoll === 'true';
+    }
+  } catch {
+    // localStorage が使えない環境でも安全に落とす
+  }
+}
+
+function saveSetting(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {
+    // 保存に失敗しても対局は継続する
+  }
+}
+
+loadSettings();
 syncSpeed();
+syncAutoForce();
+syncAutoRoll();
 
 function selectChoice(button) {
   const group = button.parentElement;
@@ -316,8 +378,20 @@ $('again').addEventListener('click', () => {
   if (state.match && !state.match.isOver) nextGame();
   else startMatch();
 });
-$('roll').addEventListener('click', async () => {
+/** 人間がダブルを提案できる状態か（手番、ロール前かつ権利がある）。 */
+function canHumanDouble() {
+  return canPlayerDouble(state.game, state.match, state.humanSide);
+}
+
+/** 人間のダイスロール。手動クリックと自動ロールの両方から使う。 */
+async function humanRollDice(fromAutoRoll = false) {
   const game = state.game;
+  if (!game || game.state !== ROLLING || game.currentPlayer !== state.humanSide) return;
+  if (!fromAutoRoll && state.busy) return;
+  if (fromAutoRoll) {
+    state.autoRolling = false;
+    state.busy = false;
+  }
   const before = game.currentPlayer;
   game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
   // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
@@ -328,7 +402,9 @@ $('roll').addEventListener('click', async () => {
     state.danceShow = null;
   }
   await afterChange();
-});
+}
+
+$('roll').addEventListener('click', () => humanRollDice());
 $('double').addEventListener('click', async () => {
   const game = state.game;
   if (!state.match.useCube || !game.canDouble()) return;
@@ -474,6 +550,9 @@ function nextGame() {
   state.anim = null;
   state.danceShow = null;
   state.busy = false;
+  state.autoRolling = false;
+  state.autoForcing = false;
+  clearCompoundLock();
   state.runId += 1;         // 進行中のアニメーションを打ち切る
   $('again').hidden = true;
   afterChange();
@@ -569,6 +648,19 @@ function makeOffTray(player, row) {
   tray.id = `off-${player}`;
   tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
+  if (player === state.humanSide) {
+    // bar と同じく、素の div でもキーボードから触れるようにしておく。
+    tray.setAttribute('role', 'button');
+    tray.tabIndex = 0;
+    tray.setAttribute('aria-label', '上がりトレイ');
+    tray.addEventListener('click', () => handleBearOffDblClick());
+    tray.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleBearOffDblClick();
+      }
+    });
+  }
   return tray;
 }
 
@@ -580,6 +672,136 @@ function makePoint(index, isBottom) {
   point.id = `point-${index}`;
   point.addEventListener('click', () => handleSourceClick(index));
   return point;
+}
+
+// 複合操作（ポイントメイク / 2 駒ベアオフ）は 1 クリックで出目を 2 つ使う。
+// ダブルクリックの 2 発目がそのまま走ると、作ったポイントを崩したり
+// ゾロ目で 4 駒上げてしまうので、**直前に複合操作をした対象への連射だけ**を
+// 短時間ロックする。event.detail は使わない——あれは「同じ要素への連続
+// クリック回数」なので、同じマスから素早く 2 駒動かす通常操作まで捨ててしまう。
+const COMPOUND_LOCK_MS = 400;
+// 上がりトレイは番号を持たないので、ロックの対象キーを 1 つ決めておく。
+const OFF_TARGET = 'off';
+let compoundLock = { target: undefined, at: 0 };
+
+/** 直前の複合操作と同じ対象への、ダブルクリック相当の連射か。 */
+function compoundLocked(target) {
+  return compoundLock.target === target && Date.now() - compoundLock.at < COMPOUND_LOCK_MS;
+}
+
+function markCompound(target) {
+  compoundLock = { target, at: Date.now() };
+}
+
+// 複合操作が**手番を丸ごと**消費するときだけ、もう一度クリックさせる。
+// 1 クリックで確定してしまうと、そのあと runAiTurns が busy を立てて undo を
+// 隠し、AI が指せば履歴も消えるので**取り返しがつかない**。出目がまだ残る
+// 部分的な複合操作は、あとから undo できるのでそのまま実行してよい。
+const COMPOUND_CONFIRM_MS = 4000;
+let compoundConfirm = { target: undefined, key: '', at: 0 };
+
+/**
+ * 確認は「マス」ではなく「その時に見せた手順」に紐づける。
+ * **これが最後の砦。** 盤面を動かす経路（通常移動 / undo / ターン差し替え）は
+ * それぞれ確認を捨てているので、いまはここに到達する筋が無い。それでも残すのは、
+ * 将来 applied を触る経路が増えたときに、クリアを書き忘れても
+ * 「見せた手順と違うものが確認なしで走る」ことだけは起きないようにするため。
+ */
+function actionKey(action) {
+  return action.singles.map((single) => `${single.from}>${single.to}:${single.die}`).join('|');
+}
+
+function confirmPending(target, key) {
+  return compoundConfirm.target === target
+    && compoundConfirm.key === key
+    && Date.now() - compoundConfirm.at < COMPOUND_CONFIRM_MS;
+}
+
+/** ターンや局が替わったらロックも確認待ちも持ち越さない。 */
+function clearCompoundLock() {
+  compoundLock = { target: undefined, at: 0 };
+  clearCompoundConfirm();
+}
+
+/**
+ * 盤面が動いたら確認待ちは捨てる。**見せた手順と、次に押したときに走る手順が
+ * 食い違う**のを防ぐため。ハイライトとヒントの消し忘れも兼ねる。
+ */
+function clearCompoundConfirm() {
+  compoundConfirm = { target: undefined, key: '', at: 0 };
+}
+
+/**
+ * 手番を丸ごと使う複合操作なら、1 回目は確認待ちにして false を返す。
+ * 2 回目（400ms〜4 秒）で true を返し、そのまま確定させる。
+ */
+function needsConfirm(action, target) {
+  if (!action.isFullTurn) return false;
+  const key = actionKey(action);
+  if (confirmPending(target, key)) {
+    clearCompoundConfirm();
+    return false;
+  }
+  compoundConfirm = { target, key, at: Date.now() };
+  render();
+  return true;
+}
+
+function handlePointDblClick(targetIndex) {
+  if (state.busy) return;
+  const game = state.game;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
+
+  const action = findPointMakeAction(
+    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, targetIndex, state.turn.allowedKeys
+  );
+  if (!action) return;
+  markCompound(targetIndex);
+  if (needsConfirm(action, targetIndex)) return;
+
+  if (action.isFullTurn && action.move) {
+    state.turn = null;
+    finalizeTurn(action.move);
+  } else {
+    for (const single of action.singles) {
+      state.turn.applied.push(single);
+    }
+    const key = boardKey(previewBoard());
+    if (state.turn.allowedKeys.has(key)) {
+      finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
+    } else {
+      render();
+    }
+  }
+}
+
+function handleBearOffDblClick() {
+  if (state.busy) return;
+  if (compoundLocked(OFF_TARGET)) return;
+  const game = state.game;
+  if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
+
+  const action = findBearOffAction(
+    previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, state.turn.allowedKeys
+  );
+  if (!action) return;
+  markCompound(OFF_TARGET);
+  if (needsConfirm(action, OFF_TARGET)) return;
+
+  if (action.isFullTurn && action.move) {
+    state.turn = null;
+    finalizeTurn(action.move);
+  } else {
+    for (const single of action.singles) {
+      state.turn.applied.push(single);
+    }
+    const key = boardKey(previewBoard());
+    if (state.turn.allowedKeys.has(key)) {
+      finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
+    } else {
+      render();
+    }
+  }
 }
 
 // ── ターンの進行（出目 1 個ぶんずつ確定させる） ─────────
@@ -599,6 +821,9 @@ function syncTurn() {
       allowedKeys: new Set(game.legalMoves.map((m) => boardKey(m.resultingBoard))),
       applied: [],
     };
+    // **ターンが差し替わったら確認待ちは捨てる。** 前のターンで見せた手順が
+    // 残っていると、新しいターンの 1 クリック目が確認なしで走ってしまう。
+    clearCompoundConfirm();
   }
 }
 
@@ -635,14 +860,24 @@ function previewBoard() {
 
 function handleSourceClick(from) {
   if (state.busy || !state.turn) return;
+  // 直前にここで複合操作をしたなら、ダブルクリックの 2 発目を捨てる。
+  // これが無いと、メイクした直後にその駒を動かしてポイントを崩してしまう。
+  if (compoundLocked(from)) return;
   const options = currentOptions().filter((single) => single.from === from);
-  if (options.length === 0) return;
+  if (options.length === 0) {
+    // 動かせる自駒がないマスをクリックした時、メイク可能ならタップでメイクを実行
+    if (from !== null && typeof from === 'number') {
+      handlePointDblClick(from);
+    }
+    return;
+  }
 
   // 同じ駒を複数の目で動かせるときは、出目キューの左（die1）を優先する。
   // 右の目を使いたいときはサイコロをクリックして並びを入れ替える。
   const preferredDie = state.game.roll.die1;
   const chosen = options.find((single) => single.die === preferredDie) ?? options[0];
   state.turn.applied.push(chosen);
+  clearCompoundConfirm();   // 盤面が動いたので、見せていた確認は無効
 
   // 合法な終了盤面に達したらターンを確定する（出目が余っていても、
   // それ以上使えない手順は generateMoves が合法として持っている）。
@@ -666,6 +901,7 @@ function flipDice() {
 
 function finalizeTurn(move) {
   const game = state.game;
+  clearCompoundLock();
   state.history.push(snapshot());
   const index = game.legalMoves.indexOf(move);
   game.applyMove(index);
@@ -981,6 +1217,9 @@ function renderStatus() {
   renderDiceTray($('dice-ai'), diceFor(opponentSide()));
 
   $('roll').hidden = !(mine && game.state === ROLLING);
+  // 自動ロールの間合い中はこちらの手番のままボタンが出るが、humanRollDice() は
+  // state.busy で弾く。押せるように見えて無反応にならないよう明示的に止める。
+  $('roll').disabled = state.busy;
   $('undo').hidden = !(mine && (state.history.length > 0 || midTurn));
   // ヒントは手番の最初だけ。駒を動かし始めたら引っ込める。
   // **深い段にすると数秒かかる**ので、計算中はそう見せて二度押しも止める
@@ -991,21 +1230,36 @@ function renderStatus() {
   adviceButton.textContent = state.advising ? '考えています…' : 'ヒント';
   $('again').hidden = true;
   // ダブルはロール前だけ。キューブを相手が持っていたら出せない
-  $('double').hidden = !(state.match.useCube && mine && game.state === ROLLING
-                         && game.canDouble());
+  $('double').hidden = !canHumanDouble();
 
   if (state.busy) {
-    // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
-    // 終わらないことがある。
-    // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
-    if (state.anim) $('hint').textContent = 'AI が指しています…';
-    else if (state.thinking) $('hint').textContent = 'AI が長考しています…';
-    else $('hint').textContent = 'AI が考えています…';
+    if (mine) {
+      if (state.autoRolling) $('hint').textContent = '自動でダイスを振っています…';
+      else if (state.autoForcing) $('hint').textContent = '自動で着手しています…';
+      // AI がダンスすると手番はこちらに移るが、出目を見せている間はまだ busy。
+      // ここを空にすると、押せないボタンと「あなたの番」だけが出て固まって見える。
+      else if (state.danceShow !== null && state.danceShow !== state.humanSide) {
+        $('hint').textContent = 'AI は動かせる出目がありません…';
+      }
+      else $('hint').textContent = '';
+    } else {
+      // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
+      // 終わらないことがある。
+      // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
+      if (state.anim) $('hint').textContent = 'AI が指しています…';
+      else if (state.thinking) $('hint').textContent = 'AI が長考しています…';
+      else $('hint').textContent = 'AI が考えています…';
+    }
   }
   else if (mine && game.state === MOVING) {
-    $('hint').textContent = midTurn
-      ? '続けて駒をクリックしてください'
-      : '動かす駒をクリックしてください';
+    // 手番を丸ごと使う複合操作は、確認の 1 クリックを挟む（戻せないため）
+    if (compoundConfirm.target !== undefined) {
+      $('hint').textContent = 'もう一度クリックすると手番を確定します';
+    } else {
+      $('hint').textContent = midTurn
+        ? '続けて駒をクリックしてください'
+        : '動かす駒をクリックしてください';
+    }
   } else $('hint').textContent = '';
 }
 
@@ -1068,12 +1322,13 @@ function renderAdvice() {
   el.hidden = false;
 }
 
-/** 次の 1 手で動かせる駒（＝出目の移動元）を光らせる。 */
+/** 次の 1 手で動かせる駒（＝出目の移動元）や、ポイントを作れる場所を光らせる。 */
 function renderHighlights() {
   for (let i = 0; i < 24; i += 1) {
-    $(`point-${i}`).classList.remove('selectable', 'advised');
+    $(`point-${i}`).classList.remove('selectable', 'advised', 'makeable', 'confirming');
   }
   $('bar').classList.remove('selectable', 'advised');
+  $(`off-${state.humanSide}`)?.classList.remove('makeable', 'confirming');
 
   // ヒントの最善手の移動元に印を付ける。**表記だけだと盤上で探すのが大変。**
   if (state.advice) {
@@ -1088,6 +1343,32 @@ function renderHighlights() {
   for (const single of currentOptions()) {
     if (single.from === null) $('bar').classList.add('selectable');
     else $(`point-${single.from}`)?.classList.add('selectable');
+  }
+
+  // 確認待ちの対象は、押せば確定すると分かるように別扱いにする
+  if (compoundConfirm.target === OFF_TARGET) {
+    $(`off-${state.humanSide}`)?.classList.add('confirming');
+  } else if (typeof compoundConfirm.target === 'number') {
+    $(`point-${compoundConfirm.target}`)?.classList.add('confirming');
+  }
+
+  const board = previewBoard();
+  const legalMoves = state.game.legalMoves;
+  const player = state.humanSide;
+  const roll = state.game.roll;
+  const applied = state.turn.applied;
+  const allowedKeys = state.turn.allowedKeys;
+
+  // クリックでポイントを作れる（メイクできる）マスを光らせる
+  for (let i = 0; i < 24; i += 1) {
+    if (findPointMakeAction(board, legalMoves, player, roll, applied, i, allowedKeys)) {
+      $(`point-${i}`)?.classList.add('makeable');
+    }
+  }
+
+  // クリックで 2 駒ベアオフできるときは上がりトレイを光らせる
+  if (findBearOffAction(board, legalMoves, player, roll, applied, allowedKeys)) {
+    $(`off-${state.humanSide}`)?.classList.add('makeable');
   }
 }
 
@@ -1197,6 +1478,10 @@ function restore(snap) {
 }
 
 function undo() {
+  // 盤面が戻るので、見せていた確認は無効。戻すものが無くても、
+  // ハイライトとヒントは消すために描き直す。
+  const hadConfirm = compoundConfirm.target !== undefined;
+  clearCompoundConfirm();
   // ターンの途中なら、まずは今のターンで確定させた出目を 1 つだけ戻す。
   if (state.turn && state.turn.applied.length > 0) {
     state.turn.applied.pop();
@@ -1204,7 +1489,10 @@ function undo() {
     return;
   }
   const snap = state.history.pop();
-  if (!snap) return;
+  if (!snap) {
+    if (hadConfirm) render();
+    return;
+  }
   restore(snap);
   state.turn = null;
   render();
@@ -1223,6 +1511,45 @@ async function afterChange() {
       await pause();
       state.danceShow = null;
       await afterChange();
+      return;
+    }
+    // ダブルが打てない状態（権利がない、クロフォード、キューブなし等）なら自動でダイスを振る
+    if (state.autoRoll && game.state === ROLLING && !canHumanDouble() && !state.busy) {
+      const runId = state.runId;
+      state.busy = true;
+      state.autoRolling = true;
+      render();
+      await pause();
+      const wasAutoRolling = state.autoRolling;
+      state.autoRolling = false;
+      if (state.runId !== runId || state.game !== game || game.state !== ROLLING
+          || game.currentPlayer !== state.humanSide || !wasAutoRolling) {
+        if (wasAutoRolling) state.busy = false;
+        render();
+        return;
+      }
+      state.busy = false;
+      await humanRollDice(true);
+      return;
+    }
+    // フォースムーブ（唯一の合法手）なら自動で動かす
+    if (state.autoForce && game.state === MOVING && game.legalMoves.length === 1 && !state.busy) {
+      const move = game.legalMoves[0];
+      const runId = state.runId;
+      state.busy = true;
+      state.autoForcing = true;
+      render();
+      await pause();
+      const wasAutoForcing = state.autoForcing;
+      state.autoForcing = false;
+      if (state.runId !== runId || state.game !== game || game.state !== MOVING
+          || game.currentPlayer !== state.humanSide || !wasAutoForcing) {
+        if (wasAutoForcing) state.busy = false;
+        render();
+        return;
+      }
+      state.busy = false;
+      finalizeTurn(move);
       return;
     }
     render();
@@ -1324,3 +1651,5 @@ async function runAiTurns() {
   state.history = [];   // AI が指したら戻せない
   await afterChange();
 }
+
+export { state, render, afterChange };
