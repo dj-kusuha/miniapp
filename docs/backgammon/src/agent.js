@@ -275,7 +275,6 @@ export function agentFor(net, levelId) {
   return new Agent(net, level.plies, filtersFor(level.plies), {
     noise: level.noise,
     maxLoss: level.maxLoss,
-    bearoff: sharedBearoff,
   });
 }
 
@@ -297,7 +296,10 @@ export class Agent {
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
-    bearoff = null,
+    // **既定は共有 DB**（`setBearoffDatabase()` で差したもの）。
+    // ここを null 既定にすると、`new Agent(...)` を直接呼んだ場所だけ
+    // 厳密解を失う——実際にパリティのテストがそれで engine と食い違った。
+    bearoff = sharedBearoff,
   } = {}) {
     this.net = net;
     this.searchPlies = searchPlies;
