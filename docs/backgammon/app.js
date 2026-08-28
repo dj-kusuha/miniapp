@@ -688,17 +688,37 @@ function markCompound(target) {
 // 隠し、AI が指せば履歴も消えるので**取り返しがつかない**。出目がまだ残る
 // 部分的な複合操作は、あとから undo できるのでそのまま実行してよい。
 const COMPOUND_CONFIRM_MS = 4000;
-let compoundConfirm = { target: undefined, at: 0 };
+let compoundConfirm = { target: undefined, key: '', at: 0 };
 
-function confirmPending(target) {
+/**
+ * 確認は「マス」ではなく「その時に見せた手順」に紐づける。
+ * **これが最後の砦。** 盤面を動かす経路（通常移動 / undo / ターン差し替え）は
+ * それぞれ確認を捨てているので、いまはここに到達する筋が無い。それでも残すのは、
+ * 将来 applied を触る経路が増えたときに、クリアを書き忘れても
+ * 「見せた手順と違うものが確認なしで走る」ことだけは起きないようにするため。
+ */
+function actionKey(action) {
+  return action.singles.map((single) => `${single.from}>${single.to}:${single.die}`).join('|');
+}
+
+function confirmPending(target, key) {
   return compoundConfirm.target === target
+    && compoundConfirm.key === key
     && Date.now() - compoundConfirm.at < COMPOUND_CONFIRM_MS;
 }
 
 /** ターンや局が替わったらロックも確認待ちも持ち越さない。 */
 function clearCompoundLock() {
   compoundLock = { target: undefined, at: 0 };
-  compoundConfirm = { target: undefined, at: 0 };
+  clearCompoundConfirm();
+}
+
+/**
+ * 盤面が動いたら確認待ちは捨てる。**見せた手順と、次に押したときに走る手順が
+ * 食い違う**のを防ぐため。ハイライトとヒントの消し忘れも兼ねる。
+ */
+function clearCompoundConfirm() {
+  compoundConfirm = { target: undefined, key: '', at: 0 };
 }
 
 /**
@@ -707,11 +727,12 @@ function clearCompoundLock() {
  */
 function needsConfirm(action, target) {
   if (!action.isFullTurn) return false;
-  if (confirmPending(target)) {
-    compoundConfirm = { target: undefined, at: 0 };
+  const key = actionKey(action);
+  if (confirmPending(target, key)) {
+    clearCompoundConfirm();
     return false;
   }
-  compoundConfirm = { target, at: Date.now() };
+  compoundConfirm = { target, key, at: Date.now() };
   render();
   return true;
 }
@@ -790,6 +811,9 @@ function syncTurn() {
       allowedKeys: new Set(game.legalMoves.map((m) => boardKey(m.resultingBoard))),
       applied: [],
     };
+    // **ターンが差し替わったら確認待ちは捨てる。** 前のターンで見せた手順が
+    // 残っていると、新しいターンの 1 クリック目が確認なしで走ってしまう。
+    clearCompoundConfirm();
   }
 }
 
@@ -843,6 +867,7 @@ function handleSourceClick(from) {
   const preferredDie = state.game.roll.die1;
   const chosen = options.find((single) => single.die === preferredDie) ?? options[0];
   state.turn.applied.push(chosen);
+  clearCompoundConfirm();   // 盤面が動いたので、見せていた確認は無効
 
   // 合法な終了盤面に達したらターンを確定する（出目が余っていても、
   // それ以上使えない手順は generateMoves が合法として持っている）。
@@ -1438,6 +1463,10 @@ function restore(snap) {
 }
 
 function undo() {
+  // 盤面が戻るので、見せていた確認は無効。戻すものが無くても、
+  // ハイライトとヒントは消すために描き直す。
+  const hadConfirm = compoundConfirm.target !== undefined;
+  clearCompoundConfirm();
   // ターンの途中なら、まずは今のターンで確定させた出目を 1 つだけ戻す。
   if (state.turn && state.turn.applied.length > 0) {
     state.turn.applied.pop();
@@ -1445,7 +1474,10 @@ function undo() {
     return;
   }
   const snap = state.history.pop();
-  if (!snap) return;
+  if (!snap) {
+    if (hadConfirm) render();
+    return;
+  }
   restore(snap);
   state.turn = null;
   render();

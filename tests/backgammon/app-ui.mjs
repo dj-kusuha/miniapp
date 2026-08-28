@@ -7,6 +7,7 @@
 //   5. state.busy 中はロールボタンが無効で、手動ロールも通らないこと
 //   6. 自動ロールが実際に発火すること
 //   7. 手番を丸ごと使う複合操作に確認の 1 クリックが入ること
+//   8. 盤面が動いたら確認待ちを持ち越さないこと
 
 import { readFileSync } from 'node:fs';
 import { Board, WHITE, BLACK } from '../../docs/backgammon/src/board.js';
@@ -125,6 +126,12 @@ globalThis.fetch = async (url) => {
 
 const failures = [];
 const fail = (label, message) => failures.push(`${label}: ${message}`);
+
+// 連射ロック（400ms）と確認待ち（4 秒）はモジュールに持続する。
+// シナリオ間で持ち越すと**前の残骸のせいで通ってしまう**ので、
+// 複合操作を試すたびにロックが明けるまで待つ。
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const afterLock = () => sleep(450);
 
 // ── app.js のロードと対局開始 ──────────────────
 
@@ -475,6 +482,7 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
   const appliedCount = () => (state.turn ? state.turn.applied.length : null);
 
   // 1 回目は確認待ちになり、盤面は動かないこと
+  await afterLock();
   setupMake(6, 5, makeBoard());
   clickPoint('point-6');
   if (appliedCount() !== 0) {
@@ -490,6 +498,7 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
   }
 
   // ダブルクリック相当（連射ロックの窓の内側）では確定しないこと
+  await afterLock();
   setupMake(6, 5, makeBoard());
   clickPoint('point-6');
   clickPoint('point-6');
@@ -499,6 +508,7 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
   }
 
   // ゾロ目で出目が残るメイクは、確認を挟まず即実行されること
+  await afterLock();
   setupMake(2, 2, new Board());
   clickPoint('point-3');
   if (appliedCount() !== 2) {
@@ -530,6 +540,7 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
   state.game = game;
   state.turn = null;
   state.busy = false;
+  await afterLock();
   render();
 
   if (!offWhite.classList.contains('makeable')) {
@@ -542,6 +553,100 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
   if (state.turn === null) {
     fail('bearoff-nondoubles-burst',
       'ダブルクリックの 2 発目が確認クリックとして通り、手番が確定してしまった');
+  }
+}
+
+// ── 12. 盤面が動いたら確認待ちを持ち越さないこと ──
+// 確認は「マス」ではなく「そのとき見せた手順」に紐づける。持ち越すと、
+// 表示していたのと別の手順が確認なしで走る／古いハイライトが残る。
+{
+  const makeBoard = () => {
+    const b = new Board();
+    for (let i = 0; i < 24; i += 1) b.points[i] = 0;
+    b.points[12] = 2; b.points[11] = 2; b.points[5] = 5; b.points[23] = 6;
+    b.points[0] = -15;
+    b.bar[WHITE] = 0; b.bar[BLACK] = 0; b.off[WHITE] = 0; b.off[BLACK] = 0;
+    return b;
+  };
+  const setupMake = () => {
+    const game = new Game(makeBoard());
+    game.currentPlayer = WHITE;
+    game.state = MOVING;
+    game.roll = { die1: 6, die2: 5 };
+    game.legalMoves = generateMoves(game.board, WHITE, 6, 5);
+    state.game = game;
+    state.turn = null;
+    state.busy = false;
+    render();
+  };
+  const clickOn = (id) => document.getElementById(id)
+    .dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+  const confirming = (id) => document.getElementById(id).classList.contains('confirming');
+
+  // 確認待ちのまま別の駒を動かしたら、確認は消えること
+  await afterLock();
+  setupMake();
+  clickOn('point-6');
+  if (!confirming('point-6')) {
+    fail('stale-confirm-setup', '確認待ちに入っていない（前提が崩れている）');
+  }
+  await afterLock();
+  clickOn('point-23');
+  if (confirming('point-6')) {
+    fail('stale-confirm-after-move', '別の駒を動かしても confirming が残っている');
+  }
+  if (document.getElementById('hint').textContent === 'もう一度クリックすると手番を確定します') {
+    fail('stale-hint-after-move', '別の駒を動かしても確認のヒントが残っている');
+  }
+
+  // 確認待ちのまま undo したら、確認は消えること。
+  // **ターンの途中（applied > 0）で試すこと。** applied が 0 だと undo は
+  // 履歴から戻す経路に入り、syncTurn 側のクリアに隠れてしまう。
+  await afterLock();
+  {
+    const b = new Board();
+    for (let i = 0; i < 24; i += 1) b.points[i] = 0;
+    b.points[9] = 2; b.points[5] = 5; b.points[23] = 8; b.points[0] = -15;
+    b.bar[WHITE] = 0; b.bar[BLACK] = 0; b.off[WHITE] = 0; b.off[BLACK] = 0;
+    const game = new Game(b);
+    game.currentPlayer = WHITE;
+    game.state = MOVING;
+    game.roll = { die1: 3, die2: 3 };
+    game.legalMoves = generateMoves(b, WHITE, 3, 3);
+    state.game = game;
+    state.turn = null;
+    state.busy = false;
+    state.history = [];
+    render();
+
+    // 先に 2 手使ってから 6pt をメイク＝残りの出目を使い切るので確認待ちになる
+    clickOn('point-23');
+    await afterLock();
+    clickOn('point-23');
+    await afterLock();
+    clickOn('point-6');
+    if (!confirming('point-6')) {
+      fail('undo-confirm-setup',
+        `ターン途中のメイクが確認待ちにならない (applied=${state.turn?.applied.length})`);
+    }
+    await afterLock();
+    clickOn('undo');
+    if (confirming('point-6')) {
+      fail('stale-confirm-after-undo', 'undo しても confirming が残っている');
+    }
+  }
+
+  // ターンが差し替わったら確認待ちを持ち越さないこと。
+  // 持ち越すと新しいターンの 1 クリック目が確認なしで確定してしまう。
+  await afterLock();
+  setupMake();
+  clickOn('point-6');          // 確認待ちにする
+  await afterLock();
+  setupMake();                 // 別のターンに差し替え（同じ盤面・同じ手順）
+  clickOn('point-6');
+  if (state.turn === null) {
+    fail('confirm-across-turns',
+      '前のターンの確認が残っていて、1 クリック目で手番が確定してしまった');
   }
 }
 
