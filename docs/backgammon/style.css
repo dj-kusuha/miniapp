@@ -210,15 +210,11 @@ button:disabled { opacity: .5; cursor: default; }
 
 /* ポイントを作れる場所（クリックでメイク可能）。 */
 .point.makeable { box-shadow: inset 0 0 0 3px var(--makeable); }
-.point.selectable.makeable {
-  box-shadow: inset 0 0 0 3px var(--makeable), inset 0 0 0 6px var(--accent);
-}
 
 /* 手番を丸ごと使うメイク / ベアオフは、確認の 1 クリックを挟む。
    **押せば戻せない**ので、待っている間だけ枠を太くして脈を打たせる。 */
 .point.confirming,
-.point.makeable.confirming,
-.point.selectable.makeable.confirming {
+.point.makeable.confirming {
   box-shadow: inset 0 0 0 5px var(--makeable);
   animation: confirm-pulse 1s ease-in-out infinite;
 }
@@ -233,7 +229,6 @@ button:disabled { opacity: .5; cursor: default; }
 @media (prefers-reduced-motion: reduce) {
   .point.confirming,
   .point.makeable.confirming,
-  .point.selectable.makeable.confirming,
   .off-tray.confirming,
   .off-tray.makeable.confirming { animation: none; }
 }
@@ -243,12 +238,6 @@ button:disabled { opacity: .5; cursor: default; }
 .point.advised { box-shadow: inset 0 0 0 3px var(--advice); }
 .point.selectable.advised {
   box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--accent);
-}
-.point.makeable.advised {
-  box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--makeable);
-}
-.point.selectable.makeable.advised {
-  box-shadow: inset 0 0 0 3px var(--advice), inset 0 0 0 6px var(--makeable), inset 0 0 0 9px var(--accent);
 }
 .bar.advised { box-shadow: inset 0 0 0 3px var(--advice); }
 .bar.selectable.advised {

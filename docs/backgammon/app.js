@@ -649,7 +649,17 @@ function makeOffTray(player, row) {
   tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
   if (player === state.humanSide) {
+    // bar と同じく、素の div でもキーボードから触れるようにしておく。
+    tray.setAttribute('role', 'button');
+    tray.tabIndex = 0;
+    tray.setAttribute('aria-label', '上がりトレイ');
     tray.addEventListener('click', () => handleBearOffDblClick());
+    tray.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        handleBearOffDblClick();
+      }
+    });
   }
   return tray;
 }
@@ -1226,6 +1236,11 @@ function renderStatus() {
     if (mine) {
       if (state.autoRolling) $('hint').textContent = '自動でダイスを振っています…';
       else if (state.autoForcing) $('hint').textContent = '自動で着手しています…';
+      // AI がダンスすると手番はこちらに移るが、出目を見せている間はまだ busy。
+      // ここを空にすると、押せないボタンと「あなたの番」だけが出て固まって見える。
+      else if (state.danceShow !== null && state.danceShow !== state.humanSide) {
+        $('hint').textContent = 'AI は動かせる出目がありません…';
+      }
       else $('hint').textContent = '';
     } else {
       // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で

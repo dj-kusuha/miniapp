@@ -388,7 +388,8 @@ export function findBearOffAction(board, legalMoves, player, roll, applied, allo
  */
 export function canPlayerDouble(game, match, player) {
   if (!match || !match.useCube || !game) return false;
-  if (game.state !== 'ROLLING') return false;
   if (game.currentPlayer !== player) return false;
+  // ロール前かどうか（と、クロフォードとキューブ所有権）は canDouble が見る。
+  // ここで game.state を直に比べると、定数の値を変えたときに黙って壊れる。
   return game.canDouble();
 }

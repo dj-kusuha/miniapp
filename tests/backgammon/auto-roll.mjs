@@ -335,6 +335,58 @@ const fail = (label, message) => failures.push(`${label}: ${message}`);
   }
 }
 
+// (5b) ゾロ目でバーに駒がある時 -> ポイントメイク不可
+// (5) は非ゾロ目なので、ゾロ目側のガードを一度も通らない。
+{
+  const board = new Board();
+  board.bar[WHITE] = 1;
+  board.points[12] -= 1;
+  const moves = generateMoves(board, WHITE, 3, 3);
+  const roll = { die1: 3, die2: 3 };
+
+  for (let i = 0; i < 24; i += 1) {
+    if (findPointMakeAction(board, moves, WHITE, roll, [], i)) {
+      fail('make-point-bar-doubles', `ゾロ目でバーに駒がある時に ${i + 1}pt がメイク対象になった`);
+    }
+  }
+}
+
+// (6b) ゾロ目で移動元の自駒が 1 枚しかない -> ポイントメイク不可
+{
+  const board = new Board();
+  for (let i = 0; i < 24; i += 1) board.points[i] = 0;
+  board.points[12] = 1;      // 13pt に 1 枚だけ
+  board.points[5] = 5;
+  board.points[23] = 9;
+  board.points[0] = -15;
+  board.bar[WHITE] = 0; board.bar[BLACK] = 0;
+  board.off[WHITE] = 0; board.off[BLACK] = 0;
+  const moves = generateMoves(board, WHITE, 3, 3);
+  const roll = { die1: 3, die2: 3 };
+
+  // index 9 は空。移動元 index 12 には 1 枚しかないのでメイクできない
+  if (findPointMakeAction(board, moves, WHITE, roll, [], 9)) {
+    fail('make-point-single-source', '移動元が 1 枚しかないのに 10pt がメイク対象になった');
+  }
+}
+
+// (7) 全駒がインナーに入っていない -> ベアオフ不可
+{
+  const board = new Board();
+  for (let i = 0; i < 24; i += 1) board.points[i] = 0;
+  board.points[5] = 6;
+  board.points[12] = 1;      // 1 枚だけインナーの外
+  board.off[WHITE] = 8;
+  board.points[23] = -15;
+  board.bar[WHITE] = 0; board.bar[BLACK] = 0; board.off[BLACK] = 0;
+  const moves = generateMoves(board, WHITE, 6, 6);
+  const roll = { die1: 6, die2: 6 };
+
+  if (findBearOffAction(board, moves, WHITE, roll, [])) {
+    fail('bear-off-not-all-home', 'インナーに入りきっていないのにベアオフ対象になった');
+  }
+}
+
 console.log('自動ロール・クローズアウト・ダブル可否・ポイントメイク・ベアオフ:');
 if (failures.length) {
   console.error(`  不一致 ${failures.length} 件:`);
