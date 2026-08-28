@@ -552,6 +552,7 @@ function nextGame() {
   state.busy = false;
   state.autoRolling = false;
   state.autoForcing = false;
+  clearCompoundLock();
   state.runId += 1;         // 進行中のアニメーションを打ち切る
   $('again').hidden = true;
   afterChange();
@@ -648,10 +649,7 @@ function makeOffTray(player, row) {
   tray.style.gridColumn = '15';
   tray.style.gridRow = String(row);
   if (player === state.humanSide) {
-    tray.addEventListener('click', (event) => {
-      if (event.detail > 1) return;
-      handleBearOffDblClick();
-    });
+    tray.addEventListener('click', () => handleBearOffDblClick());
   }
   return tray;
 }
@@ -662,11 +660,60 @@ function makePoint(index, isBottom) {
   point.className = `point${index % 2 ? ' odd' : ''}${isBottom ? ' bottom' : ''}`;
   point.dataset.index = String(index);
   point.id = `point-${index}`;
-  point.addEventListener('click', (event) => {
-    if (event.detail > 1) return;
-    handleSourceClick(index);
-  });
+  point.addEventListener('click', () => handleSourceClick(index));
   return point;
+}
+
+// 複合操作（ポイントメイク / 2 駒ベアオフ）は 1 クリックで出目を 2 つ使う。
+// ダブルクリックの 2 発目がそのまま走ると、作ったポイントを崩したり
+// ゾロ目で 4 駒上げてしまうので、**直前に複合操作をした対象への連射だけ**を
+// 短時間ロックする。event.detail は使わない——あれは「同じ要素への連続
+// クリック回数」なので、同じマスから素早く 2 駒動かす通常操作まで捨ててしまう。
+const COMPOUND_LOCK_MS = 400;
+// 上がりトレイは番号を持たないので、ロックの対象キーを 1 つ決めておく。
+const OFF_TARGET = 'off';
+let compoundLock = { target: undefined, at: 0 };
+
+/** 直前の複合操作と同じ対象への、ダブルクリック相当の連射か。 */
+function compoundLocked(target) {
+  return compoundLock.target === target && Date.now() - compoundLock.at < COMPOUND_LOCK_MS;
+}
+
+function markCompound(target) {
+  compoundLock = { target, at: Date.now() };
+}
+
+// 複合操作が**手番を丸ごと**消費するときだけ、もう一度クリックさせる。
+// 1 クリックで確定してしまうと、そのあと runAiTurns が busy を立てて undo を
+// 隠し、AI が指せば履歴も消えるので**取り返しがつかない**。出目がまだ残る
+// 部分的な複合操作は、あとから undo できるのでそのまま実行してよい。
+const COMPOUND_CONFIRM_MS = 4000;
+let compoundConfirm = { target: undefined, at: 0 };
+
+function confirmPending(target) {
+  return compoundConfirm.target === target
+    && Date.now() - compoundConfirm.at < COMPOUND_CONFIRM_MS;
+}
+
+/** ターンや局が替わったらロックも確認待ちも持ち越さない。 */
+function clearCompoundLock() {
+  compoundLock = { target: undefined, at: 0 };
+  compoundConfirm = { target: undefined, at: 0 };
+}
+
+/**
+ * 手番を丸ごと使う複合操作なら、1 回目は確認待ちにして false を返す。
+ * 2 回目（400ms〜4 秒）で true を返し、そのまま確定させる。
+ */
+function needsConfirm(action, target) {
+  if (!action.isFullTurn) return false;
+  if (confirmPending(target)) {
+    compoundConfirm = { target: undefined, at: 0 };
+    return false;
+  }
+  compoundConfirm = { target, at: Date.now() };
+  render();
+  return true;
 }
 
 function handlePointDblClick(targetIndex) {
@@ -678,6 +725,8 @@ function handlePointDblClick(targetIndex) {
     previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, targetIndex, state.turn.allowedKeys
   );
   if (!action) return;
+  markCompound(targetIndex);
+  if (needsConfirm(action, targetIndex)) return;
 
   if (action.isFullTurn && action.move) {
     state.turn = null;
@@ -697,6 +746,7 @@ function handlePointDblClick(targetIndex) {
 
 function handleBearOffDblClick() {
   if (state.busy) return;
+  if (compoundLocked(OFF_TARGET)) return;
   const game = state.game;
   if (!game || game.state !== MOVING || game.currentPlayer !== state.humanSide || !state.turn) return;
 
@@ -704,6 +754,8 @@ function handleBearOffDblClick() {
     previewBoard(), game.legalMoves, state.humanSide, game.roll, state.turn.applied, state.turn.allowedKeys
   );
   if (!action) return;
+  markCompound(OFF_TARGET);
+  if (needsConfirm(action, OFF_TARGET)) return;
 
   if (action.isFullTurn && action.move) {
     state.turn = null;
@@ -774,6 +826,9 @@ function previewBoard() {
 
 function handleSourceClick(from) {
   if (state.busy || !state.turn) return;
+  // 直前にここで複合操作をしたなら、ダブルクリックの 2 発目を捨てる。
+  // これが無いと、メイクした直後にその駒を動かしてポイントを崩してしまう。
+  if (compoundLocked(from)) return;
   const options = currentOptions().filter((single) => single.from === from);
   if (options.length === 0) {
     // 動かせる自駒がないマスをクリックした時、メイク可能ならタップでメイクを実行
@@ -811,6 +866,7 @@ function flipDice() {
 
 function finalizeTurn(move) {
   const game = state.game;
+  clearCompoundLock();
   state.history.push(snapshot());
   const index = game.legalMoves.indexOf(move);
   game.applyMove(index);
@@ -1156,9 +1212,14 @@ function renderStatus() {
     }
   }
   else if (mine && game.state === MOVING) {
-    $('hint').textContent = midTurn
-      ? '続けて駒をクリックしてください'
-      : '動かす駒をクリックしてください';
+    // 手番を丸ごと使う複合操作は、確認の 1 クリックを挟む（戻せないため）
+    if (compoundConfirm.target !== undefined) {
+      $('hint').textContent = 'もう一度クリックすると手番を確定します';
+    } else {
+      $('hint').textContent = midTurn
+        ? '続けて駒をクリックしてください'
+        : '動かす駒をクリックしてください';
+    }
   } else $('hint').textContent = '';
 }
 
@@ -1224,10 +1285,10 @@ function renderAdvice() {
 /** 次の 1 手で動かせる駒（＝出目の移動元）や、ポイントを作れる場所を光らせる。 */
 function renderHighlights() {
   for (let i = 0; i < 24; i += 1) {
-    $(`point-${i}`).classList.remove('selectable', 'advised', 'makeable');
+    $(`point-${i}`).classList.remove('selectable', 'advised', 'makeable', 'confirming');
   }
   $('bar').classList.remove('selectable', 'advised');
-  $(`off-${state.humanSide}`)?.classList.remove('makeable');
+  $(`off-${state.humanSide}`)?.classList.remove('makeable', 'confirming');
 
   // ヒントの最善手の移動元に印を付ける。**表記だけだと盤上で探すのが大変。**
   if (state.advice) {
@@ -1242,6 +1303,13 @@ function renderHighlights() {
   for (const single of currentOptions()) {
     if (single.from === null) $('bar').classList.add('selectable');
     else $(`point-${single.from}`)?.classList.add('selectable');
+  }
+
+  // 確認待ちの対象は、押せば確定すると分かるように別扱いにする
+  if (compoundConfirm.target === OFF_TARGET) {
+    $(`off-${state.humanSide}`)?.classList.add('confirming');
+  } else if (typeof compoundConfirm.target === 'number') {
+    $(`point-${compoundConfirm.target}`)?.classList.add('confirming');
   }
 
   const board = previewBoard();
@@ -1537,4 +1605,4 @@ async function runAiTurns() {
   await afterChange();
 }
 
-export { state, render };
+export { state, render, afterChange };

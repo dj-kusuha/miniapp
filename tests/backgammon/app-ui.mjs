@@ -1,6 +1,12 @@
 // app.js の DOM/UI 統合テスト。
-// 実際の app.js を Node.js 上で実行し、セレクタ配線・イベントハンドラ・自動ロール・
-// クリックによるポイントメイク/ベアオフ・二重発火防止（F1/F2/F3/F4/F6 回帰）を検証する。
+// 実際の app.js を Node.js 上で実行して検証する:
+//   1. index.html の id と app.js のセレクタが噛み合っているか
+//   2. 複合操作（ポイントメイク / 2 駒ベアオフ）の連射ロック
+//   3. 連射ロックが通常の駒移動を巻き込まないこと
+//   4. 自動ロールの設定と localStorage の往復
+//   5. state.busy 中はロールボタンが無効で、手動ロールも通らないこと
+//   6. 自動ロールが実際に発火すること
+//   7. 手番を丸ごと使う複合操作に確認の 1 クリックが入ること
 
 import { readFileSync } from 'node:fs';
 import { Board, WHITE, BLACK } from '../../docs/backgammon/src/board.js';
@@ -122,7 +128,7 @@ const fail = (label, message) => failures.push(`${label}: ${message}`);
 
 // ── app.js のロードと対局開始 ──────────────────
 
-const { state, render } = await import('../../docs/backgammon/app.js');
+const { state, render, afterChange } = await import('../../docs/backgammon/app.js');
 state.delay = 0;
 
 const startBtn = document.getElementById('start');
@@ -132,6 +138,12 @@ if (!startBtn) {
   startBtn.click(); // startMatch() 実行
   // バックグラウンドで非同期対局ループが走り続けないよう中断する
   state.runId += 1;
+}
+
+// 自動ロールの既定は ON。localStorage に保存が無くても ON であること
+// （既定値の代入が loadSettings の try の内側に戻ると false になる）。
+if (state.autoRoll !== true) {
+  fail('auto-roll-default', `自動ロールの既定が ${state.autoRoll}（true のはず）`);
 }
 
 // ── 1. DOM セレクタ配線の検証 ──────────────────
@@ -314,6 +326,222 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
     if (rollBtn.disabled) {
       fail('roll-disabled-after-busy', 'busy が解けてもロールボタンが無効のまま');
     }
+  }
+}
+
+// ── 6. 連射ロックが通常の駒移動を巻き込まないこと ──
+// event.detail（同じ要素への連続クリック回数）で弾くと、同じマスから素早く
+// 2 駒動かす日常操作まで捨ててしまう。ロックは複合操作にだけ掛けること。
+{
+  const setupMove = (d1, d2) => {
+    const board = new Board();
+    const game = new Game(board);
+    game.currentPlayer = WHITE;
+    game.state = MOVING;
+    game.roll = { die1: d1, die2: d2 };
+    game.legalMoves = generateMoves(board, WHITE, d1, d2);
+    state.game = game;
+    state.turn = null;
+    state.busy = false;
+    render();
+  };
+  const burst = (id, details) => {
+    const el = document.getElementById(id);
+    for (const d of details) el.dispatchEvent({ type: 'click', detail: d, preventDefault() {} });
+  };
+
+  // ゾロ目 3-3 で 13pt(index 12) から 4 駒。素早く 4 回押しても全部通ること
+  setupMove(3, 3);
+  burst('point-12', [1, 2, 3, 4]);
+  if (state.turn !== null) {
+    fail('rapid-move-doubles',
+      `3-3 で同じポイントを素早く4回押してもターンが終わらない (applied=${state.turn.applied.length})`);
+  }
+
+  // 非ゾロ目 6-5 で同じポイントから 2 駒（13/7 13/8）
+  setupMove(6, 5);
+  burst('point-12', [1, 2]);
+  if (state.turn !== null) {
+    fail('rapid-move-normal',
+      `6-5 で同じポイントを素早く2回押してもターンが終わらない (applied=${state.turn.applied.length})`);
+  }
+}
+
+// ── 7. state.busy 中は手動ロールが通らないこと ──────
+// humanRollDice の busy ガードが外れる、あるいは click 登録が
+// `humanRollDice` そのもの（= MouseEvent が第1引数に入り自動ロール扱いになる）に
+// 戻ると、AI の手番の間合いでロールできてしまい runAiTurns が二重に走る。
+{
+  const rollBtn = document.getElementById('roll');
+  const game = new Game(new Board());
+  game.currentPlayer = WHITE;
+  game.state = ROLLING;
+  state.game = game;
+  state.turn = null;
+  state.busy = true;
+  state.autoRolling = false;
+  render();
+
+  rollBtn.dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+  if (game.state !== ROLLING) {
+    fail('manual-roll-while-busy',
+      `busy 中にロールボタンが効いてしまった (game.state=${game.state})`);
+  }
+  state.busy = false;
+}
+
+// ── 8. ベアオフのトレイも busy 中は動かないこと ────
+{
+  const board = new Board();
+  for (let i = 0; i < 24; i += 1) board.points[i] = 0;
+  board.points[5] = 6;
+  board.off[WHITE] = 9;
+  board.points[23] = -15;
+  board.bar[WHITE] = 0;
+  board.bar[BLACK] = 0;
+  board.off[BLACK] = 0;
+
+  const game = new Game(board);
+  game.currentPlayer = WHITE;
+  game.state = MOVING;
+  game.roll = { die1: 6, die2: 6 };
+  game.legalMoves = generateMoves(board, WHITE, 6, 6);
+  state.game = game;
+  state.turn = null;
+  state.busy = false;
+  render();                       // ここで state.turn が用意される
+  state.busy = true;              // AI が動いている想定
+  offWhite.dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+  if (state.turn && state.turn.applied.length !== 0) {
+    fail('bearoff-while-busy',
+      `busy 中にトレイのクリックが通った (applied=${state.turn.applied.length})`);
+  }
+  state.busy = false;
+}
+
+// ── 9. 自動ロールが実際に発火すること ───────────
+// 発火条件（ROLLING / autoRoll / !canHumanDouble）が崩れると、
+// 自動ロール機能が丸ごと死んだまま他のテストは緑のままになる。
+{
+  const game = new Game(new Board());
+  game.currentPlayer = WHITE;
+  game.state = ROLLING;
+  state.game = game;
+  state.turn = null;
+  state.busy = false;
+  state.autoRolling = false;
+  state.autoRoll = true;
+  state.delay = 0;
+  // 自動ロールが働くのはダブルを打てない局面。キューブレスがその代表。
+  const savedUseCube = state.match.useCube;
+  state.match.useCube = false;
+
+  await afterChange();
+  state.match.useCube = savedUseCube;
+  if (game.state === ROLLING) {
+    fail('auto-roll-fires', '自動ロールが発火せず ROLLING のままになっている');
+  }
+  state.runId += 1;   // 後続の非同期ループを打ち切る
+}
+
+// ── 10. 手番を丸ごと使う複合操作は確認を挟むこと ──
+// 1 クリックで確定すると runAiTurns が busy を立てて undo を隠し、
+// AI が指せば履歴も消えるので取り返しがつかない。出目がまだ残る
+// 部分的な複合操作は、あとから undo できるのでそのまま実行してよい。
+{
+  // White: 12 と 11 に 2 枚ずつ / 5 に 5 枚 / 23 に 6 枚。index 6 は空なので
+  // 6-5 の両方の出目を使って 6pt をメイクできる（＝手番を丸ごと使う）。
+  const makeBoard = () => {
+    const b = new Board();
+    for (let i = 0; i < 24; i += 1) b.points[i] = 0;
+    b.points[12] = 2; b.points[11] = 2; b.points[5] = 5; b.points[23] = 6;
+    b.points[0] = -15;
+    b.bar[WHITE] = 0; b.bar[BLACK] = 0; b.off[WHITE] = 0; b.off[BLACK] = 0;
+    return b;
+  };
+  const setupMake = (d1, d2, board) => {
+    const game = new Game(board);
+    game.currentPlayer = WHITE;
+    game.state = MOVING;
+    game.roll = { die1: d1, die2: d2 };
+    game.legalMoves = generateMoves(board, WHITE, d1, d2);
+    state.game = game;
+    state.turn = null;
+    state.busy = false;
+    render();
+  };
+  const clickPoint = (id) => document.getElementById(id)
+    .dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+  const appliedCount = () => (state.turn ? state.turn.applied.length : null);
+
+  // 1 回目は確認待ちになり、盤面は動かないこと
+  setupMake(6, 5, makeBoard());
+  clickPoint('point-6');
+  if (appliedCount() !== 0) {
+    fail('confirm-first-click',
+      `手番を丸ごと使うメイクが 1 クリックで進んだ (applied=${appliedCount()})`);
+  }
+  if (!document.getElementById('point-6').classList.contains('confirming')) {
+    fail('confirm-highlight', '確認待ちなのに point-6 が confirming になっていない');
+  }
+  if (document.getElementById('hint').textContent !== 'もう一度クリックすると手番を確定します') {
+    fail('confirm-hint',
+      `確認待ちのヒントが出ていない (${document.getElementById('hint').textContent})`);
+  }
+
+  // ダブルクリック相当（連射ロックの窓の内側）では確定しないこと
+  setupMake(6, 5, makeBoard());
+  clickPoint('point-6');
+  clickPoint('point-6');
+  if (appliedCount() !== 0) {
+    fail('confirm-burst',
+      `連射で手番が確定してしまった (applied=${appliedCount()})`);
+  }
+
+  // ゾロ目で出目が残るメイクは、確認を挟まず即実行されること
+  setupMake(2, 2, new Board());
+  clickPoint('point-3');
+  if (appliedCount() !== 2) {
+    fail('confirm-not-for-partial',
+      `出目が残るメイクにまで確認が入った (applied=${appliedCount()})`);
+  }
+}
+
+// ── 11. 非ゾロ目のベアオフはダブルクリックで確定しないこと ──
+// 非ゾロ目は 1 クリックで両方の出目を使い切る＝確認待ちに入る。
+// ここで連射ロックが無いと、ダブルクリックの 2 発目がそのまま
+// 「確認のクリック」になってしまい、結局 1 ジェスチャで確定してしまう。
+{
+  const board = new Board();
+  for (let i = 0; i < 24; i += 1) board.points[i] = 0;
+  board.points[5] = 1;            // 6pt に 1 枚（die 6 で上がる）
+  board.points[4] = 1;            // 5pt に 1 枚（die 5 で上がる）
+  board.off[WHITE] = 13;
+  board.points[23] = -15;
+  board.bar[WHITE] = 0;
+  board.bar[BLACK] = 0;
+  board.off[BLACK] = 0;
+
+  const game = new Game(board);
+  game.currentPlayer = WHITE;
+  game.state = MOVING;
+  game.roll = { die1: 6, die2: 5 };
+  game.legalMoves = generateMoves(board, WHITE, 6, 5);
+  state.game = game;
+  state.turn = null;
+  state.busy = false;
+  render();
+
+  if (!offWhite.classList.contains('makeable')) {
+    fail('bearoff-nondoubles-makeable', '6-5 で 2 駒ベアオフできるのにトレイが makeable でない');
+  }
+
+  offWhite.dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+  offWhite.dispatchEvent({ type: 'click', detail: 2, preventDefault() {} });
+
+  if (state.turn === null) {
+    fail('bearoff-nondoubles-burst',
+      'ダブルクリックの 2 発目が確認クリックとして通り、手番が確定してしまった');
   }
 }
 

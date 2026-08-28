@@ -208,10 +208,34 @@ button:disabled { opacity: .5; cursor: default; }
 /* 選択できる駒はマス全体を囲う（三角形に切り取られる ::before ではなく本体に描く）。 */
 .point.selectable { box-shadow: inset 0 0 0 3px var(--accent); }
 
-/* ポイントを作れる場所（ダブルクリックでメイク可能）。 */
+/* ポイントを作れる場所（クリックでメイク可能）。 */
 .point.makeable { box-shadow: inset 0 0 0 3px var(--makeable); }
 .point.selectable.makeable {
   box-shadow: inset 0 0 0 3px var(--makeable), inset 0 0 0 6px var(--accent);
+}
+
+/* 手番を丸ごと使うメイク / ベアオフは、確認の 1 クリックを挟む。
+   **押せば戻せない**ので、待っている間だけ枠を太くして脈を打たせる。 */
+.point.confirming,
+.point.makeable.confirming,
+.point.selectable.makeable.confirming {
+  box-shadow: inset 0 0 0 5px var(--makeable);
+  animation: confirm-pulse 1s ease-in-out infinite;
+}
+.off-tray.confirming,
+.off-tray.makeable.confirming {
+  box-shadow: inset 0 0 0 5px var(--makeable);
+  animation: confirm-pulse 1s ease-in-out infinite;
+}
+@keyframes confirm-pulse {
+  50% { box-shadow: inset 0 0 0 5px var(--makeable), inset 0 0 0 9px var(--makeable); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .point.confirming,
+  .point.makeable.confirming,
+  .point.selectable.makeable.confirming,
+  .off-tray.confirming,
+  .off-tray.makeable.confirming { animation: none; }
 }
 
 /* ヒントの最善手の移動元。**選択できる印（緑）と重なるので別の色にする。**
@@ -290,7 +314,7 @@ button:disabled { opacity: .5; cursor: default; }
 }
 .off-tray.black { justify-content: flex-start; }   /* 上段が黒のホーム側 */
 .off-tray.white { justify-content: flex-end; }
-/* 出目を使って2駒ベアオフできるときはトレイを黄色枠でハイライトし、ダブルクリック可能にする */
+/* 出目を使って2駒ベアオフできるときはトレイを黄色枠でハイライトし、クリック可能にする */
 .off-tray.makeable {
   box-shadow: inset 0 0 0 3px var(--makeable);
   cursor: pointer;
