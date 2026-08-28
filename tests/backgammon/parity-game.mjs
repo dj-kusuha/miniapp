@@ -9,6 +9,10 @@ import { readFileSync } from 'node:fs';
 
 import { NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import { Game, GAME_OVER } from '../../docs/backgammon/src/game.js';
+import { loadBearoffForTests } from './bearoff-setup.mjs';
+
+// **engine は DB を既定で有効にしている。** 揃えないとベアオフ局面で食い違う。
+loadBearoffForTests();
 
 const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url)));
 const net = new NeuralNet(JSON.parse(readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));

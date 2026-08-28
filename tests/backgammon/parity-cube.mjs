@@ -16,6 +16,11 @@ import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import { DEFAULT_CUBE_MODEL, DEFAULT_CUBE_EFFICIENCY } from '../../docs/backgammon/src/agent.js';
 import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
+import { loadBearoffForTests } from './bearoff-setup.mjs';
+
+// **engine は DB を既定で有効にしている。** いまのフィクスチャにベアオフ
+// 局面は入っていないが、揃えておかないと**将来入った瞬間に黙って割れる**。
+loadBearoffForTests();
 
 const data = JSON.parse(readFileSync(new URL('./cube-parity.json', import.meta.url)));
 const net = new NeuralNet(JSON.parse(
