@@ -474,13 +474,160 @@ export class Agent {
     return this.searchedVectorFor(board, proposer, opponent(proposer));
   }
 
-  /** 提案された側がテイクするか（too good to double の判定用）。 */
-  opponentWouldTake(board, proposer) {
+  /**
+   * テイクするか。**ダブル側と同じ探索の値で決める**（ADR-0017 段 B-2）。
+   *
+   * 新しい式は要らない。`shouldDoubleSearch` はすでに `min(take, 1.0)` の形で
+   * テイクの是非を判定している。その `take` は提案者視点でテイクされた時の
+   * 値なので、**1.0 より小さければ相手にとってテイクが得**。
+   *
+   * これを入れるまで、ダブル側は探索の値で「相手はテイクする」と見込むのに
+   * 受ける側は Janowski の定数式で判断していた（**同じ局面に 2 つの基準**）。
+   */
+  wouldTakeSearch(board, proposer) {
+    const take = 2.0 * this.cubefulSearch(
+      board, proposer, 'opponent', this.cubeSearchDepth, false);
+    return take < 1.0;
+  }
+
+  /** テイクするか（**方式の振り分けはここ 1 箇所**）。 */
+  wouldTakeFor(board, proposer) {
+    if (this.cubeDecision === 'search') {
+      return this.wouldTakeSearch(board, proposer);
+    }
     const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
       return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker));
     }
     return this.wouldTake(this.searchedEquityFor(board, proposer, taker));
+  }
+
+  /** 提案された側がテイクするか（too good to double の判定用）。 */
+  opponentWouldTake(board, proposer) {
+    return this.wouldTakeFor(board, proposer);
+  }
+
+  /**
+   * 葉の**マッチ勝率**（`turn` 視点）。**Janowski を MWC 空間で行う。**
+   *
+   * `mwcWithCube` は**キューブが以後動かない前提**（死んだキューブ）なので、
+   * わずかな有利を 2 倍にすれば MWC が線形に増えるように見え、
+   * **開幕の 0-0 でダブルする**という誤った判断が出る。キューブを持っている
+   * 価値＝**上に行くと頭打ちになる**形を入れないと判断にならない。
+   *
+   * 端点は MET から引く（`cash` / `drop`）。**同じ 1 点でもスコアで価値が
+   * 違う**ので、マネーの「+1 / -1」はそのまま使えない。
+   *
+   * CP / TP は閉じた式で解ける。勝ち側・負け側を比例配分して勝率を p に
+   * 置き換えると、死んだキューブの MWC は **p について線形**になるため。
+   */
+  mwcLeaf(board, turn, cube, owner, match) {
+    const vector = this.searchedVectorFor(board, turn, WHITE, this.cubeLeafPlies);
+    const spread = outcomeSpread(vector, turn === WHITE);
+    const awayUs = match.away[turn];
+    const awayThem = match.away[opponent(turn)];
+    const played = match.crawfordPlayed;
+
+    const dead = mwcWithCube(spread, cube, awayUs, awayThem, played);
+    const p = spread.win1 + spread.win2 + spread.win3;
+    if (p <= 1e-9 || p >= 1.0 - 1e-9) return dead;
+
+    // そのキューブ値での [p=1 のときの MWC, p=0 のときの MWC]
+    const ends = (value) => {
+      const win = [1, 2, 3].map((k) => matchWinChance(awayUs - value * k, awayThem, played));
+      const lose = [1, 2, 3].map((k) => matchWinChance(awayUs, awayThem - value * k, played));
+      const top = (spread.win1 * win[0] + spread.win2 * win[1] + spread.win3 * win[2]) / p;
+      const bottom = (spread.lose1 * lose[0] + spread.lose2 * lose[1]
+                      + spread.lose3 * lose[2]) / (1.0 - p);
+      return [top, bottom];
+    };
+
+    const cash = matchWinChance(awayUs - cube, awayThem, played);
+    const drop = matchWinChance(awayUs, awayThem - cube, played);
+    const [top2, bottom2] = ends(cube * 2);
+    const [top1, bottom1] = ends(cube);
+    const span = top2 - bottom2;
+    if (Math.abs(span) < 1e-9) return dead;
+    const cashPoint = (cash - bottom2) / span;
+    const takePoint = (drop - bottom2) / span;
+
+    const liveMine = cashPoint > 1e-9
+      ? Math.min(cash, bottom1 + (cash - bottom1) * p / cashPoint)
+      : cash;
+    const liveTheirs = takePoint < 1.0 - 1e-9
+      ? Math.max(drop, drop + (top1 - drop) * (p - takePoint) / (1.0 - takePoint))
+      : drop;
+
+    let live;
+    if (owner === 'me') live = liveMine;
+    else if (owner === 'opponent') live = liveTheirs;
+    else live = Math.min(liveMine, liveTheirs);   // センターは相手に有利な方
+
+    const x = this.cubeEfficiency;
+    return (1.0 - x) * dead + x * live;
+  }
+
+  /** 手番側がキューブを検討できるなら 3 択も評価する（`turn` 視点の MWC）。 */
+  mwcNode(board, turn, owner, depth, cube, match) {
+    const noDouble = this.mwcSearch(board, turn, owner, depth, cube, match);
+    if (owner === 'opponent') return noDouble;
+    const take = this.mwcSearch(board, turn, 'opponent', depth, cube * 2, match);
+    const drop = matchWinChance(match.away[turn] - cube,
+                                match.away[opponent(turn)], match.crawfordPlayed);
+    return Math.max(noDouble, Math.min(take, drop));
+  }
+
+  /**
+   * `turn` 視点のマッチ勝率（**キューブの分岐まで展開する**）。
+   *
+   * `cubefulSearch` のマッチ版。違いは 2 つだけ。
+   * 1. **葉の値が MWC**（点数の equity ではない）
+   * 2. **手番が移るときは `1 - x`**（`-x` ではない）。MWC は
+   *    `MWC(a,b) + MWC(b,a) = 1` で対称なので、符号反転ではなく余事象
+   *
+   * **キューブ値を引数で持ち回る。** マネーでは「いまの値を 1 とする」正規化が
+   * できるが、MWC では 2 点と 4 点で MET の引き当てが変わるので絶対値が要る。
+   */
+  mwcSearch(board, turn, owner, depth, cube, match) {
+    const terminal = this.terminalVector(board);
+    if (terminal !== null) {
+      const spread = outcomeSpread(terminal, turn === WHITE);
+      return mwcWithCube(spread, cube, match.away[turn],
+                         match.away[opponent(turn)], match.crawfordPlayed);
+    }
+    if (depth <= 0) return this.mwcLeaf(board, turn, cube, owner, match);
+
+    let total = 0.0;
+    const flipped = Agent.flipOwner(owner);
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = this.generateMoves(board, turn, die1, die2);
+      if (moves.length === 0) {
+        total += weight * (1.0 - this.mwcNode(
+          board, opponent(turn), flipped, depth - 1, cube, match));
+        continue;
+      }
+      const boards = moves.map((m) => m.resultingBoard);
+      let best = null;
+      for (const i of this.shortlist(boards, turn, 0)) {
+        const value = 1.0 - this.mwcNode(
+          boards[i], opponent(turn), flipped, depth - 1, cube, match);
+        if (best === null || value > best) best = value;
+      }
+      total += weight * best;
+    }
+    return total;
+  }
+
+  /** マッチのキューブ 3 択を探索で求める（すべて提案者視点の MWC）。 */
+  matchCubeSearch(game, proposer, match) {
+    const owner = this.cubeOwnerKind(game, proposer);
+    const cube = game.cube.value;
+    const depth = this.cubeSearchDepth;
+    const noDouble = this.mwcSearch(game.board, proposer, owner, depth, cube, match);
+    const take = this.mwcSearch(game.board, proposer, 'opponent', depth, cube * 2, match);
+    const drop = matchWinChance(match.away[proposer] - cube,
+                                match.away[opponent(proposer)], match.crawfordPlayed);
+    return { noDouble, take, drop };
   }
 
   /**
@@ -680,12 +827,19 @@ export class Agent {
     const proposer = game.currentPlayer;
 
     if (match) {
+      // **葉を MWC 空間の Janowski にした探索で判断する。**
+      // 実戦由来の 10,558 局面（gnubg 3-ply が正解）で
+      // ダブル判断 3.4 → 1.3 mEMG、テイク判断 4.2 → 1.8 mEMG。
+      if (this.cubeDecision === 'search') {
+        const s = this.matchCubeSearch(game, proposer, match);
+        return Math.min(s.take, s.drop) > s.noDouble;
+      }
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
       // 相手のテイク / パスはこちらが選べない。相手は自分に有利な方を選ぶ。
       //
       // **センターキューブ保持のオプション価値（先送りマージン）**:
-      // センターキューブを持っている間は「後からもっと有利になってからダブルする権利」があるため、
-      // 単なる静的 MWC よりもノーダブルの価値が高い（XG のノーダブル > ダブル/テイクと同じ原理）。
+      // 死んだキューブの MWC ではキューブを持っている価値が入らないので、
+      // 定数で手当てしていた。探索版では葉の模型が同じ役割を果たす。
       const opponentTakes = e.take <= e.pass;
       const holdMargin = (opponentTakes && game.cube.value === 1) ? 0.020 : 0.0;
       return Math.min(e.take, e.pass) > (e.noDouble + holdMargin);
@@ -719,9 +873,12 @@ export class Agent {
   /** 相手のダブルを受けるか（テイク = true / ドロップ = false）。 */
   shouldAcceptDouble(game, match = null) {
     const proposer = game.doublingProposer;
-    const taker = opponent(proposer);
 
     if (match) {
+      if (this.cubeDecision === 'search') {
+        const s = this.matchCubeSearch(game, proposer, match);
+        return s.take < s.drop;
+      }
       // 提案者視点の値をそのまま使う。MET は対称（`MWC(a,b) + MWC(b,a) = 1`）
       // なので、**提案者のマッチ勝率が低い方**がテイク側にとって良い方。
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
@@ -730,10 +887,7 @@ export class Agent {
 
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
-    if (this.cubeModel === 'janowski') {
-      return this.wouldTakeJanowski(this.searchedVectorFor(game.board, proposer, taker));
-    }
-    return this.wouldTake(this.searchedEquityFor(game.board, proposer, taker));
+    return this.wouldTakeFor(game.board, proposer);
   }
 
   /**
