@@ -600,7 +600,7 @@ export class Agent {
     let total = 0.0;
     const flipped = Agent.flipOwner(owner);
     for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = this.generateMoves(board, turn, die1, die2);
+      const moves = generateMoves(board, turn, die1, die2);
       if (moves.length === 0) {
         total += weight * (1.0 - this.mwcNode(
           board, opponent(turn), flipped, depth - 1, cube, match));
@@ -832,7 +832,12 @@ export class Agent {
       // ダブル判断 3.4 → 1.3 mEMG、テイク判断 4.2 → 1.8 mEMG。
       if (this.cubeDecision === 'search') {
         const s = this.matchCubeSearch(game, proposer, match);
-        return Math.min(s.take, s.drop) > s.noDouble;
+        const opponentTakes = s.take <= s.drop;
+        const awayThem = match.away[opponent(proposer)];
+        const holdMargin = (!match.crawfordPlayed && opponentTakes && game.cube.value === 1)
+          ? (awayThem <= 2 ? 0.045 : 0.020)
+          : 0.0;
+        return Math.min(s.take, s.drop) > (s.noDouble + holdMargin);
       }
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
       // 相手のテイク / パスはこちらが選べない。相手は自分に有利な方を選ぶ。
