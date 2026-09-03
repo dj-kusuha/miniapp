@@ -8,6 +8,7 @@
 //   6. 自動ロールが実際に発火すること
 //   7. 手番を丸ごと使う複合操作に確認の 1 クリックが入ること
 //   8. 盤面が動いたら確認待ちを持ち越さないこと
+//   9. ベアオフの途中盤面が別の手順の終了盤面と一致しても確定しないこと
 
 import { readFileSync } from 'node:fs';
 import { Board, WHITE, BLACK } from '../../docs/backgammon/src/board.js';
@@ -648,6 +649,86 @@ if (!autoForceToggle) fail('dom-auto-force', 'auto-force チェックボック�
     fail('confirm-across-turns',
       '前のターンの確認が残っていて、1 クリック目で手番が確定してしまった');
   }
+}
+
+// ── 13. ベアオフの途中盤面で手番が確定してしまわないこと ──
+// 4pt と 1pt に 1 枚ずつ・41 の局面。`4/off` を指した直後の盤面は
+// `4/3 3/off` の終了盤面と一致するので、「終了盤面と一致したら確定」だけで
+// 判定すると、1 の目を残したまま手番が終わり、棋譜も `4/3 3/off` になる。
+{
+  await afterLock();
+  const board = new Board();
+  for (let i = 0; i < 24; i += 1) board.points[i] = 0;
+  board.points[3] = 1;            // 4pt に 1 枚
+  board.points[0] = 1;            // 1pt に 1 枚
+  board.off[WHITE] = 13;
+  board.points[23] = -15;
+  board.bar[WHITE] = 0;
+  board.bar[BLACK] = 0;
+  board.off[BLACK] = 0;
+
+  const game = new Game(board);
+  game.currentPlayer = WHITE;
+  game.state = MOVING;
+  game.roll = { die1: 4, die2: 1 };   // 4 が左＝先に使う目
+  game.legalMoves = generateMoves(board, WHITE, 4, 1);
+  state.game = game;
+  state.turn = null;
+  state.busy = false;
+  state.history = [];
+  const savedAutoForce = state.autoForce;
+  state.autoForce = true;            // フォース自動実行が ON でも巻き込まれないこと
+  render();
+
+  if (game.legalMoves.length !== 2) {
+    fail('bearoff-partial-setup',
+      `合法手が ${game.legalMoves.length} 通り（4/off 1/off と 4/3 3/off の 2 通りのはず）`);
+  }
+
+  // 4pt をクリック＝左の目 4 を使って 4/off
+  document.getElementById('point-3')
+    .dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+
+  if (state.turn === null) {
+    fail('bearoff-partial-finished',
+      '4/off を指しただけで手番が確定してしまった（1 の目が残っている）');
+  } else if (state.turn.applied.length !== 1) {
+    fail('bearoff-partial-applied',
+      `4pt のクリックで ${state.turn.applied.length} 手進んだ（1 手のはず）`);
+  } else {
+    const single = state.turn.applied[0];
+    if (single.from !== 3 || single.to !== null || single.die !== 4) {
+      fail('bearoff-partial-single',
+        `4pt のクリックが ${single.from}->${single.to} (die ${single.die})（3->off die 4 のはず）`);
+    }
+    if (board.off[WHITE] !== 13) {
+      fail('bearoff-partial-board', '途中の着手が game.board に書き戻されている');
+    }
+  }
+
+  // 途中で afterChange が走っても、フォース自動実行に巻き込まれないこと
+  if (state.turn) {
+    const appliedBefore = state.turn.applied.length;
+    await afterChange();
+    if (state.turn === null || state.turn.applied.length !== appliedBefore) {
+      fail('bearoff-partial-autoforce',
+        'ターンの途中で自動着手が発動して残りの出目まで使われた');
+    }
+  }
+
+  // 1pt をクリック＝残った 1 を使って 1/off。ここで初めて手番が確定する
+  document.getElementById('point-0')
+    .dispatchEvent({ type: 'click', detail: 1, preventDefault() {} });
+
+  if (game.board.off[WHITE] !== 15) {
+    fail('bearoff-partial-finish',
+      `2 手目のあとオフが ${game.board.off[WHITE]} 枚（15 枚のはず）`);
+  }
+  const record = [...game.log].reverse().find((e) => e.kind === 'move');
+  if (!record || record.text !== '4/off 1/off') {
+    fail('bearoff-partial-notation', `棋譜が ${record?.text}（4/off 1/off のはず）`);
+  }
+  state.autoForce = savedAutoForce;
 }
 
 // ── テスト終了処理 ───────────────────────────

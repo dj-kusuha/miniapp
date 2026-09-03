@@ -785,12 +785,7 @@ function handlePointDblClick(targetIndex) {
     for (const single of action.singles) {
       state.turn.applied.push(single);
     }
-    const key = boardKey(previewBoard());
-    if (state.turn.allowedKeys.has(key)) {
-      finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
-    } else {
-      render();
-    }
+    finalizeIfComplete();
   }
 }
 
@@ -814,12 +809,7 @@ function handleBearOffDblClick() {
     for (const single of action.singles) {
       state.turn.applied.push(single);
     }
-    const key = boardKey(previewBoard());
-    if (state.turn.allowedKeys.has(key)) {
-      finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
-    } else {
-      render();
-    }
+    finalizeIfComplete();
   }
 }
 
@@ -863,6 +853,32 @@ function currentOptions() {
     remainingDice(), state.turn.allowedKeys);
 }
 
+/**
+ * 途中まで指した盤面が「このターンの終わり」か。
+ *
+ * **合法な終了盤面と一致するだけでは終わりではない。** ベアオフでは
+ * 途中盤面が別の手順の終了盤面と一致することがある。例えば 4pt と 1pt に
+ * 1 枚ずつで 41 なら、`4/off` を指した直後の盤面は `4/3 3/off` の終了盤面と
+ * 同じになる。ここで確定させると、まだ 1 の目が残っているのに手番が終わり、
+ * しかも棋譜が `4/3 3/off` になってしまう。まだ使える出目が残っているなら、
+ * そのターンは続いている。
+ */
+function turnComplete() {
+  if (!state.turn) return false;
+  if (!state.turn.allowedKeys.has(boardKey(previewBoard()))) return false;
+  return currentOptions().length === 0;
+}
+
+/** 終了盤面に達していればターンを確定する。まだなら描き直すだけ。 */
+function finalizeIfComplete() {
+  if (!turnComplete()) {
+    render();
+    return;
+  }
+  const key = boardKey(previewBoard());
+  finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
+}
+
 /** 途中まで指した状態を反映した盤面（まだ game.board には書き戻さない）。 */
 function previewBoard() {
   const game = state.game;
@@ -898,14 +914,10 @@ function handleSourceClick(from) {
   state.turn.applied.push(chosen);
   clearCompoundConfirm();   // 盤面が動いたので、見せていた確認は無効
 
-  // 合法な終了盤面に達したらターンを確定する（出目が余っていても、
-  // それ以上使えない手順は generateMoves が合法として持っている）。
-  const key = boardKey(previewBoard());
-  if (state.turn.allowedKeys.has(key)) {
-    finalizeTurn(state.turn.root.find((m) => boardKey(m.resultingBoard) === key));
-  } else {
-    render();
-  }
+  // 合法な終了盤面に達し、かつ残りの出目がもう使えないならターンを確定する。
+  // **「終了盤面と一致した」だけで確定してはいけない。** 途中盤面がたまたま
+  // 別の手順の終了盤面と一致することがある（turnComplete のコメント参照）。
+  finalizeIfComplete();
 }
 
 /** サイコロをクリックすると、どちらの目を先に使うかを入れ替える。 */
@@ -1551,8 +1563,15 @@ async function afterChange() {
       await humanRollDice(true);
       return;
     }
-    // フォースムーブ（唯一の合法手）なら自動で動かす
-    if (state.autoForce && game.state === MOVING && game.legalMoves.length === 1 && !state.busy) {
+    // フォースムーブ（唯一の合法手）なら自動で動かす。
+    //
+    // **判定するのは出目を振った直後だけ。** `legalMoves` はロールで作られて
+    // ターン中は変わらないので、その長さが 1 かどうかは「振った時点で手が
+    // 1 つしかなかったか」と同じ。加えて、まだ 1 つも出目を使っていないことを
+    // 見る。振った時点でフォースでなかったターンは、片方の出目を使った結果
+    // 残りが 1 手に決まっても、勝手には動かさない（人が自分で置く）。
+    if (state.autoForce && game.state === MOVING && game.legalMoves.length === 1 && !state.busy
+        && !(state.turn && state.turn.applied.length > 0)) {
       const move = game.legalMoves[0];
       const runId = state.runId;
       state.busy = true;
