@@ -232,6 +232,38 @@ export function gaussianFor(key) {
 // 避けたかったのと、σ を決めた根拠と同じ言葉にしておくと後から追いやすいため。
 // **ぴったり一致させることは狙っていない**（0-ply と 2-ply は W と B で別の
 // ラベルが付いており、そもそも境界をまたいでいる）。
+/**
+ * **強い段でキューブ判断も深く読ませる設定。**
+ *
+ * `cubeLeafPlies` を 1 にすると、キューブ探索の**葉**でもダイスを 1 段展開する。
+ * 葉は数百個あるのでコストが跳ねる（実測で 1 判断 966 ms）ため、**足切りと
+ * セットでしか使えない**。足切りは「まず葉 0 段で見て、差が幅より開いていれば
+ * そこで決める」もので、際どいときだけ深く読む。
+ *
+ * **幅はマネーとマッチで別に持つ**（マネーは equity、マッチは MWC で桁が違う）。
+ *
+ * | | 幅 | 根拠 |
+ * | :--- | ---: | :--- |
+ * | `matchCubeScreenMargin` | 0.020 | engine の ADR-0038 が 2,631 局面で較正 |
+ * | `cubeScreenMargin` | — | **未較正**（下記） |
+ *
+ * > **いまは空のままにしてある。** 埋めるには 2 つ測る必要がある:
+ * >
+ * > 1. **マネー側の足切り幅の較正。** ADR-0038 が較正したのはマッチ側だけで、
+ * >    単位が違うので流用できない。較正せずに `cubeLeafPlies: 1` にすると
+ * >    足切りが効かず 966 ms かかる。**アプリの既定はマネー**なので致命的。
+ * > 2. **深さがまだ効くかの測り直し。** 「0→1 で -0.910 mEMG」は**マッチの
+ * >    cube efficiency が 0.68 だったとき**の値で、いまは 0.55（ADR-0041）。
+ * >    ADR-0041 自身が「深さの効果は測り直しになる」と書いている。
+ * >
+ * > **測る前に有効にしないこと。** 遅くなるだけで強くならない可能性がある。
+ */
+export const DEEP_CUBE = {
+  cubeLeafPlies: 1,
+  matchCubeScreenMargin: 0.020,
+  // cubeScreenMargin: <未較正>
+};
+
 export const LEVELS = [
   {
     id: 'beginner', name: '初心者', plies: 0, noise: 0.07, maxLoss: 0.50,
@@ -299,6 +331,9 @@ export function agentFor(net, levelId) {
   return new Agent(net, level.plies, filtersFor(level.plies), {
     noise: level.noise,
     maxLoss: level.maxLoss,
+    // **段ごとのキューブ設定。** 無い段は Agent の既定（engine と同じ）。
+    // 強い段だけ深く読ませるための口（`DEEP_CUBE`）。
+    ...(level.cube ?? {}),
   });
 }
 
