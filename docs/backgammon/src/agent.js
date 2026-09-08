@@ -56,8 +56,12 @@ export const FAST_FILTERS = [
 /**
  * その深さで使う絞り方を返す。**アプリと Worker とテストで 1 か所を見る。**
  *
- * 3-ply だけ `FAST_FILTERS`。2-ply では段 1 のフィルタに到達しないので
+ * 3-ply だけ `FAST_FILTERS`。2-ply では**着手木の**段 1 のフィルタに到達しないので
  * 変えても意味が無く、0-ply はそもそも探索しない。
+ *
+ * **これは着手木だけの話。** キューブ木は段によらず `cubeFilters`
+ * （＝`DEFAULT_FILTERS`）で絞る。ここを借りると、エキスパートだけキューブ木が
+ * 2 手になって engine と違う木を読むことになる（`Agent` の `cubeFilters`）。
  */
 export function filtersFor(plies) {
   return plies >= 3 ? FAST_FILTERS : DEFAULT_FILTERS;
@@ -314,6 +318,7 @@ export class Agent {
     cubeDecision = DEFAULT_CUBE_DECISION,
     cubeSearchDepth = DEFAULT_CUBE_SEARCH_DEPTH,
     cubeLeafPlies = DEFAULT_CUBE_LEAF_PLIES,
+    cubeFilters = DEFAULT_FILTERS,
     cubeFilterLevel = null,
     cubeScreenMargin = 0,
     matchCubeScreenMargin = 0,
@@ -338,6 +343,21 @@ export class Agent {
     this.cubeDecision = cubeDecision;
     this.cubeSearchDepth = cubeSearchDepth;
     this.cubeLeafPlies = cubeLeafPlies;
+    /**
+     * キューブ木で使う絞り方の表。**着手木の `filters` とは別に持つ。**
+     *
+     * エキスパート（3-ply）は着手木に `FAST_FILTERS` を使うが、その段 1 は
+     * **2 手**なので、キューブ木がそれを借りると engine より狭い木を読むことに
+     * なる。engine と ADR-0038 が測ったのは段 1 = **3 手**（`DEFAULT_FILTERS`）。
+     *
+     * 借りたままだと、際どい局面 60 件・120 値のうち 1 件が **2.4e-04** ずれた
+     * （上級は 1.4e-07 で一致。判断は 60 件とも変わらなかった）。**判断が
+     * 変わらなくても、段によって違う木を読んでいる状態は残さない。**
+     *
+     * キューブ探索は着手の速さと関係が無い（毎回 1 段しか展開しない）ので、
+     * ここを速さのために狭める理由も無い。
+     */
+    this.cubeFilters = cubeFilters;
     /**
      * キューブ木で手を絞るときに使う **move filter の段**。
      *
@@ -655,7 +675,8 @@ export class Agent {
       const boards = moves.map((m) => m.resultingBoard);
       let best = null;
       // **マネー側（`cubefulSearch`）と同じ段で絞る。**
-      for (const i of this.shortlist(boards, turn, this.cubeFilterLevelFor(depth))) {
+      for (const i of this.shortlist(
+        boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters)) {
         const value = 1.0 - this.mwcNode(
           boards[i], opponent(turn), flipped, depth - 1, cube, match, leaf);
         if (best === null || value > best) best = value;
@@ -820,7 +841,8 @@ export class Agent {
       }
       const boards = moves.map((m) => m.resultingBoard);
       // **キューブ木は着手木の「段 1 以降」と同じ絞り方で読む**（`cubeFilterLevelFor`）
-      const picks = this.shortlist(boards, turn, this.cubeFilterLevelFor(depth));
+      const picks = this.shortlist(
+        boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters);
       let best = null;
       for (const i of picks) {
         const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby, leaf);
@@ -1023,8 +1045,8 @@ export class Agent {
     return null;
   }
 
-  filterFor(level) {
-    return this.filters[Math.min(level, this.filters.length - 1)];
+  filterFor(level, filters = this.filters) {
+    return filters[Math.min(level, filters.length - 1)];
   }
 
   /**
@@ -1047,9 +1069,14 @@ export class Agent {
     return this.cubeSearchDepth - depth + 1;
   }
 
-  /** `toMove` から見て強い順に並べ、深く読む手の index を返す。 */
-  shortlist(boards, toMove, level = 0) {
-    const filter = this.filterFor(level);
+  /**
+   * `toMove` から見て強い順に並べ、深く読む手の index を返す。
+   *
+   * `filters` を渡すと着手木とは別の表で絞れる（キューブ木が `cubeFilters` を
+   * 渡す。段によって違う木を読まないため）。
+   */
+  shortlist(boards, toMove, level = 0, filters = this.filters) {
+    const filter = this.filterFor(level, filters);
     const own = this.equitiesFor(boards, opponent(toMove)).map((v) => -v);
     const order = own.map((v, i) => i).sort((a, b) => own[b] - own[a])
       .slice(0, filter.candidates);
