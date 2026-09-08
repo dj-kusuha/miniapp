@@ -99,6 +99,26 @@ export const DEFAULT_CUBE_OWNERSHIP = 0.130;
 export const DEFAULT_CUBE_EFFICIENCY = 0.68;
 
 /**
+ * **マッチのキューブ判断で使う cube efficiency。**
+ * **engine 側（`DEFAULT_MATCH_CUBE_EFFICIENCY`）と必ず揃えること。**
+ *
+ * マネー（`cubefulEquity`）とマッチ（`mwcLeaf`）は同じ内挿の形をしているが、
+ * **最適な x が逆向きに動く**。0.68 はマネーのベンチで較正された値で、
+ * あとから足したマッチ側が同じ定数を借りていた。
+ *
+ * | x | マネー 1,200 局面 | マッチ 10,558 局面 |
+ * | --- | --- | --- |
+ * | 0.55 | 9.02 mEMG | **2.87 mEMG** |
+ * | 0.68 | **5.26 mEMG** | 3.31 mEMG |
+ *
+ * 際どいダブル 2,631 局面の対応のある比較で **ダブル -2.641 ± 0.797 mEMG（有意）**。
+ * 計算コストはゼロ。谷は 0.50〜0.60 で平らなので 0.55 ちょうどに意味はない。
+ * **モデルを更新したら測り直すこと。**
+ * （backgammon_engine の docs/adr/0041-match-cube-efficiency.md）
+ */
+export const DEFAULT_MATCH_CUBE_EFFICIENCY = 0.55;
+
+/**
  * キューブ判断の方式。
  *
  *   'constant' : 2E + c >= -1                     （c は固定）
@@ -288,6 +308,7 @@ export class Agent {
     doublePoint = DEFAULT_DOUBLE_POINT,
     cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
     cubeEfficiency = DEFAULT_CUBE_EFFICIENCY,
+    matchCubeEfficiency = DEFAULT_MATCH_CUBE_EFFICIENCY,
     cubeModel = DEFAULT_CUBE_MODEL,
     cubePlies = null,
     cubeDecision = DEFAULT_CUBE_DECISION,
@@ -307,6 +328,8 @@ export class Agent {
     this.doublePoint = doublePoint;
     this.cubeOwnership = cubeOwnership;
     this.cubeEfficiency = cubeEfficiency;
+    /** マッチの葉で使う cube efficiency（**マネーとは最適値が違う**）。 */
+    this.matchCubeEfficiency = matchCubeEfficiency;
     this.cubeModel = cubeModel;
     this.cubePlies = cubePlies ?? Math.min(searchPlies, 2);
     this.cubeDecision = cubeDecision;
@@ -563,7 +586,8 @@ export class Agent {
     else if (owner === 'opponent') live = liveTheirs;
     else live = Math.min(liveMine, liveTheirs);   // センターは相手に有利な方
 
-    const x = this.cubeEfficiency;
+    // **マネーの cubeEfficiency ではなくマッチ用の x を使う**（ADR-0041）
+    const x = this.matchCubeEfficiency;
     return (1.0 - x) * dead + x * live;
   }
 
