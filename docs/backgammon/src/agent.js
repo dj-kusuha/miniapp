@@ -314,6 +314,9 @@ export class Agent {
     cubeDecision = DEFAULT_CUBE_DECISION,
     cubeSearchDepth = DEFAULT_CUBE_SEARCH_DEPTH,
     cubeLeafPlies = DEFAULT_CUBE_LEAF_PLIES,
+    cubeFilterLevel = null,
+    cubeScreenMargin = 0,
+    matchCubeScreenMargin = 0,
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
@@ -335,6 +338,25 @@ export class Agent {
     this.cubeDecision = cubeDecision;
     this.cubeSearchDepth = cubeSearchDepth;
     this.cubeLeafPlies = cubeLeafPlies;
+    /**
+     * キューブ木で手を絞るときに使う **move filter の段**。
+     *
+     * `null`（既定）なら根から数えた段に合わせる。整数を渡すと全段でその段の
+     * フィルタを使う。**`0` が 2026-09-08 以前の挙動**（キューブ木の全段で
+     * 着手木の根と同じ 8 手 / 0.160 を使う）。
+     * （engine の docs/adr/0038-hard-cube-benchmark.md 節 3）
+     */
+    this.cubeFilterLevel = cubeFilterLevel;
+    /**
+     * ダブル判断の**足切り幅**（0 で足切りしない。単位は equity＝マネー用）。
+     *
+     * まず葉 0 段で判断し、**勝ち負けの差がこの幅より開いていればそこで
+     * 打ち切る**。際どいときだけ `cubeLeafPlies` 段で読み直す。
+     * **`cubeLeafPlies > 0` のときだけ効く。**
+     */
+    this.cubeScreenMargin = cubeScreenMargin;
+    /** 同上のマッチ版（単位が MWC なのでマネーとは桁が違う）。 */
+    this.matchCubeScreenMargin = matchCubeScreenMargin;
     this.jacoby = jacoby;
     this.noise = noise;
     this.maxLoss = maxLoss;
@@ -544,8 +566,8 @@ export class Agent {
    * CP / TP は閉じた式で解ける。勝ち側・負け側を比例配分して勝率を p に
    * 置き換えると、死んだキューブの MWC は **p について線形**になるため。
    */
-  mwcLeaf(board, turn, cube, owner, match) {
-    const vector = this.searchedVectorFor(board, turn, WHITE, this.cubeLeafPlies);
+  mwcLeaf(board, turn, cube, owner, match, leaf = null) {
+    const vector = this.searchedVectorFor(board, turn, WHITE, leaf ?? this.cubeLeafPlies);
     const spread = outcomeSpread(vector, turn === WHITE);
     const awayUs = match.away[turn];
     const awayThem = match.away[opponent(turn)];
@@ -592,10 +614,10 @@ export class Agent {
   }
 
   /** 手番側がキューブを検討できるなら 3 択も評価する（`turn` 視点の MWC）。 */
-  mwcNode(board, turn, owner, depth, cube, match) {
-    const noDouble = this.mwcSearch(board, turn, owner, depth, cube, match);
+  mwcNode(board, turn, owner, depth, cube, match, leaf = null) {
+    const noDouble = this.mwcSearch(board, turn, owner, depth, cube, match, leaf);
     if (owner === 'opponent') return noDouble;
-    const take = this.mwcSearch(board, turn, 'opponent', depth, cube * 2, match);
+    const take = this.mwcSearch(board, turn, 'opponent', depth, cube * 2, match, leaf);
     const drop = matchWinChance(match.away[turn] - cube,
                                 match.away[opponent(turn)], match.crawfordPlayed);
     return Math.max(noDouble, Math.min(take, drop));
@@ -612,14 +634,14 @@ export class Agent {
    * **キューブ値を引数で持ち回る。** マネーでは「いまの値を 1 とする」正規化が
    * できるが、MWC では 2 点と 4 点で MET の引き当てが変わるので絶対値が要る。
    */
-  mwcSearch(board, turn, owner, depth, cube, match) {
+  mwcSearch(board, turn, owner, depth, cube, match, leaf = null) {
     const terminal = this.terminalVector(board);
     if (terminal !== null) {
       const spread = outcomeSpread(terminal, turn === WHITE);
       return mwcWithCube(spread, cube, match.away[turn],
                          match.away[opponent(turn)], match.crawfordPlayed);
     }
-    if (depth <= 0) return this.mwcLeaf(board, turn, cube, owner, match);
+    if (depth <= 0) return this.mwcLeaf(board, turn, cube, owner, match, leaf);
 
     let total = 0.0;
     const flipped = Agent.flipOwner(owner);
@@ -627,14 +649,15 @@ export class Agent {
       const moves = generateMoves(board, turn, die1, die2);
       if (moves.length === 0) {
         total += weight * (1.0 - this.mwcNode(
-          board, opponent(turn), flipped, depth - 1, cube, match));
+          board, opponent(turn), flipped, depth - 1, cube, match, leaf));
         continue;
       }
       const boards = moves.map((m) => m.resultingBoard);
       let best = null;
-      for (const i of this.shortlist(boards, turn, 0)) {
+      // **マネー側（`cubefulSearch`）と同じ段で絞る。**
+      for (const i of this.shortlist(boards, turn, this.cubeFilterLevelFor(depth))) {
         const value = 1.0 - this.mwcNode(
-          boards[i], opponent(turn), flipped, depth - 1, cube, match);
+          boards[i], opponent(turn), flipped, depth - 1, cube, match, leaf);
         if (best === null || value > best) best = value;
       }
       total += weight * best;
@@ -643,12 +666,13 @@ export class Agent {
   }
 
   /** マッチのキューブ 3 択を探索で求める（すべて提案者視点の MWC）。 */
-  matchCubeSearch(game, proposer, match) {
+  matchCubeSearch(game, proposer, match, leaf = null) {
     const owner = this.cubeOwnerKind(game, proposer);
     const cube = game.cube.value;
     const depth = this.cubeSearchDepth;
-    const noDouble = this.mwcSearch(game.board, proposer, owner, depth, cube, match);
-    const take = this.mwcSearch(game.board, proposer, 'opponent', depth, cube * 2, match);
+    const noDouble = this.mwcSearch(game.board, proposer, owner, depth, cube, match, leaf);
+    const take = this.mwcSearch(
+      game.board, proposer, 'opponent', depth, cube * 2, match, leaf);
     const drop = matchWinChance(match.away[proposer] - cube,
                                 match.away[opponent(proposer)], match.crawfordPlayed);
     return { noDouble, take, drop };
@@ -761,8 +785,8 @@ export class Agent {
   }
 
   /** 葉の値。模型で cubeless から cubeful に直す。 */
-  cubeLeaf(board, turn, owner, jacoby) {
-    let vector = this.searchedVectorFor(board, turn, turn, this.cubeLeafPlies);
+  cubeLeaf(board, turn, owner, jacoby, leaf = null) {
+    let vector = this.searchedVectorFor(board, turn, turn, leaf ?? this.cubeLeafPlies);
     if (jacoby && owner === 'center') {
       const flat = [0, 0, 0, 0, 0];
       flat[WIN] = vector[WIN];
@@ -772,33 +796,34 @@ export class Agent {
   }
 
   /** 手番側がキューブを検討できるなら 3 択も評価する（turn 視点）。 */
-  cubeNode(board, turn, owner, depth, jacoby) {
-    const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby);
+  cubeNode(board, turn, owner, depth, jacoby, leaf = null) {
+    const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby, leaf);
     if (owner === 'opponent') return noDouble;
 
-    const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false);
+    const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false, leaf);
     return Math.max(noDouble, Math.min(take, 1.0));
   }
 
   /** turn 視点のキューブ込み equity（現在のキューブ値を 1 とする）。 */
-  cubefulSearch(board, turn, owner, depth, jacoby) {
+  cubefulSearch(board, turn, owner, depth, jacoby, leaf = null) {
     const terminal = this.terminalEquity(board, turn);
     if (terminal !== null) return terminal;
-    if (depth <= 0) return this.cubeLeaf(board, turn, owner, jacoby);
+    if (depth <= 0) return this.cubeLeaf(board, turn, owner, jacoby, leaf);
 
     let total = 0;
     const flipped = Agent.flipOwner(owner);
     for (const { die1, die2, weight } of ALL_ROLLS) {
       const moves = generateMoves(board, turn, die1, die2);
       if (moves.length === 0) {
-        total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby);
+        total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf);
         continue;
       }
       const boards = moves.map((m) => m.resultingBoard);
-      const picks = this.shortlist(boards, turn, 0);
+      // **キューブ木は着手木の「段 1 以降」と同じ絞り方で読む**（`cubeFilterLevelFor`）
+      const picks = this.shortlist(boards, turn, this.cubeFilterLevelFor(depth));
       let best = null;
       for (const i of picks) {
-        const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby);
+        const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby, leaf);
         if (best === null || value > best) {
           best = value;
         }
@@ -815,9 +840,20 @@ export class Agent {
     const jacoby = (this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game);
     const depth = this.cubeSearchDepth;
 
-    const noDouble = this.cubefulSearch(game.board, proposer, owner, depth, jacoby);
-    const take = 2.0 * this.cubefulSearch(game.board, proposer, 'opponent', depth, false);
-    return Math.min(take, 1.0) > noDouble;
+    const decide = (leaf) => {
+      const nd = this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf);
+      const tk = 2.0 * this.cubefulSearch(
+        game.board, proposer, 'opponent', depth, false, leaf);
+      return [nd, Math.min(tk, 1.0)];
+    };
+
+    // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める
+    if (this.cubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
+      const [nd, best] = decide(0);
+      if (Math.abs(best - nd) > this.cubeScreenMargin) return best > nd;
+    }
+    const [nd, best] = decide(null);
+    return best > nd;
   }
 
   /** 3 つのキューブ込み equity を比べてダブルするか決める（ADR-0017 段 A）。 */
@@ -855,13 +891,23 @@ export class Agent {
       // 実戦由来の 10,558 局面（gnubg 3-ply が正解）で
       // ダブル判断 3.4 → 1.3 mEMG、テイク判断 4.2 → 1.8 mEMG。
       if (this.cubeDecision === 'search') {
-        const s = this.matchCubeSearch(game, proposer, match);
-        const opponentTakes = s.take <= s.drop;
-        const awayThem = match.away[opponent(proposer)];
-        const holdMargin = (!match.crawfordPlayed && opponentTakes && game.cube.value === 1)
-          ? (awayThem <= 2 ? 0.045 : 0.020)
-          : 0.0;
-        return Math.min(s.take, s.drop) > (s.noDouble + holdMargin);
+        // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める。
+        // 単位は MWC なのでマネーの `cubeScreenMargin` とは桁が違う。
+        // **`cubeLeafPlies > 0` のときだけ効く。**
+        const decide = (s) => {
+          const opponentTakes = s.take <= s.drop;
+          const awayThem = match.away[opponent(proposer)];
+          const holdMargin = (!match.crawfordPlayed && opponentTakes && game.cube.value === 1)
+            ? (awayThem <= 2 ? 0.045 : 0.020)
+            : 0.0;
+          return [s.noDouble + holdMargin, Math.min(s.take, s.drop)];
+        };
+        if (this.matchCubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
+          const [nd, best] = decide(this.matchCubeSearch(game, proposer, match, 0));
+          if (Math.abs(best - nd) > this.matchCubeScreenMargin) return best > nd;
+        }
+        const [nd, best] = decide(this.matchCubeSearch(game, proposer, match));
+        return best > nd;
       }
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
       // 相手のテイク / パスはこちらが選べない。相手は自分に有利な方を選ぶ。
@@ -979,6 +1025,26 @@ export class Agent {
 
   filterFor(level) {
     return this.filters[Math.min(level, this.filters.length - 1)];
+  }
+
+  /**
+   * キューブ木のこの段で使う move filter の段を返す。
+   *
+   * **キューブ木は着手木の「段 1 以降」と同じ絞り方で読む。** ここで欲しいのは
+   * 指す手ではなく値なので、根と同じ広さ（8 手 / 0.160）で読む必要が無い。
+   * 段 1（3 手 / 0.080）に揃えると葉が 21×8 から 21×3 に減り、**2.2 倍速い**。
+   *
+   * 代償はゼロではないが桁違いに小さい。際どいダブル 2,631 局面の対応のある
+   * 比較で **+0.033 ± 0.051 mEMG**（有意差なし）で、それで買える深さの利得
+   * （`cubeLeafPlies` 0→1 の -0.910 mEMG）の 1/27。
+   *
+   * `cubeFilterLevel` に整数を渡せば全段でその段に固定できる
+   * （**`0` が 2026-09-08 以前の挙動**）。
+   * （engine の docs/adr/0038-hard-cube-benchmark.md 節 3）
+   */
+  cubeFilterLevelFor(depth) {
+    if (this.cubeFilterLevel !== null) return this.cubeFilterLevel;
+    return this.cubeSearchDepth - depth + 1;
   }
 
   /** `toMove` から見て強い順に並べ、深く読む手の index を返す。 */
