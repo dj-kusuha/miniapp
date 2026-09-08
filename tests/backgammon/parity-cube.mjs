@@ -44,10 +44,54 @@ function setup(c) {
   return game;
 }
 
+// **判断（bool）の突き合わせでは探索の構造のズレが検出できない。**
+// engine 側でキューブ木の絞りの段を変えても（`cubeFilterLevel`）60 局面の判断は
+// 1 件も変わらず、このテストは素通りした（2026-09-09）。際どいダブル 2,631 局面
+// ですら判断が変わるのは 2 件しかない。**生の値を突き合わせること。**
+//
+// 許容差は float32 のまるめぶんだけ。実測では
+//   段が合っている  → 最大 1.4e-07
+//   段がズレている  → 最大 3.9e-04
+// なので 1e-5 で両者を分けられる。
+const VALUE_TOLERANCE = 1e-5;
+let valueBad = 0;
+let worstValue = 0;
+
 let bad = 0;
 let takeChecked = 0;
 for (const c of data.positions) {
   const agent = agentFor(c.cube_plies ?? 0);
+
+  // **フィクスチャに値が無ければ落とす。** 「あれば見る」にすると、
+  // 作り直しを忘れた瞬間に検査が黙って消える（それが今回の穴だった）。
+  if (!c.cube_search) {
+    console.log('  cube_search がフィクスチャに無い。'
+      + 'engine 側で tools/export_cube_parity.py --refresh を掛けること');
+    valueBad += 1;
+  } else {
+    const game = setup(c);
+    const proposer = game.currentPlayer;
+    const owner = agent.cubeOwnerKind(game, proposer);
+    const jacoby = (agent.jacoby ?? true) && game.jacoby && agent.cubeUntouched(game);
+    const depth = agent.cubeSearchDepth;
+    const got = {
+      no_double: agent.cubefulSearch(game.board, proposer, owner, depth, jacoby),
+      take: 2.0 * agent.cubefulSearch(game.board, proposer, 'opponent', depth, false),
+    };
+    for (const key of ['no_double', 'take']) {
+      const diff = Math.abs(got[key] - c.cube_search[key]);
+      if (diff > worstValue) worstValue = diff;
+      if (diff > VALUE_TOLERANCE) {
+        valueBad += 1;
+        if (valueBad <= 3) {
+          console.log(`  値 ${key} cube=${c.cube_value}/${c.cube_owner} `
+            + `js=${got[key].toFixed(6)} engine=${c.cube_search[key].toFixed(6)} `
+            + `差=${diff.toExponential(2)}`);
+        }
+      }
+    }
+  }
+
   const got = agent.shouldDouble(setup(c));
   if (got !== c.should_double) {
     bad += 1;
@@ -144,9 +188,11 @@ if (data.searched_vectors) {
   bad += vectorBad;
 }
 
+console.log(`  キューブ探索の値: ${data.positions.length * 2} 件 不一致 ${valueBad}`
+  + ` / 最大誤差 ${worstValue.toExponential(2)}`);
 console.log(`キューブ判断: ダブル ${data.positions.length} 件 / テイク ${takeChecked} 件 `
   + `中 不一致 ${bad}`);
 console.log(`  テイクの境界値: 定数 ${data.take_threshold.length} 件 不一致 ${borderBad}`
   + ` / Janowski ${(data.janowski_threshold ?? []).length} 件 不一致 ${janBad}`);
 console.log(`  既定の照合: ${Object.keys(data.defaults ?? {}).length} 件中 不一致 ${defBad}`);
-process.exit(bad + borderBad + janBad + defBad ? 1 : 0);
+process.exit(bad + borderBad + janBad + defBad + valueBad ? 1 : 0);
