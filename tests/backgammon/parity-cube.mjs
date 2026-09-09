@@ -15,7 +15,8 @@
 import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import {
-  DEFAULT_CUBE_MODEL, DEFAULT_CUBE_EFFICIENCY, FAST_FILTERS,
+  DEFAULT_CUBE_MODEL, DEFAULT_CUBE_EFFICIENCY, DEFAULT_MATCH_CUBE_EFFICIENCY,
+  FAST_FILTERS,
 } from '../../docs/backgammon/src/agent.js';
 import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
 import { loadBearoffForTests } from './bearoff-setup.mjs';
@@ -157,8 +158,22 @@ for (const c of data.janowski_threshold ?? []) {
 // cubeModel を constant に戻しても境界値の項目は Janowski の式を直接呼ぶので
 // 通ってしまい、検出できなかった（2026-08-23）。
 let defBad = 0;
+// **キーごとに対応づける。** 「cube_model 以外はすべて cube_efficiency」と
+// 書いていたので、engine が match_cube_efficiency を足しても**マネーの定数と
+// 比べて**しまい、マッチ側のズレを検出できなかった。
+// 知らないキーが来たら**落とす**（照合したつもりで素通りするのを防ぐ）。
+const ENGINE_DEFAULTS = {
+  cube_model: DEFAULT_CUBE_MODEL,
+  cube_efficiency: DEFAULT_CUBE_EFFICIENCY,
+  match_cube_efficiency: DEFAULT_MATCH_CUBE_EFFICIENCY,
+};
 for (const [key, want] of Object.entries(data.defaults ?? {})) {
-  const got = key === 'cube_model' ? DEFAULT_CUBE_MODEL : DEFAULT_CUBE_EFFICIENCY;
+  if (!(key in ENGINE_DEFAULTS)) {
+    defBad += 1;
+    console.log(`  既定 ${key}: js 側に対応する定数が無い（engine=${want}）`);
+    continue;
+  }
+  const got = ENGINE_DEFAULTS[key];
   if (got !== want) {
     defBad += 1;
     console.log(`  既定 ${key}: js=${got} engine=${want}`);
