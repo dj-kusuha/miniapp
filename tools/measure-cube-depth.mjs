@@ -1,6 +1,12 @@
 // キューブ判断を深く読ませてよいかを測る。
 //
 //   node tools/measure-cube-depth.mjs [--positions 2631] [--reps 3] [--timing-sample 100]
+//                                     [--plies 2] [--screen-margin 0.020]
+//                                     [--accuracy-only] [--checkpoint out.jsonl]
+//
+//   --screen-margin 0    足切りを外して常に深く読む。**深さの効果はこれで測る**
+//   --accuracy-only      正答率だけ出す。決定的なので混んだマシンでも測れる
+//   --checkpoint FILE    1 局面ずつ追記し、次回はそこから再開する
 //
 // **強い段で `cubeLeafPlies: 1` を有効にしてよいかを決めるための道具。**
 // 有効にすると葉でもダイスを 1 段展開するのでコストが跳ねる。値打ちがあるかは
@@ -52,22 +58,35 @@ const REPS = arg('reps', 3);
 const TIMING_N = arg('timing-sample', 100);
 const PLIES = arg('plies', 2);      // 上級 = 2-ply。--plies 3 でエキスパート
 
+// **正答率だけなら混雑したマシンでも測れる**（決定的な計算なので）。
+// 速度と足切りの較正はマシンが空くまで待つ必要があるが、
+// 「深さがまだ効くか」はそれを待たずに答えが出る。
+const ACCURACY_ONLY = process.argv.includes('--accuracy-only');
+
 // ── マシンが空いているか ────────────────────────────
 const load1 = Number(readFileSync('/proc/loadavg', 'utf8').split(' ')[0]);
 const cores = (await import('node:os')).cpus().length;
-if (load1 > cores * 0.25) {
+const busy = load1 > cores * 0.25;
+if (busy && !ACCURACY_ONLY) {
   console.log(`⚠ load average ${load1.toFixed(2)} / ${cores} コア。`
-    + '**速度の数字は信用しないこと**（正答率は決定的なので影響なし）。\n');
+    + '**速度の数字は信用しないこと**（正答率は決定的なので影響なし）。'
+    + ' 速度が要らないなら --accuracy-only。\n');
 }
 
 const all = JSON.parse(readFileSync(BENCH)).positions;
+// **間引きは `--positions` で歩幅が変わる。** チェックポイントの鍵は
+// 標本の番号ではなく**ベンチ本体での番号**にすること。標本の番号で持つと、
+// `--positions 600`（`all[4k]`）で貯めたものを `--positions 2631`（`all[k]`）が
+// **別の局面の結果として流用する**（黙って壊れた数字が出る）。
 const step = Math.max(1, Math.floor(all.length / WANT));
 const sample = [];
-for (let i = 0; i < all.length && sample.length < WANT; i += step) sample.push(all[i]);
+for (let i = 0; i < all.length && sample.length < WANT; i += step) {
+  sample.push({ src: i, position: all[i] });
+}
 
 const net = new NeuralNet(JSON.parse(readFileSync(MODEL)));
 
-function build(c) {
+function build({ src, position: c }) {
   const board = new Board([...c.points], { WHITE: c.bar[0], BLACK: c.bar[1] },
                           { WHITE: c.borne_off[0], BLACK: c.borne_off[1] });
   const game = new Game(board, Math.random, { jacoby: false });
@@ -77,6 +96,7 @@ function build(c) {
     : (c.cube_owner === 'white' ? 'WHITE' : 'BLACK');
   const away = { WHITE: c.match_length - c.scores[0], BLACK: c.match_length - c.scores[1] };
   return {
+    src,   // **ベンチ本体での番号**（チェックポイントの鍵）
     game,
     match: { length: c.match_length, away, crawfordPlayed: false },
     // gnubg 3-ply の正解。"Double, take" / "No double, take" など
@@ -102,13 +122,68 @@ const pct = (n) => `${((n / cases.length) * 100).toFixed(1)}%`;
 // ══ 1. 正答率: 深さがまだ効くか（マッチの経路）═══════════════
 console.log(`■ 正答率（際どいダブル ${cases.length} 局面 / ${PLIES}-ply / gnubg 3-ply が正解）\n`);
 
-const flat = run({ cubeLeafPlies: 0 }, true);
-const deep = run({ cubeLeafPlies: 1, matchCubeScreenMargin: 0.020 }, true);
+// **足切りを掛けたまま「深さの効果」を測ってはいけない。**
+// 幅 0.020 は 2,631 局面の 77.1% を浅いまま打ち切る（実測）。それで測ると
+// 「深くしても効かない」と「深くしていなかった」が区別できない。
+//
+// しかも幅 0.020 は engine の ADR-0038 が **x=0.68 の上で**較正した値で、
+// x を 0.55 にした以上（ADR-0041）**幅も較正し直しになる**。
+//
+//   --screen-margin 0      常に深く読む（**深さの効果を測るのはこちら**）
+//   --screen-margin 0.020  出荷する構成（速さと引き換えに 77% を打ち切る）
+const SCREEN = (() => {
+  const i = process.argv.indexOf('--screen-margin');
+  return i >= 0 ? Number(process.argv[i + 1]) : 0.020;
+})();
+
+// **1 局面ずつ書き出して再開できるようにする。**
+// `leaf=1` は 1 判断が秒単位なので 600 局面で数十分かかる。混雑した
+// マシンではその間にジョブが落とされ、**最後にまとめて出す作りだと
+// 毎回ゼロからやり直しになる**（実際に 3 回落とされた）。
+const ckptPath = (() => {
+  const i = process.argv.indexOf('--checkpoint');
+  return i >= 0 ? process.argv[i + 1] : null;
+})();
+
+const done = new Map();
+if (ckptPath && (await import('node:fs')).existsSync(ckptPath)) {
+  for (const line of readFileSync(ckptPath, 'utf8').split('\n')) {
+    if (!line.trim()) continue;
+    const r = JSON.parse(line);
+    // **足切り幅が違えば別の測定。** 混ぜると「深くしていなかった」結果を
+    // 「深くした」結果として集計してしまう。
+    if (r.plies === PLIES && r.screen === SCREEN) done.set(r.src, r);
+  }
+  console.log(`  （途中結果 ${done.size} 件を ${ckptPath} から読んだ）\n`);
+}
+
+const { appendFileSync } = await import('node:fs');
+const agentFlat = agentWith({ cubeLeafPlies: 0 });
+const agentDeep = agentWith({ cubeLeafPlies: 1, matchCubeScreenMargin: SCREEN });
+console.log(`  （深い側の足切り幅 ${SCREEN}${SCREEN ? '' : ' = 常に深く読む'}）\n`);
+
+const flat = { got: [] };
+const deep = { got: [] };
+cases.forEach(({ src, game, match }) => {
+  let r = done.get(src);
+  if (!r) {
+    r = {
+      src,
+      plies: PLIES,
+      screen: SCREEN,
+      flat: agentFlat.shouldDouble(game, match),
+      deep: agentDeep.shouldDouble(game, match),
+    };
+    if (ckptPath) appendFileSync(ckptPath, `${JSON.stringify(r)}\n`);
+  }
+  flat.got.push(r.flat);
+  deep.got.push(r.deep);
+});
 
 const eFlat = errors(flat.got);
 const eDeep = errors(deep.got);
 console.log(`  leaf=0            誤り ${eFlat} 件 (${pct(eFlat)})`);
-console.log(`  leaf=1 (幅 0.020)  誤り ${eDeep} 件 (${pct(eDeep)})`);
+console.log(`  leaf=1 (${SCREEN ? `幅 ${SCREEN}` : '常に深く'})  誤り ${eDeep} 件 (${pct(eDeep)})`);
 
 let fixed = 0;
 let broken = 0;
@@ -123,6 +198,11 @@ console.log(`  → 深さの利得: ${eFlat - eDeep > 0 ? '+' : ''}${eFlat - eDe
 //
 // 基準は「足切りなしの leaf=1」。**同じ判断を出す中でいちばん速い幅**を採る。
 // マッチ側（0.020）と違って単位が equity なので、桁から探る。
+if (ACCURACY_ONLY) {
+  console.log('（--accuracy-only: 足切りの較正と速度は測っていない）');
+  process.exit(0);
+}
+
 console.log('■ マネー側の足切り幅の較正（基準 = 足切りなしの leaf=1・同じ判断か）\n');
 
 const moneyRef = run({ cubeLeafPlies: 1 }, false);
