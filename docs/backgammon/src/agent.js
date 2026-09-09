@@ -100,7 +100,10 @@ export const DEFAULT_CUBE_OWNERSHIP = 0.130;
  * なっている。モデルの較正が改善したら測り直すこと。
  * （backgammon_engine の docs/adr/0017-cube-measurement.md）
  */
-export const DEFAULT_CUBE_EFFICIENCY = 0.68;
+export const DEFAULT_CUBE_EFFICIENCY = 0.76;
+// **2026-09-10 に同梱モデルを 128-64-32 へ差し替えたので測り直した。**
+// マネー 1,200 局面の誤り件数: 0.68 → 197 件 / **0.76 → 177 件** / 0.84 → 192 件
+// （backgammon_engine の docs/adr/0043-wider-net-as-default.md）
 
 /**
  * **マッチのキューブ判断で使う cube efficiency。**
