@@ -16,6 +16,8 @@ import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import {
   DEFAULT_CUBE_MODEL, DEFAULT_CUBE_EFFICIENCY, DEFAULT_MATCH_CUBE_EFFICIENCY,
+  DEFAULT_CUBE_LEAF_PLIES, DEFAULT_CUBE_SCREEN_MARGIN,
+  DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
   FAST_FILTERS,
 } from '../../docs/backgammon/src/agent.js';
 import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
@@ -162,10 +164,23 @@ let defBad = 0;
 // 書いていたので、engine が match_cube_efficiency を足しても**マネーの定数と
 // 比べて**しまい、マッチ側のズレを検出できなかった。
 // 知らないキーが来たら**落とす**（照合したつもりで素通りするのを防ぐ）。
+// **読みの深さと足切り幅もここに載せる（2026-09-11 に足した）。** engine が
+// ADR-0038 の追記（PR #60）で `cube_leaf_plies` を 0 → 1、
+// `match_cube_screen_margin` を 0.020 に**Python 側だけ**変えていたのに、
+// このマップに無かったので照合に載らず、**移植版が一段浅く読んでいても緑**だった。
+// engine 側のフィクスチャも PR #60 のあと作り直されておらず、古い正解と古い
+// 移植版が一致していた。
+//
+// **いまは意図的にズレている。** 揃える前に 2 つ測ることになっている
+// （マネー側の足切り幅の較正と、cube efficiency 0.55 での深さの効果の測り直し）。
+// ここが赤いのは「まだ揃えていない」を毎回見せるためで、正しい状態である。
 const ENGINE_DEFAULTS = {
   cube_model: DEFAULT_CUBE_MODEL,
   cube_efficiency: DEFAULT_CUBE_EFFICIENCY,
   match_cube_efficiency: DEFAULT_MATCH_CUBE_EFFICIENCY,
+  cube_leaf_plies: DEFAULT_CUBE_LEAF_PLIES,
+  cube_screen_margin: DEFAULT_CUBE_SCREEN_MARGIN,
+  match_cube_screen_margin: DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
 };
 for (const [key, want] of Object.entries(data.defaults ?? {})) {
   if (!(key in ENGINE_DEFAULTS)) {
