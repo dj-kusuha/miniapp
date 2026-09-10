@@ -151,6 +151,22 @@ export const DEFAULT_CUBE_SEARCH_DEPTH = 1;
 /** キューブ探索の葉で展開する段数。0 なら生のネット評価。 */
 export const DEFAULT_CUBE_LEAF_PLIES = 0;
 
+// **足切りの幅は名前付きで持つ。** engine 側のフィクスチャ（`defaults`）と
+// 突き合わせるため。ここが素の `0` リテラルだったので、engine が
+// `DEFAULT_MATCH_CUBE_SCREEN_MARGIN` を 0.020 に変えても
+// **照合に載らず、ズレたまま緑だった**（2026-09-11 に engine 側で発覚）。
+//
+// **どちらも `cubeLeafPlies > 0` のときだけ効く**（下の `shouldDoubleSearch` と
+// マッチ側の分岐を参照）。いまの既定は `cubeLeafPlies: 0` なので、
+// **この 2 つを入れても現時点の挙動は変わらない。** 深く読む段（`DEEP_CUBE`）を
+// 既定にしたときに初めて効く。engine 側と値を揃えておくためのもの。
+
+/** 際どいときだけ深く読むための足切り幅（マネー・equity）。0 で無効。 */
+export const DEFAULT_CUBE_SCREEN_MARGIN = 0.05;
+
+/** 同じくマッチ側（MWC 単位。マネーとは桁が違うので別に持つ）。0 で無効。 */
+export const DEFAULT_MATCH_CUBE_SCREEN_MARGIN = 0.02;
+
 // ── 弱い相手の作り方 ──────────────────────────────
 //
 // **先読み 0 が床なので、それより弱くするには別の軸が要る。**
@@ -245,26 +261,27 @@ export function gaussianFor(key) {
  *
  * **幅はマネーとマッチで別に持つ**（マネーは equity、マッチは MWC で桁が違う）。
  *
+ * **幅はマネーとマッチで別に持つ**（マネーは equity、マッチは MWC で桁が違う）。
+ * どちらも `DEFAULT_CUBE_SCREEN_MARGIN` / `DEFAULT_MATCH_CUBE_SCREEN_MARGIN` に
+ * 移した（engine 側の `defaults` と突き合わせるため）。
+ *
  * | | 幅 | 根拠 |
  * | :--- | ---: | :--- |
  * | `matchCubeScreenMargin` | 0.020 | engine の ADR-0038 が 2,631 局面で較正 |
- * | `cubeScreenMargin` | — | **未較正**（下記） |
+ * | `cubeScreenMargin` | 0.05 | engine 側に合わせた（2026-09-11） |
  *
- * > **いまは空のままにしてある。** 埋めるには 2 つ測る必要がある:
+ * > **`cubeLeafPlies` はまだ 0 のまま。** 幅を入れても、深く読む段を有効に
+ * > しなければ効かない（足切りは `cubeLeafPlies > 0` のときだけ通る）。
+ * > 有効にする前に、engine 側で 1 つ確かめることになっている:
  * >
- * > 1. **マネー側の足切り幅の較正。** ADR-0038 が較正したのはマッチ側だけで、
- * >    単位が違うので流用できない。較正せずに `cubeLeafPlies: 1` にすると
- * >    足切りが効かず 966 ms かかる。**アプリの既定はマネー**なので致命的。
- * > 2. **深さがまだ効くかの測り直し。** 「0→1 で -0.910 mEMG」は**マッチの
- * >    cube efficiency が 0.68 だったとき**の値で、いまは 0.55（ADR-0041）。
- * >    ADR-0041 自身が「深さの効果は測り直しになる」と書いている。
+ * > **深さがまだ効くかの測り直し。** 「0→1 で -0.910 mEMG」は**マッチの
+ * > cube efficiency が 0.68 だったとき**の値で、いまは 0.55（ADR-0041）。
+ * > ADR-0041 自身が「深さの効果は測り直しになる」と書いている。
  * >
  * > **測る前に有効にしないこと。** 遅くなるだけで強くならない可能性がある。
  */
 export const DEEP_CUBE = {
   cubeLeafPlies: 1,
-  matchCubeScreenMargin: 0.020,
-  // cubeScreenMargin: <未較正>
 };
 
 export const LEVELS = [
@@ -358,8 +375,8 @@ export class Agent {
     cubeLeafPlies = DEFAULT_CUBE_LEAF_PLIES,
     cubeFilters = DEFAULT_FILTERS,
     cubeFilterLevel = null,
-    cubeScreenMargin = 0,
-    matchCubeScreenMargin = 0,
+    cubeScreenMargin = DEFAULT_CUBE_SCREEN_MARGIN,
+    matchCubeScreenMargin = DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
