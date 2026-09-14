@@ -33,8 +33,8 @@ const opt = (name, fallback) => {
   const i = args.indexOf(`--${name}`);
   return i >= 0 ? Number(args[i + 1]) : fallback;
 };
-if (files.length !== 2) {
-  console.error('モデルを 2 つ指定してください');
+if (files.length < 2) {
+  console.error('モデルを 2 つ以上指定してください');
   process.exit(1);
 }
 
@@ -74,17 +74,25 @@ for (const { path } of agents) console.log(`  ${path}`);
 // **1 周目は捨てる。** JIT の暖機が乗るので、そのまま混ぜると比が歪む。
 for (const a of agents) timeOne(a);
 
-const results = [[], []];
+const results = agents.map(() => []);
 for (let r = 0; r < rounds; r += 1) {
-  // 周ごとに順番を入れ替える（A→B→B→A…）。drift が片方に偏らないように。
-  const order = r % 2 === 0 ? [0, 1] : [1, 0];
+  // **周ごとに順番をずらす。** 常に同じ順で回すと、drift（熱・背景負荷）が
+  // 先頭のモデルにだけ有利に乗る。
+  const order = agents.map((_, i) => (i + r) % agents.length);
   for (const i of order) results[i].push(timeOne(agents[i]));
-  const [a, b] = results.map((xs) => xs[xs.length - 1]);
-  console.log(`  周 ${r + 1}: A ${a.toFixed(1)} ms/手 / B ${b.toFixed(1)} ms/手`
-    + `  → B/A = ${(b / a).toFixed(3)}`);
+  const line = order
+    .slice()
+    .sort((x, y) => x - y)
+    .map((i) => `${i}:${results[i][results[i].length - 1].toFixed(1)}`)
+    .join(' / ');
+  console.log(`  周 ${r + 1}: ${line} ms/手`);
 }
 
 const median = (xs) => [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)];
-const [a, b] = results.map(median);
-console.log(`\n中央値: A ${a.toFixed(1)} ms/手 / B ${b.toFixed(1)} ms/手`);
-console.log(`**B は A の ${(b / a).toFixed(3)} 倍**`);
+const mids = results.map(median);
+const base = mids[0];
+console.log('\n中央値（基準は 1 つ目）:');
+agents.forEach(({ path }, i) => {
+  console.log(`  ${mids[i].toFixed(1).padStart(8)} ms/手  `
+    + `${(mids[i] / base).toFixed(3)} 倍   ${path}`);
+});
