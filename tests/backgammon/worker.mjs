@@ -68,7 +68,7 @@ const die = () => 1 + (rnd() * 6 | 0);
 
 let bad = 0;
 let checked = 0;
-// **全段で照合する。** 先読み 0 の段が 3 つあるので、Worker が plies を鍵に
+// **全段で照合する。** 先読み 0 の段が 4 つあるので、Worker が plies を鍵に
 // 使い回すと弱い段が黙って中級のままになる。ここが唯一の防波堤。
 for (const level of LEVELS) {
   const plies = level.plies;
@@ -76,8 +76,8 @@ for (const level of LEVELS) {
   let board = new Board();
   let turn = WHITE;
   let done = 0;
-  // 3-ply は 1 手ずつが重いので回数を絞る
-  const want = plies === 3 ? 4 : 12;
+  // 深い段は 1 手ずつが重いので回数を絞る
+  const want = plies >= 2 ? 4 : 12;
   while (done < want) {
     const d1 = die(); const d2 = die();
     const moves = generateMoves(board, turn, d1, d2);

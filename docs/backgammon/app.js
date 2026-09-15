@@ -79,9 +79,9 @@ const pause = () => sleep(state.delay);
 
 // ── AI の思考係 ────────────────────────────────
 //
-// **3-ply は 1 手 1〜3 秒かかる。** メインスレッドで回すと画面が固まるので
+// **深い読みは時間がかかる。** メインスレッドで回すと画面が固まるので
 // Web Worker へ逃がす。Worker が使えない環境（file:// など）では
-// メインスレッドの Agent に落ちる。**そのときは 3-ply だと固まる。**
+// メインスレッドの Agent に落ちる。**そのときは深い読みで固まる。**
 
 const thinker = {
   worker: null,
@@ -245,7 +245,7 @@ NeuralNet.load('./src/model.json')
     state.threaded = await startThinker('./src/model.json');
     $('loading').textContent = state.threaded
       ? '準備できました'
-      : '準備できました（別スレッドが使えないため、エキスパートでは画面が一時的に止まります）';
+      : '準備できました（別スレッドが使えないため、深い読み中は画面が一時的に止まります）';
     $('start').disabled = false;
   })
   .catch((error) => {
@@ -472,8 +472,8 @@ $('dice').addEventListener('click', flipDice);
 /**
  * 候補手を強い順に並べる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
  *
- * `chooseMove` と同じ理由で Worker へ逃がす。いまの `ADVICE_LEVEL`（2-ply）は
- * 数十 ms で終わるが、**3-ply に戻したら 1〜3 秒かかる**。メインスレッドで回すと
+ * `chooseMove` と同じ理由で Worker へ逃がす。いまの `ADVICE_LEVEL` は 2-ply だが、
+ * **3-ply 相当へ戻すとさらに重くなる**。メインスレッドで回すと
  * その間ずっと画面が固まるので、速い段でも Worker 経由のままにしておく。
  */
 async function rankMoves(board, player, roll, moves, level, limit = 3) {
@@ -1274,7 +1274,7 @@ function renderStatus() {
       }
       else $('hint').textContent = '';
     } else {
-      // 3-ply では出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
+      // 深い読みでは出目の間合い（既定 1 秒。間合いを縮めるほど頻繁に）で
       // 終わらないことがある。
       // そのときだけ「長考」と出して、固まったのではないと分かるようにする。
       if (state.anim) $('hint').textContent = 'AI が指しています…';
@@ -1643,7 +1643,7 @@ async function runAiTurns() {
     await nextFrame();
     if (!alive()) return;
 
-    // **出目を見せている間に裏で考えさせる。** 3-ply の思考時間のうち
+    // **出目を見せている間に裏で考えさせる。** 深い読みの思考時間のうち
     // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
     const danced = game.currentPlayer !== ai;
     const thinking = danced
