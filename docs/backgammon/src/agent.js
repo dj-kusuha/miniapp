@@ -101,8 +101,8 @@ export const DEFAULT_CUBE_OWNERSHIP = 0.130;
  * （backgammon_engine の docs/adr/0017-cube-measurement.md）
  */
 export const DEFAULT_CUBE_EFFICIENCY = 0.76;
-// **2026-09-10 に同梱モデルを 128-64-32 へ差し替えたので測り直した。**
-// マネー 1,200 局面の誤り件数: 0.68 → 197 件 / **0.76 → 177 件** / 0.84 → 192 件
+// **2026-09-15 に同梱モデルを wide4 / cycle200 へ更新。**
+// 0.76 は前世代でのキューブ効率の較正値なので、モデル更新後は再測定対象。
 // （backgammon_engine の docs/adr/0043-wider-net-as-default.md）
 
 /**
@@ -219,38 +219,29 @@ export function gaussianFor(key) {
 /**
  * 強さの段。**着手・キューブ・Worker が同じ表を見る。**
  *
- * `plies` だけで Agent を作り分けると、**先読み 0 の段が 3 つあるせいで
+ * `plies` だけで Agent を作り分けると、**先読み 0 の段が 4 つあるせいで
  * 弱い段が黙って上級のまま**になる（Worker は plies を鍵に使い回していた）。
  * Agent を作る入口は `agentFor()` 1 つに統一すること。
  *
  * `noise` / `maxLoss` は equity（1 局あたりの期待得点）の単位。
  *
  * **σ は勘で置かない。** `tools/measure-level.mjs` で自己対局の棋譜を gnubg に
- * 採点させ、技量帯に合わせて選んである（30 局・約 1,700 手ずつ。3-ply だけ
- * 24 局・1,136 手 / 2026-08-22）。
+ * 採点させ、技量帯に合わせて選んである（現行 wide4 / cycle200 モデル、
+ * 30 局・seed 1・キューブなし・gnubg 2-ply 評価 / 2026-09-15）。
  *
- * **小さい標本では帯をまたぐ。** 3-ply を 8 局で測ったときは 5.7（Expert）
- * だったが、24 局で測り直すと 4.1（World class）になった。
+ * **小さい標本では帯をまたぐ**ので、ER は目安として扱う。
  */
 //
-// | 設定 | 実測 ER | gnubg のラベル（W / B） | 採否 |
+// | 設定 | 実測 ER mEMG（平均、W / B） | gnubg のラベル（W / B） | 採否 |
 // | --- | --- | --- | --- |
-// | σ=0.30 / cap 0.3 | 75.5 | Awful! / Awful! | |
-// | σ=0.20 / cap 0.3 | 62.1 | Awful! / Awful! | |
-// | σ=0.12 / cap 0.4 | 42.9 | Awful! / Awful! | |
-// | **σ=0.07 / cap 0.5** | **29.2** | Beginner / Beginner | **初心者** |
-// | **σ=0.04 / cap 0.5** | **20.6** | Casual / Casual | **カジュアル** |
-// | **0-ply** | **12.8** | Advanced / Intermediate | **中級** |
-// | **2-ply** | **8.3** | Advanced / Expert | **上級** |
-// | **3-ply** | **4.1** | World class / World class | **エキスパート** |
+// | **σ=0.10 / cap 0.5** | **34.6（31.3 / 37.9）** | Beginner / Awful! | **初心者** |
+// | **σ=0.05 / cap 0.5** | **15.3（15.4 / 15.1）** | Intermediate / Intermediate | **カジュアル** |
+// | **σ=0.03 / cap 0.5** | **11.8（11.6 / 12.0）** | Advanced / Advanced | **中級** |
+// | **0-ply** | **5.4（5.3 / 5.5）** | Expert / Expert | **上級** |
+// | **2-ply** | **3.0（2.8 / 3.1）** | World class / World class | **エキスパート** |
 //
-// **最初に当てで置いた σ=0.16 は ER 50 超（Awful!）だった。** 0.12 より下は
-// 「読み違えが多い人」ではなく「でたらめ」に見え始めるので採らない。
-//
-// 名前は gnubg の技量帯から借りた**目安**。「よわい」「つよい」のような主観語を
-// 避けたかったのと、σ を決めた根拠と同じ言葉にしておくと後から追いやすいため。
-// **ぴったり一致させることは狙っていない**（0-ply と 2-ply は W と B で別の
-// ラベルが付いており、そもそも境界をまたいでいる）。
+// 全段 30 局、1,483〜1,692 手。ER はチェッカー 1 手あたりの mEMG で、キューブは
+// 切っている。名前は gnubg の技量帯から借りた**目安**で、完全一致は狙っていない。
 /**
  * **強い段でキューブ判断も深く読ませる設定。**
  *
@@ -286,24 +277,24 @@ export const DEEP_CUBE = {
 
 export const LEVELS = [
   {
-    id: 'beginner', name: '初心者', plies: 0, noise: 0.07, maxLoss: 0.50,
+    id: 'beginner', name: '初心者', plies: 0, noise: 0.10, maxLoss: 0.50,
     note: '読み違えが多め',
   },
   {
-    id: 'casual', name: 'カジュアル', plies: 0, noise: 0.04, maxLoss: 0.50,
+    id: 'casual', name: 'カジュアル', plies: 0, noise: 0.05, maxLoss: 0.50,
     note: 'ときどき読み違える',
   },
   {
-    id: 'intermediate', name: '中級', plies: 0, noise: 0, maxLoss: Infinity,
+    id: 'intermediate', name: '中級', plies: 0, noise: 0.03, maxLoss: 0.50,
+    note: '先読みなし・ときどき読み違える',
+  },
+  {
+    id: 'advanced', name: '上級', plies: 0, noise: 0, maxLoss: Infinity,
     note: '先読みなし・読み違え無し',
   },
   {
-    id: 'advanced', name: '上級', plies: 2, noise: 0, maxLoss: Infinity,
+    id: 'expert', name: 'エキスパート', plies: 2, noise: 0, maxLoss: Infinity,
     note: '2 手先読み',
-  },
-  {
-    id: 'expert', name: 'エキスパート', plies: 3, noise: 0, maxLoss: Infinity,
-    note: '3 手先読み・1 手に数秒かかる',
   },
 ];
 
@@ -316,14 +307,13 @@ export const DEFAULT_LEVEL = 'intermediate';
  * 初心者と対局していても、助言は良いものであってほしい。
  * **読み違えの無い段**であることが必須（ノイズの乗った助言は助言ではない）。
  *
- * **上級（2-ply）にしている。** エキスパート（3-ply）も試したが 1 手 1〜3 秒
- * かかって待たされ過ぎた（2-ply は実測 14〜53ms で押した瞬間に出る）。
+ * **エキスパート（2-ply）にしている。** 上級は 0-ply にして対局の段を分け、
+ * エキスパートでも実用的な応答速度に収める。
  *
- * **ここを `'expert'` に変えるだけで 3-ply に戻せる。** ヒントは着手と同じく
- * Web Worker 経由で、計算中は「考えています…」を出す作りのままにしてあるので、
- * 遅い段にしても画面は固まらない。
+ * ヒントは着手と同じく Web Worker 経由で、計算中は「考えています…」を出す
+ * 作りのままにしてある。
  */
-export const ADVICE_LEVEL = 'advanced';
+export const ADVICE_LEVEL = 'expert';
 
 export function levelById(id) {
   return LEVELS.find((l) => l.id === id) ?? LEVELS.find((l) => l.id === DEFAULT_LEVEL);
@@ -401,7 +391,7 @@ export class Agent {
     /**
      * キューブ木で使う絞り方の表。**着手木の `filters` とは別に持つ。**
      *
-     * エキスパート（3-ply）は着手木に `FAST_FILTERS` を使うが、その段 1 は
+     * 3-ply 相当の深い段は着手木に `FAST_FILTERS` を使うが、その段 1 は
      * **2 手**なので、キューブ木がそれを借りると engine より狭い木を読むことに
      * なる。engine と ADR-0038 が測ったのは段 1 = **3 手**（`DEFAULT_FILTERS`）。
      *

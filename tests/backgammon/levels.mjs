@@ -48,12 +48,15 @@ if (new Set(zeroPly.map((l) => l.noise)).size !== zeroPly.length) {
 // **id を直書きしない**（名前を変えただけでテストが落ちるのは意味が無い）。
 const WEAKEST = LEVELS[0];
 const STRONGEST = LEVELS[LEVELS.length - 1];
-const CLEAN = LEVELS.find((l) => l.noise === 0);   // ノイズ無しで最も弱い段
+const CLEAN = LEVELS.find((l) => l.plies === 0 && l.noise === 0); // ノイズ無しの0-ply段
+const DEFAULT = levelById(DEFAULT_LEVEL);
 if (!(WEAKEST.noise > 0)) fail('いちばん弱い段にノイズが乗っていない');
 if (STRONGEST.noise !== 0) fail('いちばん強い段にノイズが乗っている');
 if (!CLEAN) fail('ノイズ無しの段が 1 つも無い');
-if (agentFor(net, 'nonexistent-level').noise !== 0) fail('知らない段が既定に落ちていない');
-if (levelById(DEFAULT_LEVEL).noise !== 0) fail('既定の段にノイズが乗っている');
+const fallback = agentFor(net, 'nonexistent-level');
+if (fallback.noise !== DEFAULT.noise || fallback.searchPlies !== DEFAULT.plies) {
+  fail('知らない段が既定の段に落ちていない');
+}
 
 // ── ノイズそのもの ─────────────────────────────
 {
@@ -183,8 +186,8 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
 // 検証は**2 段構え**にしてある: 仕組みは速い段で数を回し、**`ADVICE_LEVEL` が
 // 本当にその段で繋がっているか**だけを少数の局面で確かめる。
 //
-// **`ADVICE_LEVEL` を 3-ply に戻しても壊れないように**この形を保つこと
-// （3-ply は 1 局面 1 秒級で、多数の局面には掛けられない）。
+// **ADVICE_LEVEL の深さを変えても壊れないように**この形を保つこと
+// （深い読みは 1 局面ごとのコストが高く、多数の局面には掛けられない）。
 let adviceStats = null;
 {
   const level = levelById(ADVICE_LEVEL);
@@ -193,12 +196,12 @@ let adviceStats = null;
   if (level.noise !== 0) fail('ヒントの段にノイズが乗っている');
   // **先読みする段であること。** 0-ply の助言では中級と同じ手しか出ず、
   // 「最善手を教える」機能として弱い。どこまで深くするかは速度との兼ね合いで
-  // 選ぶ（いまは 2-ply。3-ply は 1 手 1〜3 秒で待たされ過ぎた）。
+  // 選ぶ（いまは 2-ply。3-ply 相当へ戻すと待たされ過ぎる）。
   if (!(level.plies >= 2)) fail(`ヒントの段が ${level.plies}-ply（先読みしていない）`);
 
   // ── 仕組みの検証（速い段で数を回す） ──
   //
-  // 2-ply でも 1 局面 60ms 程度かかる。**主張に必要なだけ**に絞る
+  // 2-ply でも 1 局面は数十〜数百 ms かかる。**主張に必要なだけ**に絞る
   // （全 400 局面だと 1 分近くかかり、テストとして回らなくなる）。
   const advice = agentFor(net, LEVELS.find((l) => l.plies === 2).id);
   const adviceCases = cases.slice(0, 80);
@@ -241,7 +244,7 @@ let adviceStats = null;
 
   // ── `ADVICE_LEVEL` が本当にその深さで繋がっているか（少数だけ） ──
   //
-  // 3-ply は 1 局面 1 秒級なので数を絞る。ここで見たいのは正しさの統計ではなく
+  // 深い読みは 1 局面ごとのコストが高いので数を絞る。ここで見たいのは正しさの統計ではなく
   // **「アプリが使う段で rankMoves が動き、着手と一致するか」**の 1 点。
   const deep = agentFor(net, ADVICE_LEVEL);
   if (deep.searchPlies !== level.plies) fail('ヒント用 Agent の先読みが段の表と違う');

@@ -117,8 +117,22 @@ const script = [
   'quit',
 ].join('\n');
 
-const out = execFileSync('docker',
-  ['run', '--rm', '-i', '-v', `${dir}:/work`, 'backgammon-gnubg', 'gnubg', '-t', '-q'],
+// Windows Node から実行すると Linux 側の docker が PATH に見えないため、
+// WSL 経由で同じ Docker Engine を呼べるようにする。通常の Linux Node では
+// 従来どおり `docker` を直接起動する。
+function wslPathForWindows(path) {
+  const match = path.match(/^([A-Za-z]):[\\/](.*)$/);
+  if (!match) return path;
+  return `/mnt/${match[1].toLowerCase()}/${match[2].replaceAll('\\', '/')}`;
+}
+
+const dockerCommand = process.platform === 'win32' ? 'wsl.exe' : 'docker';
+const dockerPrefix = process.platform === 'win32'
+  ? ['-d', process.env.BG_WSL_DISTRO ?? 'Ubuntu', '--', 'docker']
+  : [];
+const dockerVolume = process.platform === 'win32' ? wslPathForWindows(dir) : dir;
+const out = execFileSync(dockerCommand,
+  [...dockerPrefix, 'run', '--rm', '-i', '-v', `${dockerVolume}:/work`, 'backgammon-gnubg', 'gnubg', '-t', '-q'],
   { input: `${script}\n`, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     stdio: ['pipe', 'pipe', 'ignore'] });
 
