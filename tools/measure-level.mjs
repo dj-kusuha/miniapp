@@ -1,6 +1,6 @@
 // 段の強さを gnubg に採点させる。
 //
-//   node tools/measure-level.mjs <level|noise=σ,maxLoss=N> [--games 30] [--seed 1]
+//   node tools/measure-level.mjs <level|noise=σ,maxLoss=N> [--games 30] [--seed 1] [--eval-plies 2]
 //
 // **σ を勘で決めないための道具。** 手順は:
 //
@@ -38,6 +38,7 @@ const opt = (name, def) => {
 };
 const games = opt('games', 30);
 const seed0 = opt('seed', 1);
+const evalPlies = opt('eval-plies', 2);
 //: --cube を付けるとキューブありで対局し、gnubg のキューブ解析も入れる。
 //: **ジャコビーあり・ビーバー無し**（engine 側にビーバーの実装が無い）。
 const useCube = args.includes('--cube');
@@ -110,7 +111,7 @@ const script = [
     : ['set analysis cube off']),
   'set analysis chequerplay on',
   'set analysis moves on',
-  'set analysis chequer eval plies 2',
+  `set analysis chequer eval plies ${evalPlies}`,
   'import mat /work/games.mat',
   'analyse match',
   'show statistics match',
@@ -196,7 +197,7 @@ function sectionStats(text, heading, ratingLabel) {
 }
 
 const stats = chequerStats(out);
-console.log(`段 ${level.id}: noise=${level.noise} maxLoss=${level.maxLoss} plies=${level.plies}`);
+console.log(`段 ${level.id}: noise=${level.noise} maxLoss=${level.maxLoss} plies=${level.plies} gnubg=${evalPlies}-ply`);
 console.log(`  ${games} 局 / ${plies} 手`);
 if (!stats) {
   console.log('  ER を読み取れませんでした。gnubg の出力（抜粋）:');
