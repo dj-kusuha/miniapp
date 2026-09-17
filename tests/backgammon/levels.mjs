@@ -25,7 +25,7 @@ const fail = (m) => failures.push(m);
 
 // ── 段の表そのもの ──────────────────────────────
 
-if (LEVELS.length !== 5) fail(`段が ${LEVELS.length} 個（5 のはず）`);
+if (LEVELS.length !== 6) fail(`段が ${LEVELS.length} 個（6 のはず）`);
 for (const level of LEVELS) {
   if (!level.id || !level.name) fail(`段に id か name が無い: ${JSON.stringify(level)}`);
   if (levelById(level.id) !== level) fail(`levelById(${level.id}) が引けない`);

@@ -240,6 +240,7 @@ export function gaussianFor(key) {
 // | **σ=0.03 / cap 0.5** | **11.8（11.6 / 12.0）** | Advanced / Advanced | **中級** |
 // | **0-ply** | **5.4（5.3 / 5.5）** | Expert / Expert | **上級** |
 // | **2-ply** | **3.0（2.8 / 3.1）** | World class / World class | **エキスパート** |
+// | **3-ply** | **最高峰** | Superhuman / World class | **世界チャンピオン** |
 //
 // 全段 30 局、1,483〜1,692 手。ER はチェッカー 1 手あたりの mEMG で、キューブは
 // 切っている。名前は gnubg の技量帯から借りた**目安**で、完全一致は狙っていない。
@@ -296,6 +297,10 @@ export const LEVELS = [
   {
     id: 'expert', name: 'エキスパート', plies: 2, noise: 0, maxLoss: Infinity,
     note: '2 手先読み',
+  },
+  {
+    id: 'champion', name: '世界チャンピオン', plies: 3, noise: 0, maxLoss: Infinity,
+    note: '3 手先読み・最高峰の強さ（思考に数秒）',
   },
 ];
 
