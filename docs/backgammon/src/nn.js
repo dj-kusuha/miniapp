@@ -56,6 +56,10 @@ export class NeuralNet {
     //: エピソードを進めない**ので、total_episodes だけでは世代を区別できない。
     this.note = data.note ?? '';
 
+    //: ADR-0057 CubeHead
+    this.cubeHeadMoney = data.cube_head_money ? new CubeHead(data.cube_head_money) : null;
+    this.cubeHeadMatch = data.cube_head_match ? new CubeHead(data.cube_head_match) : null;
+
     if (this.hiddenDims.length < 1) {
       throw new Error(`隠れ層が 1 層以上のモデルにのみ対応します: ${this.hiddenDims}`);
     }
@@ -163,6 +167,49 @@ export class NeuralNet {
     }
     return activation;
   }
+
+  /**
+   * 最終隠れ層の活性化ベクトルを返す（CubeHead 用）。
+   * @param {ArrayLike<number>} x
+   * @returns {Float32Array}
+   */
+  lastHidden(x) {
+    const { rowsFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue } = this;
+    const hidden = biasFirst.length;
+
+    let count = 0;
+    for (let i = 0; i < x.length; i += 1) {
+      const value = x[i];
+      if (value !== 0) {
+        nonzeroIndex[count] = i;
+        nonzeroValue[count] = value;
+        count += 1;
+      }
+    }
+
+    for (let j = 0; j < hidden; j += 1) accumulator[j] = biasFirst[j];
+    for (let k = 0; k < count; k += 1) {
+      const value = nonzeroValue[k];
+      const row = rowsFirst[nonzeroIndex[k]];
+      for (let j = 0; j < hidden; j += 1) accumulator[j] += value * row[j];
+    }
+    const activate = this.activation === 'silu' ? silu : sigmoid;
+    let activation = this.hiddenBuffers[0];
+    for (let j = 0; j < hidden; j += 1) activation[j] = activate(accumulator[j]);
+
+    for (let l = 0; l < this.layers.length - 1; l += 1) {
+      const { columns, bias } = this.layers[l];
+      const next = this.hiddenBuffers[l + 1];
+      for (let j = 0; j < next.length; j += 1) {
+        const column = columns[j];
+        let sum = bias[j];
+        for (let i = 0; i < activation.length; i += 1) sum += activation[i] * column[i];
+        next[j] = activate(sum);
+      }
+      activation = next;
+    }
+    return activation;
+  }
 }
 
 function toColumns(matrix, rows, cols) {
@@ -228,4 +275,115 @@ export function equity(outputs) {
     outputs[LOSE_BACKGAMMON] -
     1
   );
+}
+
+function logit(p) {
+  const clipped = Math.min(1.0 - 1e-7, Math.max(1e-7, p));
+  return Math.log(clipped / (1.0 - clipped));
+}
+
+/**
+ * ADR-0057: 盤面隠れ層表現 h とキューブコンテキスト c から動的キューブ効率 x を推定するヘッド。
+ */
+export class CubeHead {
+  constructor(data) {
+    this.hiddenDim = data.hidden_dim;
+    this.contextDim = data.context_dim ?? 4;
+    this.mlpDim = data.mlp_dim ?? 32;
+    this.baselineX = data.baseline_x ?? (this.contextDim >= 8 ? 0.55 : 0.76);
+    this.baselineLogit = logit(this.baselineX);
+
+    const inDim = this.hiddenDim + this.contextDim;
+    this.columnsW1 = [];
+    for (let j = 0; j < this.mlpDim; j += 1) {
+      const col = new Float32Array(inDim);
+      for (let i = 0; i < inDim; i += 1) {
+        col[i] = data.W1[i][j];
+      }
+      this.columnsW1.push(col);
+    }
+    this.b1 = Float32Array.from(data.b1);
+
+    this.colW2 = new Float32Array(this.mlpDim);
+    for (let i = 0; i < this.mlpDim; i += 1) {
+      this.colW2[i] = data.W2[i][0];
+    }
+    this.b2 = data.b2[0];
+  }
+
+  predict(hidden, context) {
+    const a1 = new Float32Array(this.mlpDim);
+    for (let j = 0; j < this.mlpDim; j += 1) {
+      const col = this.columnsW1[j];
+      let sum = this.b1[j];
+      for (let i = 0; i < this.hiddenDim; i += 1) {
+        sum += hidden[i] * col[i];
+      }
+      for (let i = 0; i < this.contextDim; i += 1) {
+        sum += context[i] * col[this.hiddenDim + i];
+      }
+      a1[j] = silu(sum);
+    }
+
+    let delta = this.b2;
+    for (let j = 0; j < this.mlpDim; j += 1) {
+      delta += a1[j] * this.colW2[j];
+    }
+
+    return sigmoid(this.baselineLogit + delta);
+  }
+}
+
+/**
+ * マネーゲーム用のキューブコンテキストを符号化する（4 または 5 次元）。
+ */
+export function encodeCubeContext(
+  cubeValue, owner, perspective = 'me', volatility = null, contextDim = 4
+) {
+  const vec = new Float32Array(contextDim);
+  vec[0] = Math.log2(Math.max(1, cubeValue)) / 3.0;
+  let relOwner = owner;
+  if (owner !== 'center') {
+    relOwner = owner === perspective ? 'me' : 'opponent';
+  }
+  if (relOwner === 'center') vec[1] = 1.0;
+  else if (relOwner === 'me') vec[2] = 1.0;
+  else vec[3] = 1.0;
+
+  if (contextDim >= 5) {
+    let normVol = 0.0;
+    if (volatility !== null && volatility !== undefined) {
+      normVol = Math.min(1.0, Math.max(0.0, volatility / 0.25));
+    }
+    vec[4] = normVol;
+  }
+  return vec;
+}
+
+/**
+ * マッチ戦用のキューブコンテキストを符号化する（8 次元）。
+ */
+export function encodeMatchCubeContext(
+  awayUs, awayThem, cubeValue, owner, perspective = 'me',
+  volatility = null, crawfordPlayed = false, contextDim = 8
+) {
+  const vec = new Float32Array(contextDim);
+  vec[0] = awayUs / 7.0;
+  vec[1] = awayThem / 7.0;
+  vec[2] = Math.log2(Math.max(1, cubeValue)) / 4.0;
+  let relOwner = owner;
+  if (owner !== 'center') {
+    relOwner = owner === perspective ? 'me' : 'opponent';
+  }
+  if (relOwner === 'center') vec[3] = 1.0;
+  else if (relOwner === 'me') vec[4] = 1.0;
+  else vec[5] = 1.0;
+
+  if (contextDim >= 7 && volatility !== null && volatility !== undefined) {
+    vec[6] = Math.min(1.0, Math.max(0.0, volatility / 0.25));
+  }
+  if (contextDim >= 8 && crawfordPlayed) {
+    vec[7] = 1.0;
+  }
+  return vec;
 }

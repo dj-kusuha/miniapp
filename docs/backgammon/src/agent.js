@@ -11,6 +11,8 @@ import {
   equity,
   flipPerspective,
   winLossMagnitudes,
+  encodeCubeContext,
+  encodeMatchCubeContext,
   WIN,
   WIN_GAMMON,
   WIN_BACKGAMMON,
@@ -19,6 +21,10 @@ import {
 } from './nn.js';
 import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
+
+/** マネー用 CubeHead の非対称フロア（ADR-0057 Phase 7）。 */
+export const DEFAULT_CUBE_EFFICIENCY_FLOOR = 0.60;
+export const DEFAULT_CUBE_EFFICIENCY_FLOOR_DT = 0.76;
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
 export const ALL_ROLLS = (() => {
@@ -376,12 +382,22 @@ export class Agent {
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
+    useCubeHead = null,
+    cubeHeadMoney = null,
+    cubeHeadMatch = null,
+    cubeEfficiencyFloor = DEFAULT_CUBE_EFFICIENCY_FLOOR,
+    cubeEfficiencyFloorDt = DEFAULT_CUBE_EFFICIENCY_FLOOR_DT,
     // **既定は共有 DB**（`setBearoffDatabase()` で差したもの）。
     // ここを null 既定にすると、`new Agent(...)` を直接呼んだ場所だけ
     // 厳密解を失う——実際にパリティのテストがそれで engine と食い違った。
     bearoff = sharedBearoff,
   } = {}) {
     this.net = net;
+    this.cubeHeadMoney = cubeHeadMoney ?? this.net?.cubeHeadMoney ?? null;
+    this.cubeHeadMatch = cubeHeadMatch ?? this.net?.cubeHeadMatch ?? null;
+    this.useCubeHead = useCubeHead ?? (this.cubeHeadMoney !== null || this.cubeHeadMatch !== null);
+    this.cubeEfficiencyFloor = cubeEfficiencyFloor;
+    this.cubeEfficiencyFloorDt = cubeEfficiencyFloorDt;
     this.searchPlies = searchPlies;
     this.filters = filters;
     this.doublePoint = doublePoint;
@@ -552,6 +568,125 @@ export class Agent {
   }
 
   /**
+   * 次の 1 ロールで勝率がどれだけ散るか（toMove 視点の標準偏差）。
+   * @param {Board} board
+   * @param {string} toMove
+   * @returns {number}
+   */
+  rollVolatility(board, toMove) {
+    const opp = opponent(toMove);
+    const weights = [];
+    const probabilities = [];
+
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMoves(board, toMove, die1, die2);
+      let boards;
+      if (moves.length === 0) {
+        boards = [board];
+      } else {
+        boards = moves.map((m) => m.resultingBoard);
+      }
+      const vectors = boards.map((b) => {
+        const terminal = this.terminalVector(b);
+        if (terminal !== null) return terminal;
+        return this.vectorFor(b, opp);
+      });
+      const bestIdx = this.pickOwnBest(vectors, toMove);
+      const bestVec = vectors[bestIdx];
+      const win = toMove === WHITE ? bestVec[WIN] : 1.0 - bestVec[WIN];
+      weights.push(weight);
+      probabilities.push(win);
+    }
+
+    let mean = 0.0;
+    for (let i = 0; i < weights.length; i += 1) {
+      mean += weights[i] * probabilities[i];
+    }
+    let variance = 0.0;
+    for (let i = 0; i < weights.length; i += 1) {
+      const diff = probabilities[i] - mean;
+      variance += weights[i] * diff * diff;
+    }
+    return Math.sqrt(Math.max(0.0, variance));
+  }
+
+  /**
+   * ADR-0057: root 局面から no-double 枝と double-take 枝の x を推論する（マネー用）。
+   */
+  cubeHeadActionEfficiencies(board, proposer, cubeValue, currentOwner) {
+    const head = this.cubeHeadMoney;
+    if (!head) {
+      return [this.cubeEfficiency, this.cubeEfficiency];
+    }
+    const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
+    const feat = encodeBoard(board, viewer, proposer, this.net.features);
+    const h = this.net.lastHidden(feat);
+
+    const vol = head.contextDim >= 5 ? this.rollVolatility(board, proposer) : null;
+    const cNd = encodeCubeContext(cubeValue, currentOwner, 'me', vol, head.contextDim);
+    const cDt = encodeCubeContext(cubeValue * 2, 'opponent', 'me', vol, head.contextDim);
+
+    let xNd = head.predict(h, cNd);
+    let xDt = head.predict(h, cDt);
+
+    const floorNd = this.cubeEfficiencyFloor;
+    const floorDt = this.cubeEfficiencyFloorDt > 0 ? this.cubeEfficiencyFloorDt : this.cubeEfficiencyFloor;
+    if (floorNd > 0) xNd = Math.max(xNd, floorNd);
+    if (floorDt > 0) xDt = Math.max(xDt, floorDt);
+
+    return [xNd, xDt];
+  }
+
+  /**
+   * ADR-0057: root 局面からマッチ専用 CubeHead で no-double 枝と double-take 枝の x を推論する。
+   */
+  matchCubeHeadActionEfficiencies(board, proposer, cubeValue, currentOwner, match) {
+    const head = this.cubeHeadMatch;
+    if (!head) {
+      return [this.matchCubeEfficiency, this.matchCubeEfficiency];
+    }
+    const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
+    const feat = encodeBoard(board, viewer, proposer, this.net.features);
+    const h = this.net.lastHidden(feat);
+
+    const awayUs = match.away[proposer];
+    const awayThem = match.away[opponent(proposer)];
+    const played = match.crawfordPlayed;
+    const vol = this.rollVolatility(board, proposer);
+
+    const cNd = encodeMatchCubeContext(
+      awayUs, awayThem, cubeValue, currentOwner, 'me', vol, played, head.contextDim);
+    const cDt = encodeMatchCubeContext(
+      awayUs, awayThem, cubeValue * 2, 'opponent', 'me', vol, played, head.contextDim);
+
+    const xNd = head.predict(h, cNd);
+    const xDt = head.predict(h, cDt);
+
+    return [xNd, xDt];
+  }
+
+  /**
+   * 単一の局面・キューブ状態に対する x を CubeHead から取得。
+   */
+  cubeHeadFor(board, proposer, cubeValue, owner) {
+    const head = this.cubeHeadMoney;
+    if (!head) return this.cubeEfficiency;
+
+    const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
+    const feat = encodeBoard(board, viewer, proposer, this.net.features);
+    const h = this.net.lastHidden(feat);
+
+    const vol = head.contextDim >= 5 ? this.rollVolatility(board, proposer) : null;
+    const c = encodeCubeContext(cubeValue, owner, 'me', vol, head.contextDim);
+
+    let x = head.predict(h, c);
+    if (this.cubeEfficiencyFloor > 0) {
+      x = Math.max(x, this.cubeEfficiencyFloor);
+    }
+    return x;
+  }
+
+  /**
    * その equity でテイクするのが正しいか（engine の `would_take` と同じ式）。
    *
    *   ドロップ → 確定で -1
@@ -573,9 +708,10 @@ export class Agent {
    *
    * @param {number[]} outputs **テイクする側から見た** 5 要素の確率ベクトル
    */
-  wouldTakeJanowski(outputs) {
+  wouldTakeJanowski(outputs, cubeEfficiency = null) {
     const { p, win, lose } = winLossMagnitudes(outputs);
-    const denominator = win + lose + 0.5 * this.cubeEfficiency;
+    const eff = cubeEfficiency ?? this.cubeEfficiency;
+    const denominator = win + lose + 0.5 * eff;
     if (denominator <= 1e-9) return false;
     return p >= (lose - 0.5) / denominator;
   }
@@ -597,27 +733,35 @@ export class Agent {
    * これを入れるまで、ダブル側は探索の値で「相手はテイクする」と見込むのに
    * 受ける側は Janowski の定数式で判断していた（**同じ局面に 2 つの基準**）。
    */
-  wouldTakeSearch(board, proposer) {
+  wouldTakeSearch(board, proposer, cubeValue = 1) {
+    let eff = null;
+    if (this.useCubeHead && this.cubeHeadMoney) {
+      eff = this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent');
+    }
     const take = 2.0 * this.cubefulSearch(
-      board, proposer, 'opponent', this.cubeSearchDepth, false);
+      board, proposer, 'opponent', this.cubeSearchDepth, false, null, eff);
     return take < 1.0;
   }
 
   /** テイクするか（**方式の振り分けはここ 1 箇所**）。 */
-  wouldTakeFor(board, proposer) {
+  wouldTakeFor(board, proposer, cubeValue = 1) {
     if (this.cubeDecision === 'search') {
-      return this.wouldTakeSearch(board, proposer);
+      return this.wouldTakeSearch(board, proposer, cubeValue);
     }
     const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
-      return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker));
+      let eff = null;
+      if (this.useCubeHead && this.cubeHeadMoney) {
+        eff = this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent');
+      }
+      return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker), eff);
     }
     return this.wouldTake(this.searchedEquityFor(board, proposer, taker));
   }
 
   /** 提案された側がテイクするか（too good to double の判定用）。 */
-  opponentWouldTake(board, proposer) {
-    return this.wouldTakeFor(board, proposer);
+  opponentWouldTake(board, proposer, cubeValue = 1) {
+    return this.wouldTakeFor(board, proposer, cubeValue);
   }
 
   /**
@@ -634,7 +778,7 @@ export class Agent {
    * CP / TP は閉じた式で解ける。勝ち側・負け側を比例配分して勝率を p に
    * 置き換えると、死んだキューブの MWC は **p について線形**になるため。
    */
-  mwcLeaf(board, turn, cube, owner, match, leaf = null) {
+  mwcLeaf(board, turn, cube, owner, match, leaf = null, matchCubeEfficiency = null) {
     const vector = this.searchedVectorFor(board, turn, WHITE, leaf ?? this.cubeLeafPlies);
     const spread = outcomeSpread(vector, turn === WHITE);
     const awayUs = match.away[turn];
@@ -677,15 +821,15 @@ export class Agent {
     else live = Math.min(liveMine, liveTheirs);   // センターは相手に有利な方
 
     // **マネーの cubeEfficiency ではなくマッチ用の x を使う**（ADR-0041）
-    const x = this.matchCubeEfficiency;
+    const x = matchCubeEfficiency ?? this.matchCubeEfficiency;
     return (1.0 - x) * dead + x * live;
   }
 
   /** 手番側がキューブを検討できるなら 3 択も評価する（`turn` 視点の MWC）。 */
-  mwcNode(board, turn, owner, depth, cube, match, leaf = null) {
-    const noDouble = this.mwcSearch(board, turn, owner, depth, cube, match, leaf);
+  mwcNode(board, turn, owner, depth, cube, match, leaf = null, matchCubeEfficiency = null) {
+    const noDouble = this.mwcSearch(board, turn, owner, depth, cube, match, leaf, matchCubeEfficiency);
     if (owner === 'opponent') return noDouble;
-    const take = this.mwcSearch(board, turn, 'opponent', depth, cube * 2, match, leaf);
+    const take = this.mwcSearch(board, turn, 'opponent', depth, cube * 2, match, leaf, matchCubeEfficiency);
     const drop = matchWinChance(match.away[turn] - cube,
                                 match.away[opponent(turn)], match.crawfordPlayed);
     return Math.max(noDouble, Math.min(take, drop));
@@ -702,14 +846,14 @@ export class Agent {
    * **キューブ値を引数で持ち回る。** マネーでは「いまの値を 1 とする」正規化が
    * できるが、MWC では 2 点と 4 点で MET の引き当てが変わるので絶対値が要る。
    */
-  mwcSearch(board, turn, owner, depth, cube, match, leaf = null) {
+  mwcSearch(board, turn, owner, depth, cube, match, leaf = null, matchCubeEfficiency = null) {
     const terminal = this.terminalVector(board);
     if (terminal !== null) {
       const spread = outcomeSpread(terminal, turn === WHITE);
       return mwcWithCube(spread, cube, match.away[turn],
                          match.away[opponent(turn)], match.crawfordPlayed);
     }
-    if (depth <= 0) return this.mwcLeaf(board, turn, cube, owner, match, leaf);
+    if (depth <= 0) return this.mwcLeaf(board, turn, cube, owner, match, leaf, matchCubeEfficiency);
 
     let total = 0.0;
     const flipped = Agent.flipOwner(owner);
@@ -717,7 +861,7 @@ export class Agent {
       const moves = generateMoves(board, turn, die1, die2);
       if (moves.length === 0) {
         total += weight * (1.0 - this.mwcNode(
-          board, opponent(turn), flipped, depth - 1, cube, match, leaf));
+          board, opponent(turn), flipped, depth - 1, cube, match, leaf, matchCubeEfficiency));
         continue;
       }
       const boards = moves.map((m) => m.resultingBoard);
@@ -726,7 +870,7 @@ export class Agent {
       for (const i of this.shortlist(
         boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters)) {
         const value = 1.0 - this.mwcNode(
-          boards[i], opponent(turn), flipped, depth - 1, cube, match, leaf);
+          boards[i], opponent(turn), flipped, depth - 1, cube, match, leaf, matchCubeEfficiency);
         if (best === null || value > best) best = value;
       }
       total += weight * best;
@@ -739,9 +883,16 @@ export class Agent {
     const owner = this.cubeOwnerKind(game, proposer);
     const cube = game.cube.value;
     const depth = this.cubeSearchDepth;
-    const noDouble = this.mwcSearch(game.board, proposer, owner, depth, cube, match, leaf);
+
+    let xNd = this.matchCubeEfficiency;
+    let xDt = this.matchCubeEfficiency;
+    if (this.useCubeHead && this.cubeHeadMatch) {
+      [xNd, xDt] = this.matchCubeHeadActionEfficiencies(game.board, proposer, cube, owner, match);
+    }
+
+    const noDouble = this.mwcSearch(game.board, proposer, owner, depth, cube, match, leaf, xNd);
     const take = this.mwcSearch(
-      game.board, proposer, 'opponent', depth, cube * 2, match, leaf);
+      game.board, proposer, 'opponent', depth, cube * 2, match, leaf, xDt);
     const drop = matchWinChance(match.away[proposer] - cube,
                                 match.away[opponent(proposer)], match.crawfordPlayed);
     return { noDouble, take, drop };
@@ -795,7 +946,7 @@ export class Agent {
    * @param {number[]} outputs 手番側から見た 5 要素の確率ベクトル
    * @param {'me'|'opponent'|'center'} owner
    */
-  cubefulEquity(outputs, owner) {
+  cubefulEquity(outputs, owner, cubeEfficiency = null) {
     const { p, win, lose } = winLossMagnitudes(outputs);
     const dead = p * win - (1.0 - p) * lose;
     const denominator = win + lose + 0.5;
@@ -831,7 +982,7 @@ export class Agent {
       live = Math.max(-1.0, Math.min(1.0, live));
     }
 
-    const x = this.cubeEfficiency;
+    const x = cubeEfficiency ?? this.cubeEfficiency;
     return (1.0 - x) * dead + x * live;
   }
 
@@ -854,37 +1005,37 @@ export class Agent {
   }
 
   /** 葉の値。模型で cubeless から cubeful に直す。 */
-  cubeLeaf(board, turn, owner, jacoby, leaf = null) {
+  cubeLeaf(board, turn, owner, jacoby, leaf = null, cubeEfficiency = null) {
     let vector = this.searchedVectorFor(board, turn, turn, leaf ?? this.cubeLeafPlies);
     if (jacoby && owner === 'center') {
       const flat = [0, 0, 0, 0, 0];
       flat[WIN] = vector[WIN];
       vector = flat;
     }
-    return this.cubefulEquity(vector, owner);
+    return this.cubefulEquity(vector, owner, cubeEfficiency);
   }
 
   /** 手番側がキューブを検討できるなら 3 択も評価する（turn 視点）。 */
-  cubeNode(board, turn, owner, depth, jacoby, leaf = null) {
-    const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby, leaf);
+  cubeNode(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null) {
+    const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby, leaf, cubeEfficiency);
     if (owner === 'opponent') return noDouble;
 
-    const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false, leaf);
+    const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false, leaf, cubeEfficiency);
     return Math.max(noDouble, Math.min(take, 1.0));
   }
 
   /** turn 視点のキューブ込み equity（現在のキューブ値を 1 とする）。 */
-  cubefulSearch(board, turn, owner, depth, jacoby, leaf = null) {
+  cubefulSearch(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null) {
     const terminal = this.terminalEquity(board, turn);
     if (terminal !== null) return terminal;
-    if (depth <= 0) return this.cubeLeaf(board, turn, owner, jacoby, leaf);
+    if (depth <= 0) return this.cubeLeaf(board, turn, owner, jacoby, leaf, cubeEfficiency);
 
     let total = 0;
     const flipped = Agent.flipOwner(owner);
     for (const { die1, die2, weight } of ALL_ROLLS) {
       const moves = generateMoves(board, turn, die1, die2);
       if (moves.length === 0) {
-        total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf);
+        total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency);
         continue;
       }
       const boards = moves.map((m) => m.resultingBoard);
@@ -893,7 +1044,7 @@ export class Agent {
         boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters);
       let best = null;
       for (const i of picks) {
-        const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby, leaf);
+        const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency);
         if (best === null || value > best) {
           best = value;
         }
@@ -910,10 +1061,16 @@ export class Agent {
     const jacoby = (this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game);
     const depth = this.cubeSearchDepth;
 
+    let xNd = this.cubeEfficiency;
+    let xDt = this.cubeEfficiency;
+    if (this.useCubeHead && this.cubeHeadMoney) {
+      [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
+    }
+
     const decide = (leaf) => {
-      const nd = this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf);
+      const nd = this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd);
       const tk = 2.0 * this.cubefulSearch(
-        game.board, proposer, 'opponent', depth, false, leaf);
+        game.board, proposer, 'opponent', depth, false, leaf, xDt);
       return [nd, Math.min(tk, 1.0)];
     };
 
@@ -932,16 +1089,22 @@ export class Agent {
     const vector = this.searchedVectorFor(game.board, proposer, proposer);
     const owner = this.cubeOwnerKind(game, proposer);
 
+    let xNd = this.cubeEfficiency;
+    let xDt = this.cubeEfficiency;
+    if (this.useCubeHead && this.cubeHeadMoney) {
+      [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
+    }
+
     let noDouble;
     if ((this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game)) {
       const flat = [0, 0, 0, 0, 0];
       flat[WIN] = vector[WIN];
-      noDouble = this.cubefulEquity(flat, owner);
+      noDouble = this.cubefulEquity(flat, owner, xNd);
     } else {
-      noDouble = this.cubefulEquity(vector, owner);
+      noDouble = this.cubefulEquity(vector, owner, xNd);
     }
 
-    const take = 2.0 * this.cubefulEquity(vector, 'opponent');
+    const take = 2.0 * this.cubefulEquity(vector, 'opponent', xDt);
     return Math.min(take, 1.0) > noDouble;
   }
 
@@ -1010,7 +1173,7 @@ export class Agent {
     // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
     // 数えられないので「ダブルせずギャモンを狙う」に意味が無い）。
     if (!jacobyNow && value > 1
-        && !this.opponentWouldTake(game.board, proposer)) return false;
+        && !this.opponentWouldTake(game.board, proposer, game.cube.value)) return false;
 
     return true;
   }
@@ -1032,7 +1195,7 @@ export class Agent {
 
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
-    return this.wouldTakeFor(game.board, proposer);
+    return this.wouldTakeFor(game.board, proposer, game.cube.value);
   }
 
   /**
