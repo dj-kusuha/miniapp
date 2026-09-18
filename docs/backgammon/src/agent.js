@@ -22,9 +22,9 @@ import {
 import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
 
-/** マネー用 CubeHead の非対称フロア（ADR-0057 Phase 7）。 */
-export const DEFAULT_CUBE_EFFICIENCY_FLOOR = 0.60;
-export const DEFAULT_CUBE_EFFICIENCY_FLOOR_DT = 0.76;
+/** マネー用 CubeHead のフロア（ADR-0057 Phase 11）。大規模2-ply学習により自律的に抑制されるため既定0.0。 */
+export const DEFAULT_CUBE_EFFICIENCY_FLOOR = 0.0;
+export const DEFAULT_CUBE_EFFICIENCY_FLOOR_DT = 0.0;
 
 /** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
 export const ALL_ROLLS = (() => {
