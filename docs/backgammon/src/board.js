@@ -162,3 +162,21 @@ export function encodeBoard(board, viewer, turn) {
 
   return features;
 }
+
+/**
+ * 両者の駒がまだ触れ合う可能性があるか（接触局面の判定）。
+ * White は index を減らす方向、Black は増やす方向に進むので、
+ * 「White の最も大きい index > Black の最も小さい index」なら接触あり。
+ * バー上の駒があれば当然接触あり。
+ */
+export function hasContact(board) {
+  if (board.bar[WHITE] > 0 || board.bar[BLACK] > 0) return true;
+  let whiteMax = -1;
+  let blackMin = 24;
+  for (let i = 0; i < 24; i++) {
+    if (board.count(i, WHITE) > 0 && i > whiteMax) whiteMax = i;
+    if (board.count(i, BLACK) > 0 && i < blackMin) blackMin = i;
+  }
+  if (whiteMax < 0 || blackMin > 23) return false;
+  return whiteMax > blackMin;
+}

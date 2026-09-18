@@ -6,7 +6,7 @@
 // 着手後の局面（afterstate）の手番は相手に移っているので、**相手視点の
 // equity を求めて符号を反転**すると「自分の equity」になる。
 
-import { WHITE, opponent, encodeBoard } from './board.js';
+import { WHITE, opponent, encodeBoard, hasContact } from './board.js';
 import {
   equity,
   flipPerspective,
@@ -112,6 +112,10 @@ export const DEFAULT_CUBE_EFFICIENCY = 0.76;
 // 0.76 は前世代でのキューブ効率の較正値なので、モデル更新後は再測定対象。
 // （backgammon_engine の docs/adr/0043-wider-net-as-default.md）
 
+/** マネーのテイク側（double-take 枝）で使う cube efficiency（ADR-0062）。接触あり 0.60 / レース 0.52。 */
+export const DEFAULT_CUBE_EFFICIENCY_DT = 0.60;
+export const DEFAULT_CUBE_EFFICIENCY_DT_RACE = 0.52;
+
 /**
  * **マッチのキューブ判断で使う cube efficiency。**
  * **engine 側（`DEFAULT_MATCH_CUBE_EFFICIENCY`）と必ず揃えること。**
@@ -155,24 +159,25 @@ export const DEFAULT_CUBE_DECISION = 'search';
 /** cubeDecision === 'search' のときにダイスを展開する段数。 */
 export const DEFAULT_CUBE_SEARCH_DEPTH = 1;
 
-/** キューブ探索の葉で展開する段数。0 なら生のネット評価。 */
-export const DEFAULT_CUBE_LEAF_PLIES = 0;
+/** キューブ探索の葉で展開する段数（ADR-0063）。 */
+export const DEFAULT_CUBE_LEAF_PLIES = 1;
 
 // **足切りの幅は名前付きで持つ。** engine 側のフィクスチャ（`defaults`）と
-// 突き合わせるため。ここが素の `0` リテラルだったので、engine が
-// `DEFAULT_MATCH_CUBE_SCREEN_MARGIN` を 0.020 に変えても
-// **照合に載らず、ズレたまま緑だった**（2026-09-11 に engine 側で発覚）。
+// 突き合わせるため。
 //
 // **どちらも `cubeLeafPlies > 0` のときだけ効く**（下の `shouldDoubleSearch` と
-// マッチ側の分岐を参照）。いまの既定は `cubeLeafPlies: 0` なので、
-// **この 2 つを入れても現時点の挙動は変わらない。** 深く読む段（`DEEP_CUBE`）を
-// 既定にしたときに初めて効く。engine 側と値を揃えておくためのもの。
+// マッチ側の分岐を参照）。
+// engine 側と値を揃えておくためのもの。
 
 /** 際どいときだけ深く読むための足切り幅（マネー・equity）。0 で無効。 */
 export const DEFAULT_CUBE_SCREEN_MARGIN = 0.05;
 
 /** 同じくマッチ側（MWC 単位。マネーとは桁が違うので別に持つ）。0 で無効。 */
 export const DEFAULT_MATCH_CUBE_SCREEN_MARGIN = 0.02;
+
+/** Cubeful Cash Option（出目展開の中で次回キャッシュ権利とギャモン価値を数式に織り込む、ADR-0061/ADR-0064）。 */
+export const DEFAULT_CUBE_CASH_OPTION = true;
+export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
 
 // ── 弱い相手の作り方 ──────────────────────────────
 //
@@ -369,6 +374,8 @@ export class Agent {
     doublePoint = DEFAULT_DOUBLE_POINT,
     cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
     cubeEfficiency = DEFAULT_CUBE_EFFICIENCY,
+    cubeEfficiencyDt = DEFAULT_CUBE_EFFICIENCY_DT,
+    cubeEfficiencyDtRace = DEFAULT_CUBE_EFFICIENCY_DT_RACE,
     matchCubeEfficiency = DEFAULT_MATCH_CUBE_EFFICIENCY,
     cubeModel = DEFAULT_CUBE_MODEL,
     cubePlies = null,
@@ -379,6 +386,8 @@ export class Agent {
     cubeFilterLevel = null,
     cubeScreenMargin = DEFAULT_CUBE_SCREEN_MARGIN,
     matchCubeScreenMargin = DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
+    cubeCashOption = DEFAULT_CUBE_CASH_OPTION,
+    cubeCashAlpha = DEFAULT_CUBE_CASH_ALPHA,
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
@@ -403,6 +412,10 @@ export class Agent {
     this.doublePoint = doublePoint;
     this.cubeOwnership = cubeOwnership;
     this.cubeEfficiency = cubeEfficiency;
+    this.cubeEfficiencyDt = cubeEfficiencyDt;
+    this.cubeEfficiencyDtRace = cubeEfficiencyDtRace;
+    this.cubeCashOption = cubeCashOption;
+    this.cubeCashAlpha = cubeCashAlpha;
     /** マッチの葉で使う cube efficiency（**マネーとは最適値が違う**）。 */
     this.matchCubeEfficiency = matchCubeEfficiency;
     this.cubeModel = cubeModel;
@@ -616,7 +629,7 @@ export class Agent {
   cubeHeadActionEfficiencies(board, proposer, cubeValue, currentOwner) {
     const head = this.cubeHeadMoney;
     if (!head) {
-      return [this.cubeEfficiency, this.cubeEfficiency];
+      return [this.cubeEfficiency, this.cubeEfficiencyDtFor(board, proposer)];
     }
     const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
     const feat = encodeBoard(board, viewer, proposer, this.net.features);
@@ -635,6 +648,16 @@ export class Agent {
     if (floorDt > 0) xDt = Math.max(xDt, floorDt);
 
     return [xNd, xDt];
+  }
+
+  /**
+   * ダブルテイク枝（テイク側）のマネー用 cube efficiency を求める (ADR-0062)。
+   */
+  cubeEfficiencyDtFor(board, proposer) {
+    if (!hasContact(board)) {
+      return this.cubeEfficiencyDtRace;
+    }
+    return this.cubeEfficiencyDt;
   }
 
   /**
@@ -734,10 +757,9 @@ export class Agent {
    * 受ける側は Janowski の定数式で判断していた（**同じ局面に 2 つの基準**）。
    */
   wouldTakeSearch(board, proposer, cubeValue = 1) {
-    let eff = null;
-    if (this.useCubeHead && this.cubeHeadMoney) {
-      eff = this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent');
-    }
+    let eff = (this.useCubeHead && this.cubeHeadMoney)
+      ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent')
+      : this.cubeEfficiencyDtFor(board, proposer);
     const take = 2.0 * this.cubefulSearch(
       board, proposer, 'opponent', this.cubeSearchDepth, false, null, eff);
     return take < 1.0;
@@ -750,10 +772,9 @@ export class Agent {
     }
     const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
-      let eff = null;
-      if (this.useCubeHead && this.cubeHeadMoney) {
-        eff = this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent');
-      }
+      let eff = (this.useCubeHead && this.cubeHeadMoney)
+        ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent')
+        : this.cubeEfficiencyDtFor(board, proposer);
       return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker), eff);
     }
     return this.wouldTake(this.searchedEquityFor(board, proposer, taker));
@@ -1025,17 +1046,43 @@ export class Agent {
   }
 
   /** turn 視点のキューブ込み equity（現在のキューブ値を 1 とする）。 */
-  cubefulSearch(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null) {
+  cubefulSearch(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null, {
+    cashOption = false,
+    cashAlpha = null,
+  } = {}) {
     const terminal = this.terminalEquity(board, turn);
     if (terminal !== null) return terminal;
     if (depth <= 0) return this.cubeLeaf(board, turn, owner, jacoby, leaf, cubeEfficiency);
 
     let total = 0;
     const flipped = Agent.flipOwner(owner);
+    const alpha = cashAlpha ?? this.cubeCashAlpha;
     for (const { die1, die2, weight } of ALL_ROLLS) {
       const moves = generateMoves(board, turn, die1, die2);
       if (moves.length === 0) {
-        total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency);
+        const term = this.terminalEquity(board, turn);
+        if (term !== null) {
+          total += weight * term;
+        } else if (cashOption && depth === 1) {
+          const oppVec = this.searchedVectorFor(board, opponent(turn), opponent(turn), leaf ?? this.cubeLeafPlies);
+          const propVec = flipPerspective(oppVec);
+          const dtProp = 2.0 * this.cubefulEquity(propVec, 'opponent', cubeEfficiency);
+          let v;
+          if (dtProp >= 1.0 && !jacoby) {
+            const lossExpected = (1.0 - propVec[WIN]) + 2.0 * propVec[LOSE_GAMMON] + 3.0 * propVec[LOSE_BACKGAMMON];
+            v = 1.0 + propVec[WIN_GAMMON] + 2.0 * propVec[WIN_BACKGAMMON] - alpha * lossExpected;
+          } else {
+            let oppVecJacoby = oppVec;
+            if (jacoby && flipped === 'center') {
+              oppVecJacoby = [0, 0, 0, 0, 0];
+              oppVecJacoby[WIN] = oppVec[WIN];
+            }
+            v = -this.cubefulEquity(oppVecJacoby, flipped, cubeEfficiency);
+          }
+          total += weight * v;
+        } else {
+          total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency);
+        }
         continue;
       }
       const boards = moves.map((m) => m.resultingBoard);
@@ -1044,7 +1091,31 @@ export class Agent {
         boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters);
       let best = null;
       for (const i of picks) {
-        const value = -this.cubeNode(boards[i], opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency);
+        const b = boards[i];
+        let value;
+        if (cashOption && depth === 1) {
+          const term = this.terminalEquity(b, turn);
+          if (term !== null) {
+            value = term;
+          } else {
+            const oppVec = this.searchedVectorFor(b, opponent(turn), opponent(turn), leaf ?? this.cubeLeafPlies);
+            const propVec = flipPerspective(oppVec);
+            const dtProp = 2.0 * this.cubefulEquity(propVec, 'opponent', cubeEfficiency);
+            if (dtProp >= 1.0 && !jacoby) {
+              const lossExpected = (1.0 - propVec[WIN]) + 2.0 * propVec[LOSE_GAMMON] + 3.0 * propVec[LOSE_BACKGAMMON];
+              value = 1.0 + propVec[WIN_GAMMON] + 2.0 * propVec[WIN_BACKGAMMON] - alpha * lossExpected;
+            } else {
+              let oppVecJacoby = oppVec;
+              if (jacoby && flipped === 'center') {
+                oppVecJacoby = [0, 0, 0, 0, 0];
+                oppVecJacoby[WIN] = oppVec[WIN];
+              }
+              value = -this.cubefulEquity(oppVecJacoby, flipped, cubeEfficiency);
+            }
+          }
+        } else {
+          value = -this.cubeNode(b, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency);
+        }
         if (best === null || value > best) {
           best = value;
         }
@@ -1062,13 +1133,15 @@ export class Agent {
     const depth = this.cubeSearchDepth;
 
     let xNd = this.cubeEfficiency;
-    let xDt = this.cubeEfficiency;
+    let xDt = this.cubeEfficiencyDtFor(game.board, proposer);
     if (this.useCubeHead && this.cubeHeadMoney) {
       [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
     }
 
     const decide = (leaf) => {
-      const nd = this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd);
+      const nd = this.cubeCashOption
+        ? this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd, { cashOption: true, cashAlpha: this.cubeCashAlpha })
+        : this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd);
       const tk = 2.0 * this.cubefulSearch(
         game.board, proposer, 'opponent', depth, false, leaf, xDt);
       return [nd, Math.min(tk, 1.0)];
@@ -1090,7 +1163,7 @@ export class Agent {
     const owner = this.cubeOwnerKind(game, proposer);
 
     let xNd = this.cubeEfficiency;
-    let xDt = this.cubeEfficiency;
+    let xDt = this.cubeEfficiencyDtFor(game.board, proposer);
     if (this.useCubeHead && this.cubeHeadMoney) {
       [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
     }
