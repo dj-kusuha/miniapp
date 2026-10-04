@@ -2,7 +2,7 @@
 
 ## Status
 
-in-progress
+completed
 
 ## Background
 
@@ -28,17 +28,19 @@ in-progress
 
 ## Steps
 
-1. `nn.js` のモデル形式を確認し、既存仕様を残す作業計画を記録する。
-2. output transform の検証と階層累積確率への変換を実装する。
-3. 旧形式・階層形式・不正形式を対象にするテストを追加する。
-4. Node parity suite を実行し、出力を確認する。
+1. [x] `nn.js` のモデル形式を確認し、既存仕様を残す作業計画を記録する。
+2. [x] output transform の検証と階層累積確率への変換を実装する。
+3. [x] 旧形式・階層形式・不正形式を対象にするテストを追加する。
+4. [x] Node parity suite を実行し、出力を確認する。
 
 ## Decision Log
 
 - 2026-10-04: 学習済みモデルは同期せず、将来の候補が読み込める推論経路だけを追加する。
 - 2026-10-04: Python/C# と同じく条件確率の最終 sigmoid 後に変換し、各積を float32 へ丸める。
+- 2026-10-04: WSL UNCでも全suiteを実行できるよう、runnerは `URL.pathname` とPATH上の `node` ではなく `fileURLToPath` と `process.execPath` を使う。
 
 ## Validation
 
 - `node tests/backgammon/hierarchical-output.mjs`
 - `node tests/backgammon/run.mjs`
+- WSL上のWindows Node.js 24.19.0で `tests/backgammon/run.mjs` を起動し、全15 suiteが `すべて一致しました` で終了（exit 0）。
