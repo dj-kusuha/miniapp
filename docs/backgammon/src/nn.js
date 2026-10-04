@@ -8,7 +8,8 @@
 // `hidden_dim` から 1 層とみなす）。
 //
 // 隠れ層の活性化関数は `activation`（既定 `'sigmoid'`）で切り替える。
-// SiLU モデル（'silu'）にも対応する（出力層は常にシグモイド）。
+// SiLU モデル（'silu'）にも対応する。出力層は sigmoid の条件確率で、
+// `output_transform` に応じて独立出力または階層型累積確率を返す。
 
 /** 出力ユニットの意味（engine の nn.py と同じ並び）。 */
 export const WIN = 0;
@@ -16,6 +17,9 @@ export const WIN_GAMMON = 1;
 export const WIN_BACKGAMMON = 2;
 export const LOSE_GAMMON = 3;
 export const LOSE_BACKGAMMON = 4;
+
+export const OUTPUT_TRANSFORM_INDEPENDENT = 'independent_sigmoid';
+export const OUTPUT_TRANSFORM_HIERARCHICAL = 'hierarchical_cumulative_v1';
 
 /**
  * engine と同じ範囲でクリップする。
@@ -47,8 +51,16 @@ export class NeuralNet {
     this.perspective = data.perspective ?? 'white';
     this.features = data.features ?? 'none';
     this.totalEpisodes = data.total_episodes ?? 0;
-    //: 隠れ層の活性化関数（'sigmoid' または 'silu'）。出力層は常にシグモイド。
+    //: 隠れ層の活性化関数（'sigmoid' または 'silu'）。
     this.activation = data.activation ?? 'sigmoid';
+    this.outputTransform = data.output_transform ?? OUTPUT_TRANSFORM_INDEPENDENT;
+    if (![OUTPUT_TRANSFORM_INDEPENDENT, OUTPUT_TRANSFORM_HIERARCHICAL]
+      .includes(this.outputTransform)) {
+      throw new Error(`未対応の output_transform: ${this.outputTransform}`);
+    }
+    if (this.outputTransform === OUTPUT_TRANSFORM_HIERARCHICAL && this.outputDim !== 5) {
+      throw new Error('hierarchical_cumulative_v1 は5出力専用です');
+    }
     //: engine が保存した日付（YYYY-MM-DD）。**古いモデルには入っていない**ので
     //: 空文字に落とす。対戦前の画面に「どの世代を配っているか」を出すために使う。
     this.savedAt = data.saved_at ?? '';
@@ -155,7 +167,7 @@ export class NeuralNet {
       const next = isLast
         ? new Float32Array(bias.length)
         : this.hiddenBuffers[l + 1];
-      // 出力層（最終層）は常にシグモイド、隠れ層は activation 設定に従う。
+      // 最終層は条件確率の sigmoid、隠れ層は activation 設定に従う。
       const act = isLast ? sigmoid : activate;
       for (let j = 0; j < next.length; j += 1) {
         const column = columns[j];
@@ -164,6 +176,21 @@ export class NeuralNet {
         next[j] = act(sum);
       }
       activation = next;
+    }
+    if (this.outputTransform === OUTPUT_TRANSFORM_HIERARCHICAL) {
+      const win = activation[WIN];
+      const winGammonGivenWin = activation[WIN_GAMMON];
+      const winBackgammonGivenGammon = activation[WIN_BACKGAMMON];
+      const loseGammonGivenLoss = activation[LOSE_GAMMON];
+      const loseBackgammonGivenGammon = activation[LOSE_BACKGAMMON];
+      const winGammon = Math.fround(win * winGammonGivenWin);
+      const winBackgammon = Math.fround(winGammon * winBackgammonGivenGammon);
+      const loseProbability = Math.fround(1 - win);
+      const loseGammon = Math.fround(loseProbability * loseGammonGivenLoss);
+      const loseBackgammon = Math.fround(loseGammon * loseBackgammonGivenGammon);
+      return new Float32Array([
+        win, winGammon, winBackgammon, loseGammon, loseBackgammon,
+      ]);
     }
     return activation;
   }
