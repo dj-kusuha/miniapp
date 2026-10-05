@@ -6,18 +6,20 @@
 // `python csharp/tools/export_parity_fixtures.py` を実行して parity.json を
 // 作り直してからここへコピーする。
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 // mat.mjs だけは engine との照合ではなく、書き出した .mat を gnubg の
 // import.c 相当の判定にかける検証。一覧から漏れていて手で叩かないと動かない
 // 状態だったので入れてある。
-const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'parity-moves.mjs', 'parity-select.mjs',
+const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'hierarchical-output.mjs',
+  'parity-moves.mjs', 'parity-select.mjs',
   'parity-game.mjs', 'parity-cube.mjs', 'parity-bearoff.mjs', 'worker.mjs', 'levels.mjs', 'match.mjs',
   'met.mjs', 'mat.mjs', 'auto-roll.mjs', 'app-ui.mjs'];
 let failed = 0;
 for (const spec of specs) {
   try {
-    const out = execFileSync('node', [new URL(`./${spec}`, import.meta.url).pathname],
-      { encoding: 'utf8' });
+    const testPath = fileURLToPath(new URL(`./${spec}`, import.meta.url));
+    const out = execFileSync(process.execPath, [testPath], { encoding: 'utf8' });
     process.stdout.write(out);
   } catch (error) {
     failed += 1;
