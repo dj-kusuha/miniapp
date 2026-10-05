@@ -10,6 +10,17 @@ const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url
 const net = new NeuralNet(JSON.parse(readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
 const player = (s) => (s === 'WHITE' ? WHITE : BLACK);
 
+// 決着済み afterstate はネットの近似値ではなく確定 equity を返す。
+const wonBoard = new Board(new Array(24).fill(0),
+  { WHITE: 0, BLACK: 0 }, { WHITE: 15, BLACK: 0 });
+const terminalAgent = new Agent(net, 0);
+const terminalWhiteEquity = terminalAgent.equitiesFor([wonBoard], WHITE)[0];
+const terminalBlackEquity = terminalAgent.equitiesFor([wonBoard], BLACK)[0];
+if (terminalWhiteEquity !== 2 || terminalBlackEquity !== -2) {
+  throw new Error('決着済みギャモン局面の equity が不正: '
+    + `White=${terminalWhiteEquity} / Black=${terminalBlackEquity}`);
+}
+
 for (const plies of [0, 2]) {
   const agent = new Agent(net, plies);
   const key = `selected_${plies}ply`;

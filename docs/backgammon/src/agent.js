@@ -107,10 +107,9 @@ export const DEFAULT_CUBE_OWNERSHIP = 0.130;
  * なっている。モデルの較正が改善したら測り直すこと。
  * （backgammon_engine の docs/adr/0017-cube-measurement.md）
  */
-export const DEFAULT_CUBE_EFFICIENCY = 0.76;
-// **2026-09-15 に同梱モデルを wide4 / cycle200 へ更新。**
-// 0.76 は前世代でのキューブ効率の較正値なので、モデル更新後は再測定対象。
-// （backgammon_engine の docs/adr/0043-wider-net-as-default.md）
+export const DEFAULT_CUBE_EFFICIENCY = 0.80;
+// 2026-10-06: cycle700 に合わせ、固定値フォールバックを 0.80 に再較正。
+// モデル内に保存した cube_head_money.baseline_x（cycle700 は 0.76）とは別設定。
 
 /** マネーのテイク側（double-take 枝）で使う cube efficiency（ADR-0062）。接触あり 0.60 / レース 0.52。 */
 export const DEFAULT_CUBE_EFFICIENCY_DT = 0.60;
@@ -1315,7 +1314,11 @@ export class Agent {
   equitiesFor(boards, turn) {
     // perspective='white' のモデルなので White 視点で評価して符号を合わせる
     const sign = turn === WHITE ? 1 : -1;
-    return boards.map((b) => sign * equity(this.vectorFor(b, turn)));
+    return boards.map((b) => {
+      // 決着済み局面はネット予測より確定ベクトルを優先する。
+      const terminal = this.terminalVector(b);
+      return sign * equity(terminal ?? this.vectorFor(b, turn));
+    });
   }
 
   /** 決着済みなら viewer 視点の確定 equity、まだなら null。 */
