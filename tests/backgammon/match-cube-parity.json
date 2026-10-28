@@ -1,0 +1,24 @@
+{
+  "reference": {
+    "engine_commit": "7a59b25aba785113ab0118ff66de8140c7d0c544",
+    "model_sha256": "9543ecb1deaff716de1355726d3109f1529fe34e0ab68d94284654fd7871dd83",
+    "cube_search_depth": 2,
+    "cube_leaf_plies": 0,
+    "match_cube_efficiency": 0.55,
+    "absolute_tolerance": 0.00001
+  },
+  "board": {
+    "points": [0, 4, 0, 3, 4, 2, -2, -1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, -2, -2, -2, -2, -2, -2],
+    "bar": [0, 0],
+    "off": [0, 0]
+  },
+  "cases": [
+    { "id": "pre-Crawford center cube 1", "owner": "center", "cube_value": 1, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.597610589 },
+    { "id": "pre-Crawford owned cube 2", "owner": "me", "cube_value": 2, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.668335076 },
+    { "id": "pre-Crawford opponent cube 2", "owner": "opponent", "cube_value": 2, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.593501899 },
+    { "id": "pre-Crawford owned cube 32", "owner": "me", "cube_value": 32, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.575410065 },
+    { "id": "pre-Crawford dead cube 64", "owner": "me", "cube_value": 64, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.575410065 },
+    { "id": "future doubles disabled at 1-away", "owner": "center", "cube_value": 1, "away_white": 1, "away_black": 4, "crawford_played": false, "allow_double": false, "expected": 0.892489882 },
+    { "id": "post-Crawford center cube 1", "owner": "center", "cube_value": 1, "away_white": 4, "away_black": 1, "crawford_played": true, "allow_double": true, "expected": 0.250364253 }
+  ]
+}
