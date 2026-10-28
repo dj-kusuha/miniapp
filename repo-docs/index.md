@@ -17,6 +17,10 @@ docs/ は GitHub Pages 用の公開コンテンツに予約しています。
 - exec-plans/: 進行中と完了済みの作業計画
 - references/: 外部資料の要点や抜粋
 
+## 関連手順
+
+- [Backgammon engine / miniapp 同期手順](references/backgammon-engine-sync.md): engine の cube search・model・fixture を miniapp と手動同期する手順
+
 ## 現在の状態
 
 - まだ実装対象のアプリは未確定です。

@@ -1,0 +1,71 @@
+{
+  "reference": {
+    "engine_commit": "7a59b25aba785113ab0118ff66de8140c7d0c544",
+    "model_sha256": "9543ecb1deaff716de1355726d3109f1529fe34e0ab68d94284654fd7871dd83",
+    "cash_alpha": 1.0,
+    "cube_search_depth": 2,
+    "cube_leaf_plies": 0,
+    "absolute_tolerance": 0.00001
+  },
+  "board": {
+    "points": [0, 4, 0, 3, 4, 2, -2, -1, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, -2, -2, -2, -2, -2, -2],
+    "bar": [0, 0],
+    "off": [0, 0]
+  },
+  "cases": [
+    {
+      "id": "opponent-owned cube cannot cash",
+      "owner": "opponent",
+      "cube_value": 1,
+      "allow_double": true,
+      "action_context": "post_no_double",
+      "without_policy": 0.020418027,
+      "with_policy": 0.011953691
+    },
+    {
+      "id": "owned cube double-take is allowed",
+      "owner": "me",
+      "cube_value": 2,
+      "allow_double": true,
+      "action_context": "post_no_double",
+      "without_policy": 0.371152119,
+      "with_policy": 0.371152119
+    },
+    {
+      "id": "centered cube at 32 has cash right",
+      "owner": "center",
+      "cube_value": 32,
+      "allow_double": true,
+      "action_context": "post_no_double",
+      "without_policy": 0.251158947,
+      "with_policy": 0.193308458
+    },
+    {
+      "id": "cube 64 is dead",
+      "owner": "center",
+      "cube_value": 64,
+      "allow_double": true,
+      "action_context": "post_no_double",
+      "without_policy": 0.182345095,
+      "with_policy": 0.182345095
+    },
+    {
+      "id": "future doubles disabled",
+      "owner": "center",
+      "cube_value": 1,
+      "allow_double": false,
+      "action_context": "post_no_double",
+      "without_policy": 0.297082902,
+      "with_policy": 0.297082902
+    },
+    {
+      "id": "post-double-take path drops cash policy",
+      "owner": "center",
+      "cube_value": 2,
+      "allow_double": true,
+      "action_context": "post_double_take",
+      "without_policy": 0.218908993,
+      "with_policy": 0.218908993
+    }
+  ]
+}
