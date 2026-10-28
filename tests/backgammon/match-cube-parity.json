@@ -19,6 +19,6 @@
     { "id": "pre-Crawford owned cube 32", "owner": "me", "cube_value": 32, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.575410065 },
     { "id": "pre-Crawford dead cube 64", "owner": "me", "cube_value": 64, "away_white": 3, "away_black": 4, "crawford_played": false, "allow_double": true, "expected": 0.575410065 },
     { "id": "future doubles disabled at 1-away", "owner": "center", "cube_value": 1, "away_white": 1, "away_black": 4, "crawford_played": false, "allow_double": false, "expected": 0.892489882 },
-    { "id": "post-Crawford cube disabled", "owner": "center", "cube_value": 1, "away_white": 4, "away_black": 1, "crawford_played": true, "allow_double": false, "expected": 0.195348154 }
+    { "id": "post-Crawford center cube 1", "owner": "center", "cube_value": 1, "away_white": 4, "away_black": 1, "crawford_played": true, "allow_double": true, "expected": 0.250364253 }
   ]
 }

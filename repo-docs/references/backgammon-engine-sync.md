@@ -46,6 +46,8 @@ python tools/export_cube_parity.py --refresh ../miniapp/tests/backgammon/cube-pa
 
 `match-cube-parity.json` は同じ盤面・モデルで `TDAgent._mwc_search` の結果を保存します。away score、pre/post-Crawford、owner、cube、future double 権を含めます。
 
+Money cube action の Cash Option は現行 engine 契約を維持します。`shouldDoubleSearch()` / Python の cube-action 入口は既存の `cashOption` / `cashAlpha` を渡し、この直接入口の補正は root depth 1 でのみ有効です。ND 再帰用 `cashPolicy` の内部経路とは別です。depth 2 以上の Money action に policy を新たに接続する変更は engine parity を変えるため、engine 側の契約変更と同時に扱います。テストでは実際の `shouldDoubleSearch()` の depth 1 / 2 挙動を固定しています。
+
 どちらの fixture も engine commit と model SHA を JSON に記録します。テスト許容差は `1e-5` です。意図した数値変更の場合は fixture を更新した理由と誤差を PR の記録に含めます。
 
 ## 確認

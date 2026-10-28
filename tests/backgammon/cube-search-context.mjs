@@ -95,7 +95,7 @@ test('Money root sends the actual cube and post-double context to both branches'
   game.cube.value = 4;
   game.cube.owner = WHITE;
   const agent = new Agent(fakeNet, 0, undefined, {
-    cubeSearchDepth: 1, cubeLeafPlies: 0, cubeCashOption: true,
+    cubeSearchDepth: 2, cubeLeafPlies: 0, cubeCashOption: true,
   });
   const calls = [];
   agent.cubefulSearch = (...args) => {
@@ -110,8 +110,39 @@ test('Money root sends the actual cube and post-double context to both branches'
   assert.equal(nd[7].cubeValue, 4);
   assert.equal(nd[7].cashOption, true);
   assert.equal(nd[7].cashAlpha, agent.cubeCashAlpha);
+  assert.equal(nd[7].cashPolicy, undefined,
+    'Money cube-action entry preserves the engine legacy cashOption contract');
   assert.ok(take);
   assert.equal(take[7].cubeValue, 8);
+});
+
+test('Money shouldDoubleSearch Cash Option remains a depth-1 entry contract', () => {
+  const run = (depth) => {
+    const game = new Game(midgameBoard(), Math.random, { jacoby: false });
+    game.currentPlayer = WHITE;
+    game.state = ROLLING;
+    const agent = new Agent(fakeNet, 0, undefined, {
+      cubeSearchDepth: depth, cubeLeafPlies: 0, cubeCashOption: true,
+    });
+    const cashAlphas = [];
+    const originalCashValue = agent.cashOptionValue.bind(agent);
+    agent.cashOptionValue = (vector, alpha) => {
+      cashAlphas.push(alpha);
+      return originalCashValue(vector, alpha);
+    };
+    agent.searchedVectorFor = () => [0.55, 0.08, 0.01, 0.06, 0.01];
+    const originalEquity = agent.cubefulEquity.bind(agent);
+    agent.cubefulEquity = (vector, owner, ...args) => owner === 'opponent'
+      ? 0.6 : originalEquity(vector, owner, ...args);
+
+    agent.shouldDoubleSearch(game);
+    return cashAlphas;
+  };
+
+  assert.ok(run(1).length > 0,
+    'the existing root depth-1 Cash Option path remains active');
+  assert.equal(run(2).length, 0,
+    'depth-2 Money action remains aligned with the engine cube-action entry');
 });
 
 test('accepted double passes the doubled cube value into search', () => {

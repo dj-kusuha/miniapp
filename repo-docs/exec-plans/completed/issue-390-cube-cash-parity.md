@@ -54,6 +54,7 @@ Money oracle は `tests/backgammon/cube-parity.json`（60局面、take境界19�
 - 終局Jacoby fixture: 白のギャモン勝ち・未ダブル中央cubeは旧経路 `+3` から新経路 `+1` へ補正。
 - 新規Cash Option parity fixture `cube-cash-option-parity.json`: engine Pythonの同一モデル・同一盤面で、owner opponent / me / center、cube 1 / 2 / 32 / 64、double権の有無、post-double-takeを含む6値を照合、不一致0。cube=1 opponent ownerの再帰値は policyなし `0.020418027`、あり `0.011953691`。center cube32は `0.251158947` から `0.193308458`。
 - 新規Match parity fixture `match-cube-parity.json`: pre-Crawfordのcenter/owner/cube1/2/32/64、1-awayで将来double禁止、post-Crawfordを含む7つの MWC 値を照合、不一致0。許容差は `1e-5`。
+- Money cube action の Cash Option は engine と同じ legacy entry 契約を維持し、`shouldDoubleSearch()` の depth 1 / 2 の実経路をテスト。recursive `cashPolicy` は明示的に渡す内部 caller のみで有効。
 - Worker と Match の対照: Workerのminiapp/engine JS差はコメント2行のみ。engine側 Match 実装の money/MWC を混ぜない contract を保持し、miniapp側は `allowDouble` 再帰をPython MWC oracleと照合。
 - Worker: 全段136要求がメインスレッドと一致、cube判断80件、不一致0。
 - CPU level: 400局面で段の性質を確認。Match規則: 125 match / 254 game、Crawford61局、post-Crawford double15局で合格。
@@ -61,4 +62,10 @@ Money oracle は `tests/backgammon/cube-parity.json`（60局面、take境界19�
 再実行コマンド: `node tests/backgammon/cube-search-context.mjs`、`node tests/backgammon/cube-cash-option-parity.mjs`、`node tests/backgammon/match-cube-parity.mjs`、`node tests/backgammon/parity-cube.mjs`、`node tests/backgammon/worker.mjs`、`node tests/backgammon/levels.mjs`、`node tests/backgammon/match.mjs`。Worker は sandbox で loopback bind が拒否されたため、`network: enabled` のテスト実行環境で通した。
 
 2026-10-28に `tests/backgammon/run.mjs` の全 spec を個別実行し、すべて成功。Worker だけ loopback bind を許可した環境で実行した。UI smoke test は Worker が無い場合と壊れたmock bearoff fetchの警告を出すが、fallback を含む UI assertion は成功。
+
+## PR review follow-up
+
+- Money cube action の Cash Option は engine JS / Python と同じ entry 契約を維持。`shouldDoubleSearch()` は従来の `cashOption` / `cashAlpha` を渡し、この直接経路は root depth 1 のみ有効。recursive `cashPolicy` は明示的に渡す内部 caller 用であり、depth 2 以上の Money action に接続する変更は engine 側の契約更新と合わせて行う。
+- post-Crawford は `crawford_played: true` で cube 権が戻るため、MWC fixture を `allow_double: true` に修正。engine Python の再生成値は `0.250364253`。
+- 修正後、`cube-search-context.mjs` は 8/8、`match-cube-parity.mjs` は 7/7 成功。
 
