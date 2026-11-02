@@ -8,6 +8,7 @@
 // モデルだけは `fetch` で読むので、テスト中だけ静的サーバを立てる
 // （Node の fetch は file:// を扱えないため）。
 import { createServer } from 'node:http';
+import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize } from 'node:path';
@@ -52,14 +53,160 @@ async function ask(payload) {
 
 // ── メインスレッド側の参照実装 ──────────────────────
 const src = (name) => new URL(`../../docs/backgammon/src/${name}`, import.meta.url).href;
-const { Board, WHITE, opponent } = await import(src('board.js'));
+const { Board, WHITE, BLACK, opponent } = await import(src('board.js'));
 const { NeuralNet } = await import(src('nn.js'));
 const { agentFor, LEVELS } = await import(src('agent.js'));
+const { rankCheckerMoves, selectCheckerMove } = await import(src('checker.js'));
 const { generateMoves, boardKey } = await import(src('rules.js'));
-const { Game, ROLLING } = await import(src('game.js'));
+const { Game, ROLLING, MOVING, GAME_OVER } = await import(src('game.js'));
+const { Match } = await import(src('match.js'));
+const { checkerContextFor } = await import(src('checker.js'));
 
 await ask({ kind: 'load', url: `${base}src/model.json` });
 const net = await NeuralNet.load(`${base}src/model.json`);
+
+// checker context付きのselect/rankもWorkerとfallbackで同じ評価にする。
+const contextBoard = new Board();
+const contextMoves = generateMoves(contextBoard, WHITE, 3, 1);
+const contextBoardDto = {
+  points: contextBoard.points,
+  bar: [contextBoard.bar[WHITE], contextBoard.bar[opponent(WHITE)]],
+  off: [contextBoard.off[WHITE], contextBoard.off[opponent(WHITE)]],
+};
+const checkerCases = [
+  {
+    id: 'money-cubeful-jacoby', level: 'advanced',
+    context: {
+      cube: { value: 1, owner: 'center', enabled: true, available: true },
+      match: { mode: 'money', jacoby: true },
+    },
+  },
+  {
+    id: 'money-cube-off', level: 'advanced',
+    context: {
+      cube: { value: 1, owner: 'center', enabled: false, available: false },
+      match: { mode: 'money', jacoby: false },
+    },
+  },
+  {
+    id: 'match-mwc', level: 'advanced',
+    context: {
+      cube: { value: 1, owner: 'center', enabled: true, available: true },
+      match: {
+        mode: 'match', targetPoints: 5, scoreWhite: 3, scoreBlack: 3,
+        crawford: false, crawfordPlayed: false, jacoby: false,
+      },
+    },
+  },
+  {
+    id: 'match-crawford-cube-off', level: 'advanced',
+    context: {
+      cube: { value: 1, owner: 'center', enabled: false, available: false },
+      match: {
+        mode: 'match', targetPoints: 5, scoreWhite: 4, scoreBlack: 3,
+        crawford: true, crawfordPlayed: true, jacoby: false,
+      },
+    },
+  },
+  {
+    id: 'match-post-crawford', level: 'advanced',
+    context: {
+      cube: { value: 2, owner: BLACK, enabled: true, available: true },
+      match: {
+        mode: 'match', targetPoints: 5, scoreWhite: 3, scoreBlack: 3,
+        crawford: false, crawfordPlayed: true, jacoby: false,
+      },
+    },
+  },
+];
+for (const scenario of checkerCases) {
+  const localAgent = agentFor(net, scenario.level);
+  const common = {
+    board: contextBoardDto, player: WHITE, die1: 3, die2: 1,
+    level: scenario.level, context: scenario.context,
+  };
+  const selected = await ask({ kind: 'select', ...common });
+  const localIndex = selectCheckerMove(localAgent, scenario.context, contextMoves, WHITE);
+  assert.equal(selected.index, localIndex, `${scenario.id}: select index`);
+  const workerRank = await ask({ kind: 'rank', ...common, limit: 3 });
+  const localRank = rankCheckerMoves(localAgent, scenario.context, contextMoves, WHITE, 3);
+  assert.equal(workerRank.unit, localRank.unit, `${scenario.id}: unit`);
+  assert.equal(workerRank.evaluation, localRank.evaluation, `${scenario.id}: evaluation`);
+  assert.deepEqual(workerRank.entries.map(({ index, equity, loss, probabilities }) =>
+    ({ index, equity, loss, probabilities })), localRank.entries.map((entry) => ({
+    index: entry.index, equity: entry.equity, loss: entry.loss, probabilities: entry.probabilities,
+  })), `${scenario.id}: ranked candidates`);
+}
+
+// 実際の5pt Match/Gameから作ったcontextで、CPU選択・Hint・スコア遷移をsmokeする。
+let openingRoll = 0;
+const match = new Match({ length: 5, useCube: true, rng: () => [0, 0.2][openingRoll++ % 2] });
+match.scores = { [WHITE]: 3, [BLACK]: 3 };
+const smokeAgent = agentFor(net, 'advanced');
+const smokeDto = (board) => ({
+  points: board.points,
+  bar: [board.bar[WHITE], board.bar[BLACK]],
+  off: [board.off[WHITE], board.off[BLACK]],
+});
+async function assertMatchCheckerParity(game, label) {
+  const player = game.currentPlayer;
+  const context = checkerContextFor(game, match, player);
+  const common = {
+    board: smokeDto(game.board), player, die1: game.roll.die1, die2: game.roll.die2,
+    level: 'advanced', context,
+  };
+  const selected = await ask({ kind: 'select', ...common });
+  const localIndex = selectCheckerMove(smokeAgent, context, game.legalMoves, player);
+  assert.equal(selected.index, localIndex, `${label}: CPU selection`);
+  const workerRank = await ask({ kind: 'rank', ...common, limit: 3 });
+  const localRank = rankCheckerMoves(smokeAgent, context, game.legalMoves, player, 3);
+  assert.equal(workerRank.unit, 'mwc', `${label}: MWC unit`);
+  assert.equal(workerRank.entries[0].index, localRank.entries[0].index, `${label}: hint rank`);
+  assert.deepEqual(workerRank.entries.map(({ index, equity, loss }) => ({ index, equity, loss })),
+    localRank.entries.map(({ index, equity, loss }) => ({ index, equity, loss })),
+    `${label}: hint values`);
+  game.applyMove(selected.index);
+}
+function finishMatchGame(game, winner) {
+  const finalBoard = new Board();
+  finalBoard.points.fill(0);
+  finalBoard.bar[WHITE] = 0;
+  finalBoard.bar[BLACK] = 0;
+  finalBoard.off[WHITE] = winner === WHITE ? 14 : 15;
+  finalBoard.off[BLACK] = winner === BLACK ? 14 : 15;
+  finalBoard.points[winner === WHITE ? 0 : 23] = winner === WHITE ? 1 : -1;
+  game.board = finalBoard;
+  game.currentPlayer = winner;
+  game.roll = { die1: 1, die2: 2 };
+  game.legalMoves = generateMoves(finalBoard, winner, 1, 2);
+  game.state = MOVING;
+  assert.ok(game.legalMoves.length, 'final checker must have a legal bearoff');
+  const result = game.applyMove(0);
+  assert.equal(game.state, GAME_OVER);
+  assert.equal(result.winner, winner);
+}
+
+const preCrawford = match.startGame();
+assert.equal(preCrawford.crawford, false);
+await assertMatchCheckerParity(preCrawford, '3-3 pre-Crawford');
+finishMatchGame(preCrawford, WHITE);
+match.sync();
+assert.equal(match.scores[WHITE], 4, 'single win advances score from 3 to 4');
+assert.equal(match.scores[BLACK], 3);
+
+const crawford = match.startGame();
+assert.equal(crawford.crawford, true, '4-3 starts Crawford');
+await assertMatchCheckerParity(crawford, '4-3 Crawford');
+finishMatchGame(crawford, BLACK);
+match.sync();
+assert.equal(match.scores[WHITE], 4);
+assert.equal(match.scores[BLACK], 4, 'Crawford single advances score from 3 to 4');
+
+const postCrawford = match.startGame();
+assert.equal(postCrawford.crawford, false, 'next game is post-Crawford');
+assert.equal(match.crawfordDone, true);
+await assertMatchCheckerParity(postCrawford, '4-4 post-Crawford');
+console.log('5pt Match CPU/Hint smoke: 3-3 → 4-3 Crawford → 4-4 post-Crawford OK');
 
 // 決定的な局面列を作る（毎回同じものを検証する）
 let seed = 4242;

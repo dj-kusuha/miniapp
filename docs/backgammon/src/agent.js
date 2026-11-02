@@ -310,7 +310,7 @@ export const LEVELS = [
   },
   {
     id: 'champion', name: '世界チャンピオン', plies: 3, noise: 0, maxLoss: Infinity,
-    note: '3 手先読み・最高峰の強さ（思考に数秒）',
+    note: '3 手先読み・最高峰（Match MWC / Money cubefulは候補評価を2手先まで）',
   },
 ];
 
@@ -465,6 +465,8 @@ export class Agent {
      * その局面の損失が 11.77 → 1.64 mEMG になる。
      */
     this.bearoff = bearoff;
+    // checker候補を同時に評価する間だけ、重複するafterstateの5-vectorを再利用する。
+    this.checkerVectorCache = null;
   }
 
   /**
@@ -474,11 +476,30 @@ export class Agent {
    * 散らばっていると「片方だけ DB を通し忘れる」形で静かに壊れる。
    */
   vectorFor(board, turn) {
+    const cache = this.checkerVectorCache;
+    const key = cache && Array.isArray(board?.points) ? `${turn}:${boardKey(board)}` : null;
+    if (key !== null && cache.has(key)) return cache.get(key);
+
+    let result;
     if (this.bearoff !== null) {
       const exact = this.bearoff.boardProbabilities(board, turn);
-      if (exact !== null) return exact;
+      if (exact !== null) result = exact;
     }
-    return this.net.predict(encodeBoard(board, WHITE, turn));
+    if (result === undefined) result = this.net.predict(encodeBoard(board, WHITE, turn));
+    if (key !== null && cache.size < 50000) cache.set(key, result);
+    return result;
+  }
+
+  /** checker rootの同期探索中だけ、同一局面のNN推論を共有する。 */
+  withCheckerVectorCache(callback) {
+    const previous = this.checkerVectorCache;
+    if (previous) return callback();
+    this.checkerVectorCache = new Map();
+    try {
+      return callback();
+    } finally {
+      this.checkerVectorCache = previous;
+    }
   }
 
   /**

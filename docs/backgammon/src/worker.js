@@ -11,6 +11,7 @@ import { Board } from './board.js';
 import { Game, ROLLING } from './game.js';
 import { NeuralNet } from './nn.js';
 import { agentFor, setBearoffDatabase } from './agent.js';
+import { rankCheckerMoves, selectCheckerMove } from './checker.js';
 import { BearoffDatabase } from './bearoff.js';
 import { generateMoves, boardKey } from './rules.js';
 
@@ -52,9 +53,12 @@ self.onmessage = async (event) => {
     }
 
     if (kind === 'select') {
-      const { board, player, die1, die2, level } = event.data;
+      const { board, player, die1, die2, level, context } = event.data;
       const moves = generateMoves(Board.fromJson(board), player, die1, die2);
-      const index = agentForLevel(level).selectMove(moves, player);
+      const agent = agentForLevel(level);
+      const index = context
+        ? selectCheckerMove(agent, context, moves, player)
+        : agent.selectMove(moves, player);
       // メイン側と合法手の並びが同じであることは generateMoves が純関数で
       // あることから保証されるが、**鍵も返して照合できるようにする**。
       // ずれていたらメイン側が鍵で引き直す。
@@ -67,13 +71,18 @@ self.onmessage = async (event) => {
     // ヒント。深い読みでも画面を止めないよう、着手と同じくここへ逃がす。
     // 返すのは index と鍵と数値だけ（Move は盤面を抱えていて重い）。
     if (kind === 'rank') {
-      const { board, player, die1, die2, level, limit } = event.data;
+      const { board, player, die1, die2, level, limit, context } = event.data;
       const moves = generateMoves(Board.fromJson(board), player, die1, die2);
-      const ranked = agentForLevel(level).rankMoves(moves, player, limit ?? 3);
+      const agent = agentForLevel(level);
+      const result = context
+        ? rankCheckerMoves(agent, context, moves, player, limit ?? 3)
+        : { entries: agent.rankMoves(moves, player, limit ?? 3) };
       self.postMessage({
         id,
         ok: true,
-        entries: ranked.map((entry) => ({
+        unit: result.unit,
+        evaluation: result.evaluation,
+        entries: result.entries.map((entry) => ({
           index: entry.index,
           key: boardKey(entry.move.resultingBoard),
           equity: entry.equity,
