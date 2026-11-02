@@ -4,7 +4,7 @@ Issue #453: CPU着手・ヒントへcubeful/MET-MWC評価を接続する
 
 ## Status
 
-in-progress
+completed
 
 ## Background
 
@@ -107,3 +107,9 @@ reference (80 cube decisions included), the 5pt Match smoke passed, and all list
 
 `checker-performance-browser.mjs` also completed successfully in headless Edge, and
 `git diff --check` passed before commit.
+
+## Delivery
+
+- miniapp PR: https://github.com/dj-kusuha/miniapp/pull/64
+- implementation commit: `eb7ed1daff98866f44da1defdf88eec882b0b65a`
+- backgammon_engine #453にPR URLと実測・テスト結果をコメント済み。
