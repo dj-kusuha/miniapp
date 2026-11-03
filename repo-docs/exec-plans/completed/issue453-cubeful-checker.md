@@ -29,6 +29,7 @@ miniappのキューブ判断はMatch MET/MWCを使う一方、CPU着手とヒン
 - Workerとfallbackの同条件で候補値・順位が一致し、既存cubelessの呼び出し互換が保たれる。
 - 5ptの手計算fixtureでシングル/ギャモン価値、対称性、cube owner/value、Crawford/post-Crawford、terminalを検証する。
 - 0/2/3-plyのp50/p95測定を記録し、遅い経路をcubelessへ黙って落とさない。
+- 弱い段のnoise/maxLossは候補採点へ重ねず、Match/Money cube ON/OFFそれぞれの評価値へ換算して選択する。
 
 ## Steps
 
@@ -43,6 +44,8 @@ miniappのキューブ判断はMatch MET/MWCを使う一方、CPU着手とヒン
 - 2026-11-03: `miniapp` origin/main `74041ba` から専用worktreeを作成。Issue #453の対象はminiappのみ。
 - 2026-11-03: checker値の契約はengine公開`facade.js`（`fb194be049bdd4167c147f8d9113d59c6d92e291`）を参照し、5-vector確率と評価値を別項目に保つ。miniapp baseは`74041ba05767373e0c2a0ba95d689fac754b716d`、model SHAはengine / miniapp共通で`9543ecb1deaff716de1355726d3109f1529fe34e0ab68d94284654fd7871dd83`。
 - 2026-11-03: 初期局面3-1のMoney cubeful 3-plyは1標本約122秒、Match cube OFFの3-ply固定MWCはp50約29.7秒だったため、Match MWCとMoney cubefulのafterstate探索を最大1ロールに制限する。Money cube OFFの通常checker探索はprofile深度を保つ。
+- 2026-11-03: PR reviewで弱い段のnoiseがcube-aware葉評価と選択後に二重加算され、cubeless equityの`maxLoss`もMWC/cube-unitsへ直接加算される問題を確認。採点をnoise-freeにし、選択時だけnoise/maxLossを勝率ベクトルへ反映して同じ評価経路で再採点する。
+- 2026-11-03: 非ブロッカーの性能指摘に応じ、ヒット候補と連続プライムを含む接触局面をWorkerで追加計測する。
 
 ## Validation
 
@@ -50,6 +53,8 @@ miniappのキューブ判断はMatch MET/MWCを使う一方、CPU着手とヒン
 - `node tests/backgammon/checker-context.mjs`
 - `node tests/backgammon/checker-performance.mjs`
 - `node tests/backgammon/checker-performance-browser.mjs`
+- PR review回帰: 弱い段のMatch/Money cube ON/OFF、maxLoss換算、Black視点
+- 接触局面の候補数・ヒット候補数、3-plyと弱い段のWorker select/Hint p50/p95
 
 ### Performance result
 
@@ -107,6 +112,29 @@ reference (80 cube decisions included), the 5pt Match smoke passed, and all list
 
 `checker-performance-browser.mjs` also completed successfully in headless Edge, and
 `git diff --check` passed before commit.
+
+### PR review follow-up
+
+PR #64のレビューで、弱い段のnoiseがMatch MWC / Money cubeful経路で葉評価と選択後の両方に入り、
+`maxLoss`もcubeless equityからMWC / cube-unitsへ直接加算されていた点を修正した。
+候補採点をnoise-freeにし、選択時のnoise/maxLossを候補の5-vector勝率へ適用して
+同じchecker目的関数で再評価する。テストではMatch/Money cube ON/OFFとBlack視点を確認する。
+
+Headless Edge 156の実Workerで、連続プライムとブロットを含む接触局面（White 3-1、23候補、
+うち10候補がhit）を各3回測定した。p50 / p95 wall-clock milliseconds:
+
+| Level | Scenario | Worker select | Worker Hint rank |
+| --- | --- | ---: | ---: |
+| Beginner 0-ply | Money cubeful + Jacoby | 1207.4 / 1220.7 | 700.6 / 702.2 |
+| Beginner 0-ply | Match MWC cube ON | 1204.8 / 1207.0 | 700.4 / 774.9 |
+| Beginner 0-ply | Match MWC cube OFF | 1.0 / 1.0 | 0.6 / 0.7 |
+| Champion 3-ply | Money cubeful + Jacoby | 871.1 / 874.9 | 872.7 / 889.2 |
+| Champion 3-ply | Match MWC cube ON | 874.6 / 876.1 | 872.6 / 873.9 |
+| Champion 3-ply | Match MWC cube OFF | 700.6 / 707.3 | 702.9 / 755.1 |
+
+The full browser benchmark processed Worker requests for 46.5 seconds while the 10ms main-thread timer
+fired 4,642 times. The UI event loop remained responsive. `node tests/backgammon/run.mjs` passed;
+Worker decisions matched 136/136 (80 cube decisions), and `checker-context.mjs` passed 12/12.
 
 ## Delivery
 

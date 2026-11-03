@@ -121,6 +121,16 @@ function withCheckerSearchCache(agent, callback) {
   }
 }
 
+function withCheckerNoise(agent, noiseFor, callback) {
+  const previous = agent.noiseFor;
+  agent.noiseFor = noiseFor;
+  try {
+    return callback();
+  } finally {
+    agent.noiseFor = previous;
+  }
+}
+
 function checkerValue(agent, position, board, player, match, enabled, depth) {
   const next = opponent(player);
   const cubeValue = position.cube.value;
@@ -157,7 +167,7 @@ function checkerValue(agent, position, board, player, match, enabled, depth) {
     const vector = agent.terminalVector(board)
       ?? (depth > 0
         ? agent.expandRollsVector(board, next, depth, 1)
-        : agent.vectorFor(board, next));
+        : agent.probabilitiesFor(board, next));
     const playerVector = player === WHITE ? vector : flipPerspective(vector);
     return jacoby ? 2 * playerVector[0] - 1 : equity(playerVector);
   }
@@ -186,11 +196,25 @@ export function scoreCheckerMoves(agent, position, moves, player) {
   const enabled = checkerCubeEnabled(position);
   const depth = checkerSearchDepth(agent, position);
   return agent.withCheckerVectorCache(() => withCheckerSearchCache(agent, () =>
-    moves.map((move, index) => ({
-      move,
-      index,
-      value: checkerValue(agent, position, move.resultingBoard, player, match, enabled, depth),
-    })).sort((a, b) => b.value - a.value || a.index - b.index)));
+    withCheckerNoise(agent, () => 0, () =>
+      moves.map((move, index) => ({
+        move,
+        index,
+        value: checkerValue(agent, position, move.resultingBoard, player, match, enabled, depth),
+      })).sort((a, b) => b.value - a.value || a.index - b.index))));
+}
+
+function checkerMoveValueWithNoise(agent, position, move, player, noise) {
+  validateCheckerContext(position);
+  const match = matchContext(position, player);
+  const enabled = checkerCubeEnabled(position);
+  const depth = checkerSearchDepth(agent, position);
+  const whiteNoise = player === WHITE ? noise : -noise;
+  return agent.withCheckerVectorCache(() => withCheckerSearchCache(agent, () =>
+    withCheckerNoise(agent,
+      (board) => board === move.resultingBoard ? whiteNoise : 0,
+      () => checkerValue(agent, position, move.resultingBoard,
+        player, match, enabled, depth))));
 }
 
 /** Match/GameからWorkerとfallback共通のafterstate contextを作る。 */
@@ -227,12 +251,22 @@ export function selectCheckerMove(agent, position, moves, player) {
   if (moves.length <= 1) return 0;
   const scored = scoreCheckerMoves(agent, position, moves, player);
   if (!scored.length) return 0;
-  const best = scored[0].value;
+  if (agent.noise <= 0) return scored[0].index;
+
+  // noise/maxLossはcubeless equity単位。確率の勝率をずらして再評価し、
+  // MWCやcubefulの値へ変換してから足切り・選択する。
+  const cutoff = Number.isFinite(agent.maxLoss)
+    ? checkerMoveValueWithNoise(agent, position, scored[0].move,
+      player, -agent.maxLoss)
+    : -Infinity;
   let selected = scored[0];
   let selectedScore = -Infinity;
   for (const entry of scored) {
-    if (entry.value < best - agent.maxLoss) continue;
-    const noisy = entry.value + agent.noiseFor(entry.move.resultingBoard);
+    if (entry.value < cutoff) continue;
+    const noise = agent.noiseFor(entry.move.resultingBoard);
+    const noisy = noise === 0
+      ? entry.value
+      : checkerMoveValueWithNoise(agent, position, entry.move, player, noise);
     if (noisy > selectedScore) {
       selected = entry;
       selectedScore = noisy;

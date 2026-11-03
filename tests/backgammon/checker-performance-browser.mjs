@@ -42,6 +42,18 @@ try {
   const board = new Board();
   const player = WHITE;
   const moves = generateMoves(board, player, 3, 1);
+  const contactPoints = Array(24).fill(0);
+  for (const [point, count] of [[12, 2], [10, 2], [5, 3], [4, 4], [2, 4]]) {
+    contactPoints[point - 1] = count;
+  }
+  for (const [point, count] of [[9, 1], [14, 2], [15, 2], [16, 2],
+    [17, 2], [18, 2], [19, 2], [20, 2]]) contactPoints[point - 1] = -count;
+  const contactBoard = new Board(contactPoints,
+    { [WHITE]: 0, [BLACK]: 0 }, { [WHITE]: 0, [BLACK]: 0 });
+  const contactMoves = generateMoves(contactBoard, player, 3, 1);
+  const contactHitMoves = contactMoves.filter((move) =>
+    move.singles.some((single) => single.hit)).length;
+  if (contactHitMoves === 0) throw new Error('接触局面の3-1にヒット候補がありません');
   const scenarios = [
     {
       id: 'money-cubeful-jacoby',
@@ -97,6 +109,26 @@ try {
       });
     }
   }
+  const contactResults = [];
+  const contactAgent = new Agent(net, 3, filtersFor(3), { bearoff: null });
+  for (const scenario of scenarios) {
+    rankCheckerMoves(contactAgent, scenario.context, contactMoves, player, 3); // warmup
+    const times = [];
+    for (let i = 0; i < 3; i += 1) {
+      const start = performance.now();
+      rankCheckerMoves(contactAgent, scenario.context, contactMoves, player, 3);
+      times.push(performance.now() - start);
+    }
+    contactResults.push({
+      level: 'champion',
+      plies: 3,
+      scenario: scenario.id,
+      candidates: contactMoves.length,
+      wall_ms_p50: Number(percentile(times, 0.50).toFixed(2)),
+      wall_ms_p95: Number(percentile(times, 0.95).toFixed(2)),
+      samples: times.length,
+    });
+  }
   const worker = new Worker('/src/worker.js', { type: 'module' });
   let nextWorkerId = 0;
   const pending = new Map();
@@ -124,6 +156,7 @@ try {
     off: [board.off[WHITE], board.off[BLACK]],
   };
   const workerResults = [];
+  const contactWorkerResults = [];
   let uiTicksDuringWorker = 0;
   const uiTimer = setInterval(() => { uiTicksDuringWorker += 1; }, 10);
   for (const level of [
@@ -167,6 +200,52 @@ try {
       });
     }
   }
+  const contactBoardDto = {
+    points: contactBoard.points,
+    bar: [contactBoard.bar[WHITE], contactBoard.bar[BLACK]],
+    off: [contactBoard.off[WHITE], contactBoard.off[BLACK]],
+  };
+  for (const level of [
+    { id: 'beginner', plies: 0 },
+    { id: 'champion', plies: 3 },
+  ]) {
+    for (const scenario of scenarios) {
+      const common = {
+        board: contactBoardDto,
+        player,
+        die1: 3,
+        die2: 1,
+        level: level.id,
+        context: scenario.context,
+      };
+      await askWorker({ kind: 'select', ...common }); // warmup
+      const selectTimes = [];
+      for (let i = 0; i < 3; i += 1) {
+        const start = performance.now();
+        await askWorker({ kind: 'select', ...common });
+        selectTimes.push(performance.now() - start);
+      }
+      await askWorker({ kind: 'rank', ...common, limit: 3 }); // warmup
+      const rankTimes = [];
+      for (let i = 0; i < 3; i += 1) {
+        const start = performance.now();
+        await askWorker({ kind: 'rank', ...common, limit: 3 });
+        rankTimes.push(performance.now() - start);
+      }
+      contactWorkerResults.push({
+        level: level.id,
+        plies: level.plies,
+        scenario: scenario.id,
+        candidates: contactMoves.length,
+        hit_candidates: contactHitMoves,
+        select_ms_p50: Number(percentile(selectTimes, 0.50).toFixed(2)),
+        select_ms_p95: Number(percentile(selectTimes, 0.95).toFixed(2)),
+        rank_ms_p50: Number(percentile(rankTimes, 0.50).toFixed(2)),
+        rank_ms_p95: Number(percentile(rankTimes, 0.95).toFixed(2)),
+        samples: selectTimes.length,
+      });
+    }
+  }
   clearInterval(uiTimer);
   const workerWallMs = performance.now() - workerStarted;
   await worker.terminate();
@@ -176,9 +255,16 @@ try {
     candidates: moves.length,
     warmup: 1,
     results,
+    contact_position: {
+      description: 'prime with blot, White 3-1',
+      candidates: contactMoves.length,
+      hit_candidates: contactHitMoves,
+      champion_results: contactResults,
+    },
     worker: {
       warmup: 1,
       results: workerResults,
+      contact_position_results: contactWorkerResults,
       total_ms: Number(workerWallMs.toFixed(2)),
       ui_ticks_while_processing: uiTicksDuringWorker,
       ui_tick_interval_ms: 10,

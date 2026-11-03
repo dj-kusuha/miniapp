@@ -214,6 +214,7 @@ JSON、2026-09-15 の cycle200 比較選定モデル）。推論は**行列積�
 - Matchはcube ON/OFF、Crawford/pre/post-Crawfordを問わずMET/MWCで比較。cube OFFとCrawfordでは固定cubeのMWCを使う
 - 出力5-vector由来の勝率・ギャモン率は参考値として残し、MWC/cubeful値やlossとは混ぜない
 - Match MWCとMoney cubefulでは、候補評価のafterstate探索を最大1ロールに制限する。Money cube OFFは設定段の深さを保つ
+- 弱い段のCPU選択では候補値をnoise-freeで採点し、`noise` / `maxLoss` を勝率ベクトルへ反映して同じchecker評価で再計算する。MWC / cube-unitsへ変換した値で足切りと選択を行う
 
 ワイド化で評価性能が上がった一方、3-ply は末端評価の回数が大きくなる。Money cubefulと
 Match MWCは候補評価を最大2-ply相当（着手後の相手ロール1回）に制限し、深い探索の急増を抑える。
@@ -271,10 +272,14 @@ equity 差 0.3 の明らかな手は σ=0.05 ではまず逆転せず、差 0.02
 | X% の確率でランダム手 | **間違いが難易度と無相関**になる。ふだん完璧で突然おかしい＝人間味の逆 |
 
 **つまみは 2 つ。** ノイズは正規分布で裾が無限に伸びるので、
-**最善から `maxLoss` 以上劣る手は候補から外してから**ノイズを掛ける。
+`maxLoss` をcubeless equity単位で最善値へ適用し、その変化を候補と同じ評価経路へ通して
+**評価単位に換算した足切り値を作ってから**ノイズを選択へ反映する。
 
 - `noise`（σ）… 際どい判断をどれだけ取り違えるか＝**間違える頻度**
 - `maxLoss` … 最善からどれだけ落ちてよいか＝**間違いの深さの上限**
+
+Match MWC / Money cubefulでは、弱さ調整を5-vectorの勝率へ反映し、同じchecker目的関数で再評価する。
+そのためノイズと`maxLoss`の単位はcube-aware値へ自然に換算され、候補評価そのものにはノイズが混ざらない。
 
 「よく間違えるが、絶対にアホなことはしない」を作るのに両方が要る。
 

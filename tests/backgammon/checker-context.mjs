@@ -21,7 +21,14 @@ function makeAgent(values = new WeakMap()) {
     useCubeHead: false,
   });
   agent.vectorFor = (board) => values.get(board) ?? [0.5, 0.1, 0.02, 0.1, 0.02];
-  agent.probabilitiesFor = (board) => agent.vectorFor(board);
+  agent.probabilitiesFor = (board, turn) => {
+    const vector = agent.vectorFor(board, turn);
+    const noise = agent.noiseFor(board);
+    if (noise === 0) return vector;
+    const noisy = [...vector];
+    noisy[0] = Math.min(0.999, Math.max(0.001, noisy[0] + noise / 2));
+    return noisy;
+  };
   return agent;
 }
 
@@ -241,6 +248,78 @@ test('cube OFF Matchの選択、順位、Hint lossは同じMWC候補値を共有
   assert.deepEqual(Object.keys(ranked.entries[0].probabilities),
     ['win1', 'win2', 'win3', 'lose1', 'lose2', 'lose3']);
 });
+
+test('弱い段のノイズとmaxLossは4モードでnoise-free値へ評価単位変換する', () => {
+  const scenarios = [
+    { name: 'Money cube OFF', ctx: context({ mode: 'money', enabled: false }) },
+    { name: 'Money cubeful', ctx: context({ mode: 'money', enabled: true, available: true }) },
+    { name: 'Match cube OFF', ctx: context({ mode: 'match', enabled: false }) },
+    { name: 'Match MWC', ctx: context({ mode: 'match', enabled: true, available: true }) },
+  ];
+
+  for (const { name, ctx } of scenarios) {
+    const a = board();
+    const b = board();
+    const values = new WeakMap([
+      [a, [0.62, 0.16, 0.02, 0.08, 0.01]],
+      [b, [0.59, 0.12, 0.01, 0.11, 0.02]],
+    ]);
+    const agent = makeAgent(values);
+    agent.noise = 0.1;
+    agent.maxLoss = 0.2;
+    agent.cubeEfficiencyDtFor = () => agent.cubeEfficiency;
+    const noiseByBoard = new WeakMap([[a, 0.08], [b, -0.04]]);
+    agent.noiseFor = (candidate) => noiseByBoard.get(candidate) ?? 0;
+    const probabilityReads = [];
+    const originalProbabilitiesFor = agent.probabilitiesFor.bind(agent);
+    agent.probabilitiesFor = (candidate, turn) => {
+      probabilityReads.push({ candidate, noise: agent.noiseFor(candidate) });
+      return originalProbabilitiesFor(candidate, turn);
+    };
+    const moves = [{ resultingBoard: a }, { resultingBoard: b }];
+
+    const scored = scoreCheckerMoves(agent, ctx, moves, WHITE);
+    assert.ok(probabilityReads.length > 0, `${name}: 評価ベクトルが使われる`);
+    assert.ok(probabilityReads.every((read) => read.noise === 0),
+      `${name}: 候補値はnoise-free`);
+
+    probabilityReads.length = 0;
+    agent.maxLoss = Infinity;
+    selectCheckerMove(agent, ctx, moves, WHITE);
+    for (const [candidate, noise] of noiseByBoardEntries(a, b, noiseByBoard)) {
+      assert.ok(probabilityReads.some((read) =>
+        read.candidate === candidate && read.noise === noise),
+      `${name}: ${noise} equityのノイズを選択評価へ渡す`);
+    }
+
+    probabilityReads.length = 0;
+    agent.maxLoss = 0.2;
+    selectCheckerMove(agent, ctx, moves, WHITE);
+    assert.ok(probabilityReads.some((read) =>
+      read.candidate === scored[0].move.resultingBoard && read.noise === -0.2),
+    `${name}: maxLossを同じ評価経路で変換する`);
+  }
+
+  const candidate = board();
+  const agent = makeAgent(new WeakMap([[candidate, [0.6, 0.1, 0, 0.1, 0]]]));
+  agent.noise = 0.1;
+  agent.maxLoss = Infinity;
+  agent.noiseFor = () => 0.08;
+  const reads = [];
+  const originalProbabilitiesFor = agent.probabilitiesFor.bind(agent);
+  agent.probabilitiesFor = (position, turn) => {
+    reads.push(agent.noiseFor(position));
+    return originalProbabilitiesFor(position, turn);
+  };
+  selectCheckerMove(agent, context({ mode: 'money', enabled: false }),
+    [{ resultingBoard: candidate }, { resultingBoard: board() }], BLACK);
+  assert.ok(reads.includes(-0.08), 'Black視点ではWhite確率へのノイズ符号を反転する');
+});
+
+function* noiseByBoardEntries(a, b, noiseByBoard) {
+  yield [a, noiseByBoard.get(a)];
+  yield [b, noiseByBoard.get(b)];
+}
 
 test('Match/GameからWorker DTOへscore・Crawford・Jacoby・権利が届く', () => {
   const makeMatch = ({ scoreWhite = 3, scoreBlack = 3, crawfordDone = false, useCube = true } = {}) => {
