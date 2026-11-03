@@ -5,11 +5,12 @@
 // 解消。両方使える目が無いときはそのまま使える方の目を使う）。1 手ぶん動かす
 // たびに再描画し、次に動かせる駒をハイライトする。
 
-import { WHITE, BLACK } from './src/board.js';
+import { WHITE, BLACK, opponent } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
 import {
   agentFor, levelById, setBearoffDatabase, DEFAULT_LEVEL, ADVICE_LEVEL,
 } from './src/agent.js';
+import { checkerContextFor, rankCheckerMoves, selectCheckerMove } from './src/checker.js';
 import { BearoffDatabase } from './src/bearoff.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
@@ -185,6 +186,7 @@ async function askCube(game, kind) {
  * 返すのは `moves` の index。
  */
 async function chooseMove(board, player, roll, moves, level) {
+  const context = checkerContextFor(state.game, state.match, player);
   if (thinker.worker && moves.length > 1) {
     try {
       const reply = await ask({
@@ -194,7 +196,7 @@ async function chooseMove(board, player, roll, moves, level) {
           bar: [board.bar[WHITE], board.bar[BLACK]],
           off: [board.off[WHITE], board.off[BLACK]],
         },
-        player, die1: roll.die1, die2: roll.die2, level,
+        player, die1: roll.die1, die2: roll.die2, level, context,
       });
       // 合法手の並びは generateMoves が純関数なので一致するはずだが、
       // 念のため鍵で照合する。ずれていたら鍵で引き直す。
@@ -206,7 +208,7 @@ async function chooseMove(board, player, roll, moves, level) {
       console.warn('Worker での思考に失敗しました。こちらで選びます', error);
     }
   }
-  return state.agent.selectMove(moves, player);
+  return selectCheckerMove(state.agent, context, moves, player);
 }
 
 // ── 起動 ──────────────────────────────────────
@@ -477,6 +479,7 @@ $('dice').addEventListener('click', flipDice);
  * その間ずっと画面が固まるので、速い段でも Worker 経由のままにしておく。
  */
 async function rankMoves(board, player, roll, moves, level, limit = 3) {
+  const context = checkerContextFor(state.game, state.match, player);
   if (thinker.worker) {
     try {
       const reply = await ask({
@@ -486,7 +489,7 @@ async function rankMoves(board, player, roll, moves, level, limit = 3) {
           bar: [board.bar[WHITE], board.bar[BLACK]],
           off: [board.off[WHITE], board.off[BLACK]],
         },
-        player, die1: roll.die1, die2: roll.die2, level, limit,
+        player, die1: roll.die1, die2: roll.die2, level, limit, context,
       });
       // 着手のときと同じく、**鍵で照合**してからメイン側の Move に結び直す
       const entries = reply.entries.map((entry) => {
@@ -496,13 +499,15 @@ async function rankMoves(board, player, roll, moves, level, limit = 3) {
           : moves.findIndex((m) => boardKey(m.resultingBoard) === entry.key);
         return at >= 0 ? { ...entry, index: at, move: moves[at] } : null;
       });
-      if (entries.length && entries.every(Boolean)) return entries;
+      if (entries.length && entries.every(Boolean)) {
+        return { entries, unit: reply.unit, evaluation: reply.evaluation };
+      }
       console.warn('Worker のヒントがメイン側の合法手に見つかりません。こちらで計算します');
     } catch (error) {
       console.warn('Worker でのヒント計算に失敗しました。こちらで計算します', error);
     }
   }
-  return state.adviceAgent.rankMoves(moves, player, limit);
+  return rankCheckerMoves(state.adviceAgent, context, moves, player, limit);
 }
 
 $('advice-button').addEventListener('click', async () => {
@@ -520,7 +525,7 @@ $('advice-button').addEventListener('click', async () => {
       game.board, game.currentPlayer, game.roll, root, ADVICE_LEVEL, 3);
     // **待っている間に局面が動いていたら捨てる。** 深い段では数秒あるので起きる。
     if (state.runId === runId && state.game === game && game.legalMoves === root) {
-      state.advice = { root, entries };
+      state.advice = { root, ...entries };
     }
   } finally {
     state.advising = false;
@@ -1299,12 +1304,8 @@ const pct = (v) => `${(v * 100).toFixed(1)}%`;
 /**
  * ヒントを描く。
  *
- * 出すのは**最善手の表記**と、**その手を指したあとの見込み**（勝ち / 負けを
- * ギャモン・バックギャモンまで分けたもの）。次点も equity の差つきで並べる。
- *
- * > **順位と確率で読みの深さが違う。** 順位は 2 手先読みで付けているが、
- * > 確率は着手後の局面を先読みなしで評価したもの。探索が equity しか返さない
- * > ため。**「この % を根拠にこの順位」ではない。**
+ * 出すのは**最善手の表記**と、**その手を指したあとの5-vector由来の見込み**。
+ * 候補差はMoney cube-unitsまたはMatch MWCで表示し、確率とは別の指標にする。
  */
 function renderAdvice() {
   const el = $('advice');
@@ -1314,6 +1315,10 @@ function renderAdvice() {
     return;
   }
   const [best, ...rest] = state.advice.entries;
+  const unit = state.advice.unit;
+  const lossText = (loss) => unit === 'mwc'
+    ? `${loss.toFixed(4)} MWC`
+    : `${loss.toFixed(3)} キューブ単位`;
   const p = best.probabilities;
   const win = p.win1 + p.win2 + p.win3;
 
@@ -1338,12 +1343,13 @@ function renderAdvice() {
     list.className = 'advice-rest';
     for (const entry of rest) {
       const li = document.createElement('li');
-      // 差は mEMG（1 局あたりの期待得点の 1/1000）。小さいほど僅差
-      li.textContent = `${entry.move.toString()}（−${(entry.loss * 1000).toFixed(0)}）`;
+      li.textContent = `${entry.move.toString()}（−${lossText(entry.loss)}）`;
       list.appendChild(li);
     }
     el.appendChild(list);
-    legend.textContent = '括弧内は最善手との差（1/1000 点）。小さいほど僅差。';
+    legend.textContent = unit === 'mwc'
+      ? '括弧内は最善手との差（Match MWC、0〜1）。確率表示は別の参考値です。'
+      : '括弧内は最善手との差（キューブ単位）。確率表示は別の参考値です。';
   } else {
     // 候補が 1 つしか残らないのは「ほかが明らかに劣る」ということ。
     // 空欄にせず、そう言ってしまう方が初心者には有用。

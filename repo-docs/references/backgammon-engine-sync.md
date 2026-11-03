@@ -25,6 +25,20 @@ model の SHA が異なる場合は、モデルの用途・世代を確認して
 
 `facade.js` の `analyzeCube()` 公開 API は engine issue #389 で別管理しているため、そこで確定していない Money CubeHead の係数・API をこの同期へ混ぜません。
 
+## Issue #453: checker facade adapter（2026-11-03）
+
+Issue #453の実装対象はminiapp。`backgammon_engine` の公開JS facadeを評価式の参照正本として、
+miniappの `docs/backgammon/src/checker.js` にCPU着手・Hint共通のadapterを追加した。
+
+- 参照engine SHA: `fb194be049bdd4167c147f8d9113d59c6d92e291`
+- 実装元miniapp SHA: `74041ba05767373e0c2a0ba95d689fac754b716d`
+- モデルSHA（engine / miniapp一致）: `9543ecb1deaff716de1355726d3109f1529fe34e0ab68d94284654fd7871dd83`
+- 検索重み・Agentの共有search core・trainer・XG教師は変更していない。Workerとfallbackは同じchecker adapterを呼ぶ。
+- Money cubefulとMatch MWCは、初期局面16候補の3-plyがそれぞれ約122秒、約29.7秒だったため、
+  checker afterstate探索を最大1ロールに制限。Money cube OFFはprofileのchecker深度を維持する。
+- 0/2/3-plyのNode / headless Edge測定、CPU/Hint、Crawford前後のWorker smokeは
+  `repo-docs/exec-plans/completed/issue453-cubeful-checker.md` を参照。
+
 ## Fixture の更新
 
 ### Money cube parity
