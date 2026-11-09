@@ -1259,10 +1259,14 @@ export class Agent {
       return [nd, Math.min(tk, 1.0)];
     };
 
-    // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める
+    // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める。
+    // 差は**判定境界からの距離**で測る。境界は `doubleMargin` のぶん
+    // 動いているので、旧境界（best - nd）で測ると、境界近くの局面を
+    // 浅い評価のまま確定させてしまう。
     if (this.cubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
       const [nd, best] = decide(0);
-      if (Math.abs(best - nd) > this.cubeScreenMargin) return best > nd + this.doubleMargin;
+      const advantage = best - nd - this.doubleMargin;
+      if (Math.abs(advantage) > this.cubeScreenMargin) return advantage > 0;
     }
     const [nd, best] = decide(null);
     return best > nd + this.doubleMargin;
