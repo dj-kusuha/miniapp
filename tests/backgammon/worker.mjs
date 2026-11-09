@@ -314,6 +314,53 @@ for (const level of LEVELS) {
   }
 }
 
+// **初心者のマッチ文脈でも Worker とメインが一致すること（2026-11-09）。**
+// 上のキューブ照合はマネー（match: null）だけなので、ダブルマージンが
+// マッチ側にも付いた初心者については、マッチ文脈の往復も固定する。
+{
+  const agent = agentFor(net, 'beginner');
+  const matchCtx = {
+    length: 5, away: { [WHITE]: 2, [BLACK]: 2 }, crawfordPlayed: false,
+  };
+  let board = new Board();
+  let turn = WHITE;
+  for (let step = 0; step < 2; step += 1) {
+    const payload = {
+      kind: 'cube',
+      board: {
+        points: board.points,
+        bar: [board.bar[WHITE], board.bar[opponent(WHITE)]],
+        off: [board.off[WHITE], board.off[opponent(WHITE)]],
+      },
+      player: turn, cubeValue: 1, cubeOwner: null, jacoby: false,
+      level: 'beginner', match: matchCtx,
+    };
+    for (const kind of ['double', 'accept']) {
+      const reply = await ask({ ...payload, ask: kind });
+      const game = new Game(new Board([...board.points],
+        { WHITE: board.bar[WHITE], BLACK: board.bar[opponent(WHITE)] },
+        { WHITE: board.off[WHITE], BLACK: board.off[opponent(WHITE)] }),
+      Math.random, { jacoby: false });
+      game.currentPlayer = turn;
+      game.state = ROLLING;
+      game.cube.value = 1;
+      game.cube.owner = null;
+      let mine;
+      if (kind === 'accept') { game.proposeDouble(); mine = agent.shouldAcceptDouble(game, matchCtx); }
+      else { mine = agent.shouldDouble(game, matchCtx); }
+      checked += 1;
+      cubeChecked += 1;
+      if (reply.answer !== Boolean(mine)) {
+        bad += 1;
+        console.log(`  beginner マッチキューブ(${kind}): worker=${reply.answer} main=${Boolean(mine)}`);
+      }
+    }
+    const moves = generateMoves(board, turn, die(), die());
+    if (moves.length) board = moves[agent.selectMove(moves, turn)].resultingBoard;
+    turn = opponent(turn);
+  }
+}
+
 // 異常系: 知らない要求は ok:false で返る
 let rejected = false;
 try { await ask({ kind: 'なにこれ' }); } catch { rejected = true; }

@@ -7,15 +7,21 @@
 //   2. **足切りが効く**こと（最善から maxLoss 以上劣る手を選ばない）
 //   3. **段が単調に弱い**こと（ノイズが大きいほど平均損失が増える）
 //   4. **キューブにもノイズが乗る**こと（手だけヘボくならない）
-//   5. **ヒントが読み違えず、探索が効いている**こと（壊れても静かなので固定する）
+//   5. **初心者だけ**ダブルマージンが付き、ベアオフDBを使わないこと（2026-11-09）
+//   6. **ヒントが読み違えず、探索が効いている**こと（壊れても静かなので固定する）
+//   7. **ダブルマージンが実際の判断を変える**ことと、search の足切りが
+//      新しい判定境界で測られていること（2026-11-09 レビュー対応）
 
 import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import { WHITE, opponent } from '../../docs/backgammon/src/board.js';
 import {
   LEVELS, DEFAULT_LEVEL, ADVICE_LEVEL, agentFor, levelById, gaussianFor,
+  setBearoffDatabase, DEFAULT_FILTERS,
 } from '../../docs/backgammon/src/agent.js';
 import { generateMoves } from '../../docs/backgammon/src/rules.js';
+import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
+import { loadBearoffForTests } from './bearoff-setup.mjs';
 
 const net = new NeuralNet(JSON.parse(
   readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
@@ -181,7 +187,33 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
   if (!(p[0] > 0 && p[0] < 1)) fail(`ノイズ後の P(win) が範囲外: ${p[0]}`);
 }
 
-// (5) ヒント（`rankMoves`）。**壊れても静かなので固定する。**
+// (5) 初心者だけの体感調整（2026-11-09）。**静かに外れると初心者がまた
+//     完璧になる**ので、付いていることと他段に付いていないことを固定する。
+{
+  const weak = agentFor(net, WEAKEST.id);
+  if (!(weak.doubleMargin > 0)) fail('初心者に doubleMargin が付いていない');
+  if (!(weak.matchDoubleMargin > 0)) fail('初心者に matchDoubleMargin が付いていない');
+  for (const level of LEVELS.slice(1)) {
+    const agent = agentFor(net, level.id);
+    if (agent.doubleMargin !== 0 || agent.matchDoubleMargin !== 0) {
+      fail(`${level.id} にダブルマージンが付いている（初心者だけのつもり）`);
+    }
+  }
+  // ベアオフDBを配った状態で、初心者だけ受け取らないこと
+  loadBearoffForTests();
+  try {
+    if (agentFor(net, WEAKEST.id).bearoff !== null) {
+      fail('初心者がベアオフDBを使っている（終盤だけ完璧になる）');
+    }
+    if (agentFor(net, CLEAN.id).bearoff === null) {
+      fail('ノイズ無しの段がベアオフDBを受け取っていない');
+    }
+  } finally {
+    setBearoffDatabase(null);
+  }
+}
+
+// (6) ヒント（`rankMoves`）。**壊れても静かなので固定する。**
 //
 // 検証は**2 段構え**にしてある: 仕組みは速い段で数を回し、**`ADVICE_LEVEL` が
 // 本当にその段で繋がっているか**だけを少数の局面で確かめる。
@@ -262,6 +294,94 @@ let adviceStats = null;
   adviceStats = {
     sameAsSelect, differFromFlat, total: adviceCases.length, deepChecked, plies: level.plies,
   };
+}
+
+// (7) ダブルマージンの振る舞いと、search の足切りの境界（レビュー対応）。
+//
+// 設定値が付いているだけでは「判断が変わる」保証にならないので、
+// 判断そのものが境界で反転することを、探索の中身を脚本化して確かめる。
+{
+  const freshGame = () => {
+    const game = new Game(new Board(), Math.random, { jacoby: false });
+    game.currentPlayer = WHITE;
+    game.state = ROLLING;
+    return game;
+  };
+
+  // ── マネー（閾値フォールバック経路）: equity 0.55 は素の基準 0.45 では
+  //    ダブル、マージン 0.15 を足した 0.60 ではダブルしない。
+  const thresholdAgent = (doubleMargin) => {
+    const agent = new Agent(net, 0, DEFAULT_FILTERS, {
+      noise: 0, doubleMargin, cubeDecision: 'threshold', useCubeHead: false,
+    });
+    agent.searchedEquityFor = () => 0.55;
+    agent.jacobyEquityFor = () => 0.55;
+    return agent;
+  };
+  if (thresholdAgent(0).shouldDouble(freshGame(), null) !== true) {
+    fail('マネー: マージン 0 で equity 0.55 がダブルにならない');
+  }
+  if (thresholdAgent(0.15).shouldDouble(freshGame(), null) !== false) {
+    fail('マネー: マージン 0.15 で equity 0.55 がダブルになってしまう');
+  }
+
+  // ── マッチ（search 経路）: take 0.52 / noDouble 0.50 は素ではダブル、
+  //    マージン 0.03 を足すとダブルしない。
+  const matchAgent = (matchDoubleMargin) => {
+    const agent = new Agent(net, 0, DEFAULT_FILTERS, {
+      noise: 0, matchDoubleMargin, useCubeHead: false,
+    });
+    agent.matchCubeSearch = () => ({ noDouble: 0.50, take: 0.52, drop: 0.60 });
+    return agent;
+  };
+  const matchCtx = {
+    length: 5, away: { [WHITE]: 2, [opponent(WHITE)]: 2 }, crawfordPlayed: true,
+  };
+  if (matchAgent(0).shouldDouble(freshGame(), matchCtx) !== true) {
+    fail('マッチ: マージン 0 で take 0.52 がダブルにならない');
+  }
+  if (matchAgent(0.03).shouldDouble(freshGame(), matchCtx) !== false) {
+    fail('マッチ: マージン 0.03 で take 0.52 がダブルになってしまう');
+  }
+
+  // ── マネー search の足切り: 差は新しい判定境界からの距離で測る。
+  //    `cubefulSearch` を脚本化し、葉 0 段（leaf=0）と深い評価（leaf=null）
+  //    で違う値を返す。nd は owner='center'、take 側は owner='opponent'。
+  const scriptedAgent = (leaf0, deep) => {
+    const agent = new Agent(net, 0, DEFAULT_FILTERS, {
+      noise: 0, doubleMargin: 0.15, cubeLeafPlies: 1, cubeScreenMargin: 0.05,
+      useCubeHead: false,
+    });
+    const calls = [];
+    agent.cubefulSearch = (board, turn, owner, depth, jacoby, leaf) => {
+      calls.push(leaf);
+      const v = leaf === null ? deep : leaf0;
+      return owner === 'opponent' ? v.tk : v.nd;
+    };
+    return { agent, calls };
+  };
+  // 境界の内側（浅い advantage -0.03）: 深い評価へ進み、その結果で決まる。
+  // 旧実装は |0.12| > 0.05 で浅いまま確定し、false を返していた。
+  {
+    const { agent, calls } = scriptedAgent(
+      { nd: 0.50, tk: 0.31 }, { nd: 0.50, tk: 0.40 });
+    if (agent.shouldDoubleSearch(freshGame()) !== true) {
+      fail('search 足切り: 境界の内側なのに深い評価の結果（ダブル）にならない');
+    }
+    if (!calls.includes(null)) {
+      fail('search 足切り: 境界の内側なのに深い評価へ進んでいない');
+    }
+  }
+  // 境界の外側（浅い advantage +0.25 / -0.25）: 足切りで確定し、深く読まない。
+  for (const [leaf0, want] of [[{ nd: 0.50, tk: 0.45 }, true], [{ nd: 0.50, tk: 0.20 }, false]]) {
+    const { agent, calls } = scriptedAgent(leaf0, { nd: 0.50, tk: 0.40 });
+    if (agent.shouldDoubleSearch(freshGame()) !== want) {
+      fail(`search 足切り: 境界の外側で浅い評価の結果（${want}）にならない`);
+    }
+    if (calls.includes(null)) {
+      fail('search 足切り: 境界の外側なのに深い評価へ進んでしまった');
+    }
+  }
 }
 
 // ── 結果 ────────────────────────────────────
