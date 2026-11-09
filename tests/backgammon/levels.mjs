@@ -7,15 +7,18 @@
 //   2. **足切りが効く**こと（最善から maxLoss 以上劣る手を選ばない）
 //   3. **段が単調に弱い**こと（ノイズが大きいほど平均損失が増える）
 //   4. **キューブにもノイズが乗る**こと（手だけヘボくならない）
-//   5. **ヒントが読み違えず、探索が効いている**こと（壊れても静かなので固定する）
+//   5. **初心者だけ**ダブルマージンが付き、ベアオフDBを使わないこと（2026-11-09）
+//   6. **ヒントが読み違えず、探索が効いている**こと（壊れても静かなので固定する）
 
 import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import { WHITE, opponent } from '../../docs/backgammon/src/board.js';
 import {
   LEVELS, DEFAULT_LEVEL, ADVICE_LEVEL, agentFor, levelById, gaussianFor,
+  setBearoffDatabase,
 } from '../../docs/backgammon/src/agent.js';
 import { generateMoves } from '../../docs/backgammon/src/rules.js';
+import { loadBearoffForTests } from './bearoff-setup.mjs';
 
 const net = new NeuralNet(JSON.parse(
   readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
@@ -181,7 +184,33 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
   if (!(p[0] > 0 && p[0] < 1)) fail(`ノイズ後の P(win) が範囲外: ${p[0]}`);
 }
 
-// (5) ヒント（`rankMoves`）。**壊れても静かなので固定する。**
+// (5) 初心者だけの体感調整（2026-11-09）。**静かに外れると初心者がまた
+//     完璧になる**ので、付いていることと他段に付いていないことを固定する。
+{
+  const weak = agentFor(net, WEAKEST.id);
+  if (!(weak.doubleMargin > 0)) fail('初心者に doubleMargin が付いていない');
+  if (!(weak.matchDoubleMargin > 0)) fail('初心者に matchDoubleMargin が付いていない');
+  for (const level of LEVELS.slice(1)) {
+    const agent = agentFor(net, level.id);
+    if (agent.doubleMargin !== 0 || agent.matchDoubleMargin !== 0) {
+      fail(`${level.id} にダブルマージンが付いている（初心者だけのつもり）`);
+    }
+  }
+  // ベアオフDBを配った状態で、初心者だけ受け取らないこと
+  loadBearoffForTests();
+  try {
+    if (agentFor(net, WEAKEST.id).bearoff !== null) {
+      fail('初心者がベアオフDBを使っている（終盤だけ完璧になる）');
+    }
+    if (agentFor(net, CLEAN.id).bearoff === null) {
+      fail('ノイズ無しの段がベアオフDBを受け取っていない');
+    }
+  } finally {
+    setBearoffDatabase(null);
+  }
+}
+
+// (6) ヒント（`rankMoves`）。**壊れても静かなので固定する。**
 //
 // 検証は**2 段構え**にしてある: 仕組みは速い段で数を回し、**`ADVICE_LEVEL` が
 // 本当にその段で繋がっているか**だけを少数の局面で確かめる。

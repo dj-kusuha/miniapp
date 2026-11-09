@@ -289,8 +289,15 @@ export const DEEP_CUBE = {
 
 export const LEVELS = [
   {
-    id: 'beginner', name: '初心者', plies: 0, noise: 0.10, maxLoss: 0.50,
+    // **2026-11-09 の体感調整（実験値）。** σ=0.10 / cap 0.5 の実測 ER 34.6 は
+    // gnubg 区分では Beginner に入ったばかりで、実対局では強すぎたため、
+    // 初心者だけノイズと足切りを広げ、キューブは慎重にし、ベアオフDBの
+    // 厳密解は使わない。ER の再測定（gnubg・docker）は未実施で、測り直したら
+    // この値も見直すこと（repo-docs/exec-plans/completed/beginner-level-tuning.md）。
+    id: 'beginner', name: '初心者', plies: 0, noise: 0.20, maxLoss: 1.00,
     note: '読み違えが多め',
+    cube: { doubleMargin: 0.15, matchDoubleMargin: 0.03 },
+    useBearoff: false,
   },
   {
     id: 'casual', name: 'カジュアル', plies: 0, noise: 0.05, maxLoss: 0.50,
@@ -360,6 +367,10 @@ export function agentFor(net, levelId) {
     // **段ごとのキューブ設定。** 無い段は Agent の既定（engine と同じ）。
     // 強い段だけ深く読ませるための口（`DEEP_CUBE`）。
     ...(level.cube ?? {}),
+    // **ベアオフDBを使わない段（初心者）。** 厳密解のままでは終盤だけ
+    // 完璧になる。`bearoff: null` を明示するとコンストラクタの既定
+    // （共有DB）に落ちないので、この形で渡す。
+    ...(level.useBearoff === false ? { bearoff: null } : {}),
   });
 }
 
@@ -387,6 +398,12 @@ export class Agent {
     matchCubeScreenMargin = DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
     cubeCashOption = DEFAULT_CUBE_CASH_OPTION,
     cubeCashAlpha = DEFAULT_CUBE_CASH_ALPHA,
+    // **ダブルを慎重にする段だけの上乗せマージン（既定 0 = 従来どおり）。**
+    // `doublePoint` は閾値フォールバック経路でしか効かないため、実戦の
+    // search / cubeful 判断へ効く専用のつまみとして持つ。マネーは
+    // cubeful equity（点）、マッチは MWC で桁が違うので分ける。
+    doubleMargin = 0,
+    matchDoubleMargin = 0,
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
@@ -409,6 +426,8 @@ export class Agent {
     this.searchPlies = searchPlies;
     this.filters = filters;
     this.doublePoint = doublePoint;
+    this.doubleMargin = doubleMargin;
+    this.matchDoubleMargin = matchDoubleMargin;
     this.cubeOwnership = cubeOwnership;
     this.cubeEfficiency = cubeEfficiency;
     this.cubeEfficiencyDt = cubeEfficiencyDt;
@@ -1243,10 +1262,10 @@ export class Agent {
     // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める
     if (this.cubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
       const [nd, best] = decide(0);
-      if (Math.abs(best - nd) > this.cubeScreenMargin) return best > nd;
+      if (Math.abs(best - nd) > this.cubeScreenMargin) return best > nd + this.doubleMargin;
     }
     const [nd, best] = decide(null);
-    return best > nd;
+    return best > nd + this.doubleMargin;
   }
 
   /** 3 つのキューブ込み equity を比べてダブルするか決める（ADR-0017 段 A）。 */
@@ -1271,7 +1290,7 @@ export class Agent {
     }
 
     const take = 2.0 * this.cubefulEquity(vector, 'opponent', xDt);
-    return Math.min(take, 1.0) > noDouble;
+    return Math.min(take, 1.0) > noDouble + this.doubleMargin;
   }
 
   /**
@@ -1299,7 +1318,7 @@ export class Agent {
           const holdMargin = (!match.crawfordPlayed && opponentTakes && game.cube.value === 1)
             ? (awayThem <= 2 ? 0.045 : 0.020)
             : 0.0;
-          return [s.noDouble + holdMargin, Math.min(s.take, s.drop)];
+          return [s.noDouble + holdMargin + this.matchDoubleMargin, Math.min(s.take, s.drop)];
         };
         if (this.matchCubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
           const [nd, best] = decide(this.matchCubeSearch(game, proposer, match, 0));
@@ -1316,7 +1335,7 @@ export class Agent {
       // 定数で手当てしていた。探索版では葉の模型が同じ役割を果たす。
       const opponentTakes = e.take <= e.pass;
       const holdMargin = (opponentTakes && game.cube.value === 1) ? 0.020 : 0.0;
-      return Math.min(e.take, e.pass) > (e.noDouble + holdMargin);
+      return Math.min(e.take, e.pass) > (e.noDouble + holdMargin + this.matchDoubleMargin);
     }
 
     if (this.cubeDecision === 'cubeful') {
@@ -1333,7 +1352,7 @@ export class Agent {
       ? this.jacobyEquityFor(game.board, proposer, proposer)
       : this.searchedEquityFor(game.board, proposer, proposer);
 
-    if (value < this.doublePoint) return false;
+    if (value < this.doublePoint + this.doubleMargin) return false;
 
     // too good to double: 相手がドロップするなら +1 で終わってしまう。
     // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
