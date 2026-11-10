@@ -7,17 +7,21 @@
 //   2. **足切りが効く**こと（最善から maxLoss 以上劣る手を選ばない）
 //   3. **段が単調に弱い**こと（ノイズが大きいほど平均損失が増える）
 //   4. **キューブにもノイズが乗る**こと（手だけヘボくならない）
-//   5. **初心者だけ**ダブルマージンが付き、ベアオフDBを使わないこと（2026-11-09）
+//   5. **初心者だけ**キューブマージン（ダブル／テイク）が付き、ベアオフDBを
+//      使わないこと（2026-11-09、テイクは 2026-11-10 追加）
 //   6. **ヒントが読み違えず、探索が効いている**こと（壊れても静かなので固定する）
 //   7. **ダブルマージンが実際の判断を変える**ことと、search の足切りが
 //      新しい判定境界で測られていること（2026-11-09 レビュー対応）
+//   8. **初心者だけブロット回避バイアスが効く**こと（2026-11-10）:
+//      exposedBlotCount の数え方、集計でブロットを残す選択が最善手より
+//      少ないこと、テイクマージンで判断が反転すること
 
 import { readFileSync } from 'node:fs';
 import { Board, NeuralNet, Agent } from '../../docs/backgammon/src/nn-test-shim.mjs';
 import { WHITE, opponent } from '../../docs/backgammon/src/board.js';
 import {
   LEVELS, DEFAULT_LEVEL, ADVICE_LEVEL, agentFor, levelById, gaussianFor,
-  setBearoffDatabase, DEFAULT_FILTERS,
+  setBearoffDatabase, DEFAULT_FILTERS, exposedBlotCount,
 } from '../../docs/backgammon/src/agent.js';
 import { generateMoves } from '../../docs/backgammon/src/rules.js';
 import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
@@ -187,16 +191,21 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
   if (!(p[0] > 0 && p[0] < 1)) fail(`ノイズ後の P(win) が範囲外: ${p[0]}`);
 }
 
-// (5) 初心者だけの体感調整（2026-11-09）。**静かに外れると初心者がまた
+// (5) 初心者だけの体感調整（2026-11-09、臆病化 2026-11-10）。**静かに外れると初心者がまた
 //     完璧になる**ので、付いていることと他段に付いていないことを固定する。
 {
   const weak = agentFor(net, WEAKEST.id);
   if (!(weak.doubleMargin > 0)) fail('初心者に doubleMargin が付いていない');
   if (!(weak.matchDoubleMargin > 0)) fail('初心者に matchDoubleMargin が付いていない');
+  if (!(weak.takeMargin > 0)) fail('初心者に takeMargin が付いていない');
+  if (!(weak.matchTakeMargin > 0)) fail('初心者に matchTakeMargin が付いていない');
+  if (!(weak.blotPenalty > 0)) fail('初心者に blotPenalty が付いていない');
   for (const level of LEVELS.slice(1)) {
     const agent = agentFor(net, level.id);
-    if (agent.doubleMargin !== 0 || agent.matchDoubleMargin !== 0) {
-      fail(`${level.id} にダブルマージンが付いている（初心者だけのつもり）`);
+    if (agent.doubleMargin !== 0 || agent.matchDoubleMargin !== 0
+      || agent.takeMargin !== 0 || agent.matchTakeMargin !== 0
+      || agent.blotPenalty !== 0) {
+      fail(`${level.id} にキューブマージンかブロット罰が付いている（初心者だけのつもり）`);
     }
   }
   // ベアオフDBを配った状態で、初心者だけ受け取らないこと
@@ -381,6 +390,87 @@ let adviceStats = null;
     if (calls.includes(null)) {
       fail('search 足切り: 境界の外側なのに深い評価へ進んでしまった');
     }
+  }
+}
+
+// (8) ブロット回避バイアスとテイクマージン（2026-11-10）。
+//
+// 罰が付いているだけでは性格が付いた保証にならないので、数え方の単位、
+// 集計での振る舞い、テイク判断の反転までを固定する。
+{
+  // -- exposedBlotCount の数え方。
+  //    White のブロット: 10 は Black（7 から射程 3）で打たれる、20 は安全。
+  const points = new Array(24).fill(0);
+  points[10] = 1; points[20] = 1; points[7] = -1;
+  const board = new Board(points, { WHITE: 0, [opponent(WHITE)]: 0 },
+    { WHITE: 0, [opponent(WHITE)]: 0 });
+  if (exposedBlotCount(board, WHITE) !== 1) {
+    fail('exposedBlotCount: 直接射程の数え方が違う');
+  }
+  //    バー再入場: Black がバーにいれば、White のホームボードのブロットは危ない。
+  const points2 = new Array(24).fill(0);
+  points2[3] = 1; points2[15] = -2;
+  const board2 = new Board(points2, { WHITE: 0, [opponent(WHITE)]: 1 },
+    { WHITE: 0, [opponent(WHITE)]: 0 });
+  if (exposedBlotCount(board2, WHITE) !== 1) {
+    fail('exposedBlotCount: バー再入場で打たれるブロットを数えていない');
+  }
+
+  // -- 集計: 「安全な代替手があるのにブロットを残す」割合が、初心者は
+  //    最善手（ノイズ無し）より低いはず（ノイズだけでは逆に高かった）。
+  const weak = agentFor(net, WEAKEST.id);
+  let choice = 0; let weakBlot = 0; let cleanBlot = 0;
+  for (const c of cases) {
+    const blots = c.moves.map((m) => exposedBlotCount(m.resultingBoard, c.turn));
+    if (!(Math.min(...blots) === 0 && Math.max(...blots) >= 1)) continue;
+    choice += 1;
+    if (blots[weak.selectMove(c.moves, c.turn)] >= 1) weakBlot += 1;
+    if (blots[reference.selectMove(c.moves, c.turn)] >= 1) cleanBlot += 1;
+  }
+  if (choice < 50) fail(`ブロット回避: 選択局面が ${choice} しかない`);
+  if (!(weakBlot < cleanBlot)) {
+    fail('ブロット回避: 初心者のブロット選択が最善手を下回っていない');
+  }
+  console.log(`  ブロット回避: 選択局面 ${choice} で初心者 ${weakBlot} / 最善手 ${cleanBlot}（残す選択の数）`);
+
+  // -- テイクマージンで判断が反転する（脚本化した探索）。
+  const freshGame = () => {
+    const game = new Game(new Board(), Math.random, { jacoby: false });
+    game.currentPlayer = WHITE;
+    game.state = ROLLING;
+    return game;
+  };
+  // マネー（search 経路）: take 側の値 0.95 は素ではテイク、マージン 0.10 では降りる。
+  const moneyTakeAgent = (takeMargin) => {
+    const agent = new Agent(net, 0, DEFAULT_FILTERS, {
+      noise: 0, takeMargin, useCubeHead: false,
+    });
+    agent.cubefulSearch = () => 0.475;
+    return agent;
+  };
+  if (moneyTakeAgent(0).shouldAcceptDouble(freshGame(), null) !== true) {
+    fail('テイク（マネー）: マージン 0 で take 0.95 がテイクにならない');
+  }
+  if (moneyTakeAgent(0.10).shouldAcceptDouble(freshGame(), null) !== false) {
+    fail('テイク（マネー）: マージン 0.10 で take 0.95 をテイクしてしまう');
+  }
+  // マッチ（search 経路）: 提案者視点 take 0.49 / drop 0.50 は素ではテイク、
+  // マージン 0.02 では降りる。
+  const matchCtx = {
+    length: 5, away: { [WHITE]: 2, [opponent(WHITE)]: 2 }, crawfordPlayed: true,
+  };
+  const matchTakeAgent = (matchTakeMargin) => {
+    const agent = new Agent(net, 0, DEFAULT_FILTERS, {
+      noise: 0, matchTakeMargin, useCubeHead: false,
+    });
+    agent.matchCubeSearch = () => ({ noDouble: 0.50, take: 0.49, drop: 0.50 });
+    return agent;
+  };
+  if (matchTakeAgent(0).shouldAcceptDouble(freshGame(), matchCtx) !== true) {
+    fail('テイク（マッチ）: マージン 0 で take 0.49 がテイクにならない');
+  }
+  if (matchTakeAgent(0.02).shouldAcceptDouble(freshGame(), matchCtx) !== false) {
+    fail('テイク（マッチ）: マージン 0.02 で take 0.49 をテイクしてしまう');
   }
 }
 
