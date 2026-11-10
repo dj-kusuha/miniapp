@@ -6,7 +6,7 @@
 // 着手後の局面（afterstate）の手番は相手に移っているので、**相手視点の
 // equity を求めて符号を反転**すると「自分の equity」になる。
 
-import { WHITE, opponent, encodeBoard, hasContact, direction, homeRange } from './board.js';
+import { WHITE, opponent, encodeBoard, hasContact } from './board.js';
 import {
   equity,
   flipPerspective,
@@ -205,33 +205,25 @@ export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
 // **性格付けの軸（2026-11-10、初心者だけ）**: ノイズは方向性を持たないため、
 // 弱くしても「ブロットを残すのを極端に嫌う」という初心者の性格は付かない
 // （実測では現行初心者は最善手よりブロットを残していた）。そこで着手スコア
-// から、打たれ得るブロット 1 個につき `blotPenalty` を引く。ノイズのミスの
-// 多くがブロットを残すミスなので、平均損失はむしろ下がる——これは弱さでは
-// なく性格の軸で、弱さは σ / maxLoss 側で調整する。
+// から、ブロット 1 個につき `blotPenalty` を引く。数え方はヒットされ
+// やすさを問わずブロットそのものを数える（初心者は危なさの程度ではなく
+// ブロット自体を嫌うため）。ノイズのミスの多くがブロットを残すミスなので、
+// 平均損失はむしろ下がる——これは弱さではなく性格の軸で、弱さは
+// σ / maxLoss 側で調整する。
 
 /**
- * `player` のブロットのうち、相手の次の手で打たれ得るものの数。
+ * `player` のブロットの数（接触局面のみ。接触が無ければ 0）。
  *
- * 打たれ得る = 相手の駒が進み方向に 1〜6 離れている（直接射程）、または
- * 相手がバーにいて、このブロットが相手の再入場先（`player` のホーム
- * ボード）にある。接触が無ければ 0。**盤面だけから決定的に決まる**ので、
- * ノイズと同じく「同じ局面では同じ性格」になる。
+ * **ヒットされやすさは見ない。** 初心者は「危ないブロット」ではなく
+ * ブロットそのものを嫌う、という性格付けのための数え方で、実際の
+ * 被ヒット確率ではない。**盤面だけから決定的に決まる**ので、ノイズと
+ * 同じく「同じ局面では同じ性格」になる。
  */
-export function exposedBlotCount(board, player) {
+export function blotCount(board, player) {
   if (!hasContact(board)) return 0;
-  const foe = opponent(player);
-  const foeDir = direction(foe);
-  const entry = homeRange(player);
   let count = 0;
   for (let point = 0; point < 24; point += 1) {
-    if (board.count(point, player) !== 1) continue;
-    let exposed = false;
-    for (let d = 1; d <= 6 && !exposed; d += 1) {
-      const from = point - foeDir * d;
-      if (from >= 0 && from < 24 && board.count(from, foe) > 0) exposed = true;
-    }
-    if (!exposed && board.bar[foe] > 0 && entry.includes(point)) exposed = true;
-    if (exposed) count += 1;
+    if (board.count(point, player) === 1) count += 1;
   }
   return count;
 }
@@ -456,9 +448,10 @@ export class Agent {
     // 経路には効かない（実戦の既定は search）。
     takeMargin = 0,
     matchTakeMargin = 0,
-    // **ブロット回避バイアス（既定 0 = 従来どおり）。** 着手後の局面で
-    // 打たれ得る自分のブロット 1 個につき、この点数を着手スコアから引く。
-    // 初心者だけに付け、「ブロットを残すのを極端に嫌う」性格を表す。
+    // **ブロット回避バイアス（既定 0 = 従来どおり）。** 着手後の局面の
+    // 自分のブロット 1 個につき、この点数を着手スコアから引く（接触局面
+    // のみ、ヒットされやすさは不問）。初心者だけに付け、「ブロットを
+    // 残すのを極端に嫌う」性格を表す。ノイズとは独立に効く。
     blotPenalty = 0,
     jacoby = true,
     noise = 0,
@@ -1719,7 +1712,7 @@ export class Agent {
     const values = this.equitiesFor(boards, opponent(player)).map((v) => -v);
 
     if (this.searchPlies < 2) {
-      if (this.noise <= 0) {
+      if (this.noise <= 0 && this.blotPenalty <= 0) {
         let best = 0;
         for (let i = 1; i < values.length; i += 1) if (values[i] > values[best]) best = i;
         return best;
@@ -1734,7 +1727,7 @@ export class Agent {
         if (values[i] < best - this.maxLoss) continue;
         const score = values[i] + this.noiseFor(boards[i])
           - (this.blotPenalty > 0
-            ? this.blotPenalty * exposedBlotCount(boards[i], player)
+            ? this.blotPenalty * blotCount(boards[i], player)
             : 0);
         if (score > bestScore) { bestScore = score; pick = i; }
       }
