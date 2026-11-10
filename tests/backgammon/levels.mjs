@@ -197,8 +197,8 @@ for (let i = 0; i + 1 < summary.length; i += 1) {
   const weak = agentFor(net, WEAKEST.id);
   if (!(weak.doubleMargin > 0)) fail('初心者に doubleMargin が付いていない');
   if (!(weak.matchDoubleMargin > 0)) fail('初心者に matchDoubleMargin が付いていない');
-  if (!(weak.takeMargin > 0)) fail('初心者に takeMargin が付いていない');
-  if (!(weak.matchTakeMargin > 0)) fail('初心者に matchTakeMargin が付いていない');
+  if (!(weak.takeMargin < 0)) fail('初心者の takeMargin が「テイクしすぎ」（負）になっていない');
+  if (!(weak.matchTakeMargin < 0)) fail('初心者の matchTakeMargin が「テイクしすぎ」（負）になっていない');
   if (!(weak.blotPenalty > 0)) fail('初心者に blotPenalty が付いていない');
   for (const level of LEVELS.slice(1)) {
     const agent = agentFor(net, level.id);
@@ -471,6 +471,20 @@ let adviceStats = null;
   }
   if (matchTakeAgent(0.02).shouldAcceptDouble(freshGame(), matchCtx) !== false) {
     fail('テイク（マッチ）: マージン 0.02 で take 0.49 をテイクしてしまう');
+  }
+
+  // -- 初心者本人（段の設定そのもの）: 少し悪いテイクでも受けてしまう。
+  //    マネー: take 側の値 1.02 は素なら降りるが、初心者は受ける。
+  const weakMoney = agentFor(net, WEAKEST.id);
+  weakMoney.cubefulSearch = () => 0.51;
+  if (weakMoney.shouldAcceptDouble(freshGame(), null) !== true) {
+    fail('テイク（初心者・マネー）: take 1.02 を受けない（テイクしすぎになっていない）');
+  }
+  //    マッチ: 提案者視点 take 0.51 / drop 0.50 は素なら降りるが、初心者は受ける。
+  const weakMatch = agentFor(net, WEAKEST.id);
+  weakMatch.matchCubeSearch = () => ({ noDouble: 0.50, take: 0.51, drop: 0.50 });
+  if (weakMatch.shouldAcceptDouble(freshGame(), matchCtx) !== true) {
+    fail('テイク（初心者・マッチ）: take 0.51 を受けない（テイクしすぎになっていない）');
   }
 }
 

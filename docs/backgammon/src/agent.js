@@ -337,7 +337,9 @@ export const LEVELS = [
     blotPenalty: 0.20,
     cube: {
       doubleMargin: 0.25, matchDoubleMargin: 0.05,
-      takeMargin: 0.10, matchTakeMargin: 0.02,
+      // テイクは逆向き: 初心者は「ダブルが遅い・テイクしすぎ」なので、
+      // テイクマージンは負（際どいダブルでも受けてしまう）。
+      takeMargin: -0.10, matchTakeMargin: -0.02,
     },
     useBearoff: false,
   },
@@ -447,10 +449,11 @@ export class Agent {
     // cubeful equity（点）、マッチは MWC で桁が違うので分ける。
     doubleMargin = 0,
     matchDoubleMargin = 0,
-    // **テイクを慎重にする段だけの上乗せマージン（既定 0 = 従来どおり）。**
-    // ダブル側だけ慎重にすると「自分は打たないが相手のは全部受ける」段に
-    // なり、点数が際限なく膨らむ。マネーは search 経路の equity（点）、
-    // マッチは MWC。マネーの非 search 経路には効かない（実戦の既定は search）。
+    // **テイク判断をずらす段だけのマージン（既定 0 = 従来どおり）。**
+    // 正なら慎重（際どいテイクを降りる）、負なら「テイクしすぎ」（際どくても
+    // 受ける）。初心者の特徴は後者なので、初心者だけ負の値を付ける。
+    // マネーは search 経路の equity（点）、マッチは MWC。マネーの非 search
+    // 経路には効かない（実戦の既定は search）。
     takeMargin = 0,
     matchTakeMargin = 0,
     // **ブロット回避バイアス（既定 0 = 従来どおり）。** 着手後の局面で
