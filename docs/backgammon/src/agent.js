@@ -179,6 +179,7 @@ export const DEFAULT_CUBE_CASH_OPTION = true;
 export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
 
 // ── 弱い相手の作り方 ──────────────────────────────
+
 //
 // **先読み 0 が床なので、それより弱くするには別の軸が要る。**
 // 採ったのは gnubg が Beginner / Casual を作るのと同じ「評価値にノイズを乗せる」
@@ -200,6 +201,32 @@ export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
 // ノイズは正規分布なので裾が無限に伸びる。そこで **`maxLoss`（最善からの
 // equity 差の上限）で足切りしてから**ノイズを掛ける。「よく間違えるが、
 // 絶対にアホなことはしない」の 2 つのつまみ。
+//
+// **性格付けの軸（2026-11-10、初心者だけ）**: ノイズは方向性を持たないため、
+// 弱くしても「ブロットを残すのを極端に嫌う」という初心者の性格は付かない
+// （実測では現行初心者は最善手よりブロットを残していた）。そこで着手スコア
+// から、ブロット 1 個につき `blotPenalty` を引く。数え方はヒットされ
+// やすさを問わずブロットそのものを数える（初心者は危なさの程度ではなく
+// ブロット自体を嫌うため）。ノイズのミスの多くがブロットを残すミスなので、
+// 平均損失はむしろ下がる——これは弱さではなく性格の軸で、弱さは
+// σ / maxLoss 側で調整する。
+
+/**
+ * `player` のブロットの数（接触局面のみ。接触が無ければ 0）。
+ *
+ * **ヒットされやすさは見ない。** 初心者は「危ないブロット」ではなく
+ * ブロットそのものを嫌う、という性格付けのための数え方で、実際の
+ * 被ヒット確率ではない。**盤面だけから決定的に決まる**ので、ノイズと
+ * 同じく「同じ局面では同じ性格」になる。
+ */
+export function blotCount(board, player) {
+  if (!hasContact(board)) return 0;
+  let count = 0;
+  for (let point = 0; point < 24; point += 1) {
+    if (board.count(point, player) === 1) count += 1;
+  }
+  return count;
+}
 
 /**
  * 盤面から決定的にノイズを作る（32bit FNV-1a + 撹拌）。
@@ -289,14 +316,23 @@ export const DEEP_CUBE = {
 
 export const LEVELS = [
   {
-    // **2026-11-09 の体感調整（実験値）。** σ=0.10 / cap 0.5 の実測 ER 34.6 は
-    // gnubg 区分では Beginner に入ったばかりで、実対局では強すぎたため、
-    // 初心者だけノイズと足切りを広げ、キューブは慎重にし、ベアオフDBの
-    // 厳密解は使わない。ER の再測定（gnubg・docker）は未実施で、測り直したら
-    // この値も見直すこと（repo-docs/exec-plans/completed/beginner-level-tuning.md）。
-    id: 'beginner', name: '初心者', plies: 0, noise: 0.20, maxLoss: 1.00,
-    note: '読み違えが多め',
-    cube: { doubleMargin: 0.15, matchDoubleMargin: 0.03 },
+    // **2026-11-09 の体感調整＋2026-11-10 の臆病化（どちらも実験値）。**
+    // σ=0.10 / cap 0.5 の実測 ER 34.6 は gnubg 区分では Beginner に入った
+    // ばかりで、実対局では強すぎた。2026-11-09 にノイズ拡大・キューブ
+    // マージン・ベアオフDB不使用まで入れたが、翌日のテストプレイでも
+    // 「初心者というほどではない」体感だったため、ブロット回避バイアス
+    // （`blotPenalty`）とテイクマージンを足し、ノイズも一段広げた。
+    // ER の再測定（gnubg・docker）は未実施で、測り直したらこの値も
+    // 見直すこと（repo-docs/exec-plans/completed/beginner-timid-tuning.md）。
+    id: 'beginner', name: '初心者', plies: 0, noise: 0.25, maxLoss: 1.25,
+    note: '読み違えが多め・ブロットを嫌う',
+    blotPenalty: 0.20,
+    cube: {
+      doubleMargin: 0.25, matchDoubleMargin: 0.05,
+      // テイクは逆向き: 初心者は「ダブルが遅い・テイクしすぎ」なので、
+      // テイクマージンは負（際どいダブルでも受けてしまう）。
+      takeMargin: -0.10, matchTakeMargin: -0.02,
+    },
     useBearoff: false,
   },
   {
@@ -364,6 +400,7 @@ export function agentFor(net, levelId) {
   return new Agent(net, level.plies, filtersFor(level.plies), {
     noise: level.noise,
     maxLoss: level.maxLoss,
+    blotPenalty: level.blotPenalty ?? 0,
     // **段ごとのキューブ設定。** 無い段は Agent の既定（engine と同じ）。
     // 強い段だけ深く読ませるための口（`DEEP_CUBE`）。
     ...(level.cube ?? {}),
@@ -404,6 +441,18 @@ export class Agent {
     // cubeful equity（点）、マッチは MWC で桁が違うので分ける。
     doubleMargin = 0,
     matchDoubleMargin = 0,
+    // **テイク判断をずらす段だけのマージン（既定 0 = 従来どおり）。**
+    // 正なら慎重（際どいテイクを降りる）、負なら「テイクしすぎ」（際どくても
+    // 受ける）。初心者の特徴は後者なので、初心者だけ負の値を付ける。
+    // マネーは search 経路の equity（点）、マッチは MWC。マネーの非 search
+    // 経路には効かない（実戦の既定は search）。
+    takeMargin = 0,
+    matchTakeMargin = 0,
+    // **ブロット回避バイアス（既定 0 = 従来どおり）。** 着手後の局面の
+    // 自分のブロット 1 個につき、この点数を着手スコアから引く（接触局面
+    // のみ、ヒットされやすさは不問）。初心者だけに付け、「ブロットを
+    // 残すのを極端に嫌う」性格を表す。ノイズとは独立に効く。
+    blotPenalty = 0,
     jacoby = true,
     noise = 0,
     maxLoss = Infinity,
@@ -428,6 +477,9 @@ export class Agent {
     this.doublePoint = doublePoint;
     this.doubleMargin = doubleMargin;
     this.matchDoubleMargin = matchDoubleMargin;
+    this.takeMargin = takeMargin;
+    this.matchTakeMargin = matchTakeMargin;
+    this.blotPenalty = blotPenalty;
     this.cubeOwnership = cubeOwnership;
     this.cubeEfficiency = cubeEfficiency;
     this.cubeEfficiencyDt = cubeEfficiencyDt;
@@ -795,7 +847,7 @@ export class Agent {
    * これを入れるまで、ダブル側は探索の値で「相手はテイクする」と見込むのに
    * 受ける側は Janowski の定数式で判断していた（**同じ局面に 2 つの基準**）。
    */
-  wouldTakeSearch(board, proposer, cubeValue = 1) {
+  wouldTakeSearch(board, proposer, cubeValue = 1, takeMargin = 0) {
     let eff = (this.useCubeHead && this.cubeHeadMoney)
       ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent')
       : this.cubeEfficiencyDtFor(board, proposer);
@@ -804,13 +856,13 @@ export class Agent {
         cubeValue: cubeValue * 2,
         actionContext: 'post_double_take',
       });
-    return take < 1.0;
+    return take < 1.0 - takeMargin;
   }
 
   /** テイクするか（**方式の振り分けはここ 1 箇所**）。 */
-  wouldTakeFor(board, proposer, cubeValue = 1) {
+  wouldTakeFor(board, proposer, cubeValue = 1, takeMargin = 0) {
     if (this.cubeDecision === 'search') {
-      return this.wouldTakeSearch(board, proposer, cubeValue);
+      return this.wouldTakeSearch(board, proposer, cubeValue, takeMargin);
     }
     const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
@@ -1374,17 +1426,17 @@ export class Agent {
     if (match) {
       if (this.cubeDecision === 'search') {
         const s = this.matchCubeSearch(game, proposer, match);
-        return s.take < s.drop;
+        return s.take < s.drop - this.matchTakeMargin;
       }
       // 提案者視点の値をそのまま使う。MET は対称（`MWC(a,b) + MWC(b,a) = 1`）
       // なので、**提案者のマッチ勝率が低い方**がテイク側にとって良い方。
       const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
-      return e.take < e.pass;
+      return e.take < e.pass - this.matchTakeMargin;
     }
 
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
-    return this.wouldTakeFor(game.board, proposer, game.cube.value);
+    return this.wouldTakeFor(game.board, proposer, game.cube.value, this.takeMargin);
   }
 
   /**
@@ -1660,7 +1712,7 @@ export class Agent {
     const values = this.equitiesFor(boards, opponent(player)).map((v) => -v);
 
     if (this.searchPlies < 2) {
-      if (this.noise <= 0) {
+      if (this.noise <= 0 && this.blotPenalty <= 0) {
         let best = 0;
         for (let i = 1; i < values.length; i += 1) if (values[i] > values[best]) best = i;
         return best;
@@ -1673,7 +1725,10 @@ export class Agent {
       let bestScore = -Infinity;
       for (let i = 0; i < values.length; i += 1) {
         if (values[i] < best - this.maxLoss) continue;
-        const score = values[i] + this.noiseFor(boards[i]);
+        const score = values[i] + this.noiseFor(boards[i])
+          - (this.blotPenalty > 0
+            ? this.blotPenalty * blotCount(boards[i], player)
+            : 0);
         if (score > bestScore) { bestScore = score; pick = i; }
       }
       return pick;
