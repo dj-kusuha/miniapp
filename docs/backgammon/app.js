@@ -29,6 +29,9 @@ const $ = (id) => document.getElementById(id);
  * なく `state.delay` を都度読むこと。
  */
 const DEFAULT_DELAY = 1000;
+// Issue #544の3-ply段階選別は品質/速度計測用に明示opt-in。通常運用は従来経路。
+const CHECKER_SEARCH_MODE = new URLSearchParams(globalThis.location?.search ?? '')
+  .get('checker-search') === 'staged3ply' ? 'staged3ply' : 'legacy';
 
 const state = {
   net: null,
@@ -126,6 +129,7 @@ function startThinker(modelUrl) {
     url: new URL(modelUrl, import.meta.url).href,
     bearoffUrl: new URL(BEAROFF_URL, import.meta.url).href,
     moneyBearoffUrl: new URL(MONEY_BEAROFF_URL, import.meta.url).href,
+    checkerSearchMode: CHECKER_SEARCH_MODE,
   })
     .then(() => true)
     .catch((error) => {
@@ -573,8 +577,9 @@ function syncAdvice() {
 /** 設定画面から。新しいマッチ（アンリミテッドなら新しいセッション）を始める。 */
 function startMatch() {
   // Worker が使えないときのフォールバック。絞り方は Worker と同じものを使う。
-  state.agent = agentFor(state.net, state.level);
-  state.adviceAgent = agentFor(state.net, ADVICE_LEVEL);
+  state.agent = agentFor(state.net, state.level, { checkerSearchMode: CHECKER_SEARCH_MODE });
+  state.adviceAgent = agentFor(state.net, ADVICE_LEVEL,
+    { checkerSearchMode: CHECKER_SEARCH_MODE });
   state.match = new Match({
     length: state.matchLength,
     jacoby: state.jacoby,

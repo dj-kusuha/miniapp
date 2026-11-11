@@ -32,7 +32,7 @@ engine 側にも Web フロントエンド（`play_web.py`）はあるが、**Py
 
 - ~~**ダブリングキューブ**~~（初版では扱わなかったが、その後に実装した。
   設定で使う / 使わないを選べ、ジャコビールールも切り替えられる）
-- **3-ply 以上の先読み**（同梱 wide4 モデルでは JS 実用性が低い）
+- **無制限の全候補3-ply**（実測なしに既定有効にはしない。段階選別は技術メモ参照）
 - 対人戦・通信対戦・棋譜の保存・アカウント
 - 盤面の反転表示（engine 側の既知の制約と同じく White 視点固定で始める）
 
@@ -213,11 +213,25 @@ JSON、2026-09-15 の cycle200 比較選定モデル）。推論は**行列積�
 - Moneyでcube OFFなら、将来のDoubleを止めた固定cube値で比較し、未ダブル局のJacobyも適用
 - Matchはcube ON/OFF、Crawford/pre/post-Crawfordを問わずMET/MWCで比較。cube OFFとCrawfordでは固定cubeのMWCを使う
 - 出力5-vector由来の勝率・ギャモン率は参考値として残し、MWC/cubeful値やlossとは混ぜない
-- Match MWCとMoney cubefulでは、候補評価のafterstate探索を最大1ロールに制限する。Money cube OFFは設定段の深さを保つ
+- 従来checker modeではMatch MWCとMoney cubefulのafterstate探索を最大1ロールに制限する。Money cube OFFは設定段の深さを保つ
 - 弱い段のCPU選択では候補値をnoise-freeで採点し、`noise` / `maxLoss` を勝率ベクトルへ反映して同じchecker評価で再計算する。MWC / cube-unitsへ変換した値で足切りと選択を行う
 
 ワイド化で評価性能が上がった一方、3-ply は末端評価の回数が大きくなる。Money cubefulと
 Match MWCは候補評価を最大2-ply相当（着手後の相手ロール1回）に制限し、深い探索の急増を抑える。
+
+### 段階選別3-ply（Issue #544、既定OFF）
+
+engine production `b2bedb479876162efb48262d612530d8ffe20ad9` の段階選別を実験可能にする。
+起動URLへ `?checker-search=staged3ply` を付けると、Workerとmain-thread fallbackの両方で有効になる。
+指定しないと従来の最大1ロール探索を維持する。
+
+- Match MWC: 1-ply全合法手 → 0.010以内の最大8手を2-ply → 0.005以内の最大4手を3-ply
+- Money cubeful: 1-ply全合法手 → equity差0.160以内の最大8手を2-ply → 0.080以内の最大4手を3-ply
+- 探索中はND/DT間でroll展開を共有する。cube文脈非依存のraw NN葉ベクトルは重複排除・batch評価する
+- owner / cube value / Jacoby / cash action contextに依存する最終equityは共有しない
+
+full-root 3-plyと段階選別の着手差/regret、応答時間・メモリを計測してから既定値を判断する。
+Moneyの旧閾値0.010/0.005は使わない。
 Matchはcube OFF / Crawford / 64でもMWC計算が重いため同じ上限を使う。Money cube OFFは通常の
 checker探索を続け、設定段の深さを保つ。
 普段の対戦ラダーは**初心者〜上級を 0-ply、エキスパートを2-ply**としつつ、最高峰の

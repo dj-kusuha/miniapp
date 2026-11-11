@@ -40,6 +40,25 @@ function silu(x) {
   return x * sigmoid(x);
 }
 
+function transformOutput(activation, outputTransform) {
+  if (outputTransform === OUTPUT_TRANSFORM_HIERARCHICAL) {
+    const win = activation[WIN];
+    const winGammonGivenWin = activation[WIN_GAMMON];
+    const winBackgammonGivenGammon = activation[WIN_BACKGAMMON];
+    const loseGammonGivenLoss = activation[LOSE_GAMMON];
+    const loseBackgammonGivenGammon = activation[LOSE_BACKGAMMON];
+    const winGammon = Math.fround(win * winGammonGivenWin);
+    const winBackgammon = Math.fround(winGammon * winBackgammonGivenGammon);
+    const loseProbability = Math.fround(1 - win);
+    const loseGammon = Math.fround(loseProbability * loseGammonGivenLoss);
+    const loseBackgammon = Math.fround(loseGammon * loseBackgammonGivenGammon);
+    return new Float32Array([
+      win, winGammon, winBackgammon, loseGammon, loseBackgammon,
+    ]);
+  }
+  return activation;
+}
+
 export class NeuralNet {
   /**
    * @param {object} data engine の `models/*.json` をそのまま渡す。
@@ -177,22 +196,81 @@ export class NeuralNet {
       }
       activation = next;
     }
-    if (this.outputTransform === OUTPUT_TRANSFORM_HIERARCHICAL) {
-      const win = activation[WIN];
-      const winGammonGivenWin = activation[WIN_GAMMON];
-      const winBackgammonGivenGammon = activation[WIN_BACKGAMMON];
-      const loseGammonGivenLoss = activation[LOSE_GAMMON];
-      const loseBackgammonGivenGammon = activation[LOSE_BACKGAMMON];
-      const winGammon = Math.fround(win * winGammonGivenWin);
-      const winBackgammon = Math.fround(winGammon * winBackgammonGivenGammon);
-      const loseProbability = Math.fround(1 - win);
-      const loseGammon = Math.fround(loseProbability * loseGammonGivenLoss);
-      const loseBackgammon = Math.fround(loseGammon * loseBackgammonGivenGammon);
-      return new Float32Array([
-        win, winGammon, winBackgammon, loseGammon, loseBackgammon,
-      ]);
+    return transformOutput(activation, this.outputTransform);
+  }
+
+  /**
+   * 複数局面を1回の呼び出しで推論する。各局面の加算順・float32境界は
+   * predict() と同じにして、既存engine値を保ちながら重複葉をまとめる。
+   * @param {ArrayLike<ArrayLike<number>>} inputs
+   * @returns {Float32Array[]}
+   */
+  predictBatch(inputs) {
+    const batchSize = inputs?.length ?? 0;
+    if (batchSize === 0) return [];
+    for (let sample = 0; sample < batchSize; sample += 1) {
+      if (!inputs[sample] || inputs[sample].length !== this.inputDim) {
+        throw new Error(`predictBatch input ${sample} must have ${this.inputDim} values`);
+      }
     }
-    return activation;
+
+    const { rowsFirst, biasFirst, layers } = this;
+    const activate = this.activation === 'silu' ? silu : sigmoid;
+    const firstWidth = biasFirst.length;
+    const firstAcc = new Float64Array(batchSize * firstWidth);
+    for (let sample = 0; sample < batchSize; sample += 1) {
+      firstAcc.set(biasFirst, sample * firstWidth);
+    }
+
+    // Feature iを外側にしても、各サンプルの加算は入力index昇順のまま。
+    for (let i = 0; i < this.inputDim; i += 1) {
+      const row = rowsFirst[i];
+      for (let sample = 0; sample < batchSize; sample += 1) {
+        const value = inputs[sample][i];
+        if (value === 0) continue;
+        const offset = sample * firstWidth;
+        for (let j = 0; j < firstWidth; j += 1) {
+          firstAcc[offset + j] += value * row[j];
+        }
+      }
+    }
+
+    let activation = new Float32Array(batchSize * firstWidth);
+    for (let sample = 0; sample < batchSize; sample += 1) {
+      const offset = sample * firstWidth;
+      for (let j = 0; j < firstWidth; j += 1) {
+        activation[offset + j] = activate(firstAcc[offset + j]);
+      }
+    }
+
+    for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
+      const { columns, bias } = layers[layerIndex];
+      const isLast = layerIndex === layers.length - 1;
+      const outputWidth = bias.length;
+      const next = new Float32Array(batchSize * outputWidth);
+      const act = isLast ? sigmoid : activate;
+      for (let j = 0; j < outputWidth; j += 1) {
+        const column = columns[j];
+        for (let sample = 0; sample < batchSize; sample += 1) {
+          const inputOffset = sample * (column.length);
+          let sum = bias[j];
+          for (let i = 0; i < column.length; i += 1) {
+            sum += activation[inputOffset + i] * column[i];
+          }
+          next[sample * outputWidth + j] = act(sum);
+        }
+      }
+      activation = next;
+    }
+
+    const outputs = [];
+    for (let sample = 0; sample < batchSize; sample += 1) {
+      const offset = sample * this.outputDim;
+      outputs.push(transformOutput(
+        activation.slice(offset, offset + this.outputDim), this.outputTransform,
+      ));
+    }
+    return outputs;
   }
 
   /**

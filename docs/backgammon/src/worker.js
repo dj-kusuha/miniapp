@@ -19,6 +19,7 @@ import { generateMoves, boardKey } from './rules.js';
 let net = null;
 let moneyBearoffUrl = null;
 let moneyBearoffLoadPromise = null;
+let checkerSearchMode = 'legacy';
 const agents = new Map();   // level id -> Agent（作り直さず使い回す）
 
 async function ensureMoneyBearoff(agent, match) {
@@ -44,7 +45,7 @@ async function ensureMoneyBearoff(agent, match) {
 function agentForLevel(level) {
   let agent = agents.get(level);
   if (!agent) {
-    agent = agentFor(net, level);
+    agent = agentFor(net, level, { checkerSearchMode });
     agents.set(level, agent);
   }
   return agent;
@@ -55,6 +56,9 @@ self.onmessage = async (event) => {
   try {
     if (kind === 'load') {
       net = await NeuralNet.load(event.data.url);
+      checkerSearchMode = ['legacy', 'full-root', 'staged3ply']
+        .includes(event.data.checkerSearchMode) ? event.data.checkerSearchMode : 'legacy';
+      agents.clear();
       moneyBearoffUrl = event.data.moneyBearoffUrl
         || new URL('./money-bg2n-6x6-v4.bin', import.meta.url).href;
       // **ベアオフ DB もここで読む。** 無くても動く（ネットの推定に落ちる）ので、

@@ -67,11 +67,12 @@ function checkerCubeCanRedouble(position) {
       || (position.match.mode === 'money' && position.cube.unboundedMoney === true));
 }
 
-function checkerSearchDepth(agent, position) {
-  // checker levelのpliesには今の着手が含まれる。Match MWCとMoney cubefulは
-  // afterstate探索を次の1ロールまでに制限し、3-plyで探索が急増するのを防ぐ。
-  // Money cube OFFは通常のchecker探索なのでprofile本来の深さを保つ。
+function checkerSearchDepth(agent, position, mode = 'legacy') {
+  // checker levelのpliesには今の着手が含まれる。既定のlegacyでは、Match MWCと
+  // Money cubefulのafterstate探索を最大1ロールに保つ。full-root / staged3plyは
+  // 計測用の明示modeで profile 本来の深さを使う。
   const depth = Math.max(0, agent.searchPlies - 1);
+  if (mode === 'full-root' || mode === 'staged3ply') return depth;
   const cubeCanContinue = checkerCubeCanRedouble(position);
   return position.match.mode === 'match' || cubeCanContinue
     ? Math.min(depth, 1)
@@ -81,8 +82,18 @@ function checkerSearchDepth(agent, position) {
 function withCheckerSearchCache(agent, callback) {
   const oldCubeful = agent.cubefulSearch;
   const oldMwc = agent.mwcSearch;
+  const oldRollCache = agent.checkerRollCache;
   const cubefulCache = new Map();
   const mwcCache = new Map();
+  if (!oldRollCache) {
+    agent.checkerRollCache = new Map();
+    agent.checkerSearchStats = {
+      rollExpansionHits: 0,
+      rollExpansionMisses: 0,
+      batchCalls: 0,
+      batchVectors: 0,
+    };
+  }
 
   agent.cubefulSearch = function memoizedCubeful(board, ...args) {
     if (!Array.isArray(board?.points)) return oldCubeful.call(this, board, ...args);
@@ -127,6 +138,7 @@ function withCheckerSearchCache(agent, callback) {
   } finally {
     agent.cubefulSearch = oldCubeful;
     agent.mwcSearch = oldMwc;
+    agent.checkerRollCache = oldRollCache;
   }
 }
 
@@ -202,19 +214,112 @@ function checkerValue(agent, position, board, player, match, enabled, depth) {
   return -Math.max(nd, Math.min(dt, 1));
 }
 
-/** 全候補のchecker値を一度だけ求め、CPU選択とヒントで共有する。 */
-export function scoreCheckerMoves(agent, position, moves, player) {
+const stagedCandidates = (values, margin, maximum) => {
+  const ordered = [...values.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0]);
+  const best = ordered[0]?.[1];
+  if (best === undefined) return [];
+  return ordered.filter(([, value]) => value >= best - margin)
+    .slice(0, maximum).map(([index]) => index);
+};
+
+function stagedMetric(position) {
+  if (position.match.mode === 'match') {
+    return { firstMargin: 0.010, secondMargin: 0.005, unit: 'mwc' };
+  }
+  if (checkerCubeEnabled(position) && !position.match.crawford) {
+    return { firstMargin: 0.160, secondMargin: 0.080, unit: 'equity' };
+  }
+  return null;
+}
+
+function scoreStagedCheckerMoves(agent, position, moves, player, match, enabled) {
+  const metric = stagedMetric(position);
+  if (!metric || agent.searchPlies !== 3 || moves.length <= 1) {
+    const depth = checkerSearchDepth(agent, position, 'staged3ply');
+    return moves.map((move, index) => ({
+      move,
+      index,
+      value: checkerValue(agent, position, move.resultingBoard,
+        player, match, enabled, depth),
+    })).sort((a, b) => b.value - a.value || a.index - b.index);
+  }
+
+  const values = new Map();
+  const stages = new Map();
+  for (let index = 0; index < moves.length; index += 1) {
+    values.set(index, checkerValue(agent, position, moves[index].resultingBoard,
+      player, match, enabled, 0));
+    stages.set(index, 1);
+  }
+  let candidates = stagedCandidates(values, metric.firstMargin, 8);
+  agent.checkerLastStagedSearch = {
+    unit: metric.unit,
+    firstMargin: metric.firstMargin,
+    secondMargin: metric.secondMargin,
+    onePlyCandidates: moves.length,
+    twoPlyCandidates: candidates.length,
+    threePlyCandidates: 0,
+    maxAdditionalDepth: 0,
+  };
+
+  if (candidates.length > 1) {
+    for (const index of candidates) {
+      values.set(index, checkerValue(agent, position, moves[index].resultingBoard,
+        player, match, enabled, 1));
+      stages.set(index, 2);
+    }
+    agent.checkerLastStagedSearch.maxAdditionalDepth = 1;
+    candidates = stagedCandidates(new Map(candidates.map((index) =>
+      [index, values.get(index)])), metric.secondMargin, 4);
+    agent.checkerLastStagedSearch.threePlyCandidates = candidates.length;
+  } else {
+    candidates = [];
+  }
+
+  if (candidates.length > 1) {
+    for (const index of candidates) {
+      values.set(index, checkerValue(agent, position, moves[index].resultingBoard,
+        player, match, enabled, 2));
+      stages.set(index, 3);
+    }
+    agent.checkerLastStagedSearch.maxAdditionalDepth = 2;
+  } else if (candidates.length === 1) {
+    // 2-plyで一意になった場合、候補をさらに読む必要はない。
+  }
+
+  // Full-rootで読んだ候補を先に並べ、同段では同じ評価尺度・安定順を使う。
+  // 低い段の値は参考順位であり、final 3-ply候補とのregret計算には使わない。
+  return moves.map((move, index) => ({
+    move,
+    index,
+    value: values.get(index),
+    searchStage: stages.get(index),
+  })).sort((a, b) => b.searchStage - a.searchStage
+    || b.value - a.value || a.index - b.index);
+}
+
+/** 全候補を評価する。full-root / staged3plyはfixture・採否計測にも使う。 */
+export function scoreCheckerMoves(agent, position, moves, player, requestedMode = null) {
   validateCheckerContext(position);
   const match = matchContext(position, player);
   const enabled = checkerCubeEnabled(position);
-  const depth = checkerSearchDepth(agent, position);
+  const mode = requestedMode ?? agent.checkerSearchMode ?? 'legacy';
+  if (!['legacy', 'full-root', 'staged3ply'].includes(mode)) {
+    throw new Error(`未対応のchecker評価mode: ${mode}`);
+  }
   return agent.withCheckerVectorCache(() => withCheckerSearchCache(agent, () =>
-    withCheckerNoise(agent, () => 0, () =>
-      moves.map((move, index) => ({
+    withCheckerNoise(agent, () => 0, () => {
+      if (mode === 'staged3ply') {
+        return scoreStagedCheckerMoves(agent, position, moves, player, match, enabled);
+      }
+      const depth = checkerSearchDepth(agent, position, mode);
+      return moves.map((move, index) => ({
         move,
         index,
-        value: checkerValue(agent, position, move.resultingBoard, player, match, enabled, depth),
-      })).sort((a, b) => b.value - a.value || a.index - b.index))));
+        value: checkerValue(agent, position, move.resultingBoard,
+          player, match, enabled, depth),
+      })).sort((a, b) => b.value - a.value || a.index - b.index);
+    })));
 }
 
 function checkerMoveValueWithNoise(agent, position, move, player, noise) {
@@ -294,8 +399,12 @@ export function selectCheckerMove(agent, position, moves, player) {
 /** ヒント候補と差分を共通checker評価から作る。 */
 export function rankCheckerMoves(agent, position, moves, player, limit = 3) {
   const scored = scoreCheckerMoves(agent, position, moves, player);
-  const best = scored[0]?.value ?? 0;
-  const entries = scored.slice(0, limit).map(({ move, index, value }) => ({
+  // Staged candidates can have values from different plies. Hints expose a loss
+  // number, so compare only candidates evaluated to the same deepest stage.
+  const deepestStage = Math.max(0, ...scored.map((entry) => entry.searchStage ?? 0));
+  const comparable = scored.filter((entry) => (entry.searchStage ?? 0) === deepestStage);
+  const best = comparable[0]?.value ?? 0;
+  const entries = comparable.slice(0, limit).map(({ move, index, value }) => ({
     move,
     index,
     equity: value,

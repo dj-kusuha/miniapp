@@ -5,13 +5,23 @@ import { Board, WHITE, BLACK, encodeBoard, NeuralNet, equity } from '../../docs/
 const fixture = JSON.parse(readFileSync(new URL('./parity.json', import.meta.url)));
 const net = new NeuralNet(JSON.parse(readFileSync(new URL('../../docs/backgammon/src/model.json', import.meta.url))));
 const player = (s) => (s === 'WHITE' ? WHITE : BLACK);
+const batchInputs = fixture.net.map((entry) => {
+  const board = Board.fromJson(fixture.boards[entry.board]);
+  return encodeBoard(board, WHITE, player(entry.turn));
+});
+const batchOutputs = net.predictBatch(batchInputs);
 
 let bad = 0;
+let batchBad = 0;
 let maxDiff = 0;
-for (const entry of fixture.net) {
+for (const [index, entry] of fixture.net.entries()) {
   const board = Board.fromJson(fixture.boards[entry.board]);
   // perspective='white' のモデルなので viewer は常に WHITE
   const out = net.predict(encodeBoard(board, WHITE, player(entry.turn)));
+  for (let unit = 0; unit < out.length; unit += 1) {
+    maxDiff = Math.max(maxDiff, Math.abs(out[unit] - batchOutputs[index][unit]));
+    if (Math.abs(out[unit] - batchOutputs[index][unit]) > 1e-7) batchBad += 1;
+  }
   for (let i = 0; i < entry.outputs.length; i += 1) {
     maxDiff = Math.max(maxDiff, Math.abs(out[i] - entry.outputs[i]));
   }
@@ -26,5 +36,5 @@ for (const entry of fixture.net) {
   }
 }
 console.log(`推論: ${fixture.net.length} 件中 ${fixture.net.length - bad} 件一致 / 不一致 ${bad}`);
-console.log(`  最大誤差: ${maxDiff.toExponential(2)}`);
-process.exit(bad ? 1 : 0);
+console.log(`  predictBatch: ${batchOutputs.length} 件中 ${batchOutputs.length - batchBad} 件一致 / 最大誤差 ${maxDiff.toExponential(2)}`);
+process.exit(bad || batchBad ? 1 : 0);

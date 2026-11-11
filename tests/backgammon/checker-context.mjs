@@ -371,7 +371,7 @@ test('Match/GameからWorker DTOへscore・Crawford・Jacoby・権利が届く',
   assert.equal(previousOwnerDto.cube.owner, WHITE);
 });
 
-test('Money cubefulとMatch MWCは3-ply候補評価を1ロールまでに制限する', () => {
+test('3-ply legacyは従来深度を保ち、明示modeでMatch/Moneyが実効3-plyになる', () => {
   const candidate = board();
   const move = [{ resultingBoard: candidate }];
   const agent = makeAgent();
@@ -386,17 +386,30 @@ test('Money cubefulとMatch MWCは3-ply候補評価を1ロールまでに制限�
   scoreCheckerMoves(agent,
     context({ mode: 'money', enabled: true, available: true }), move, WHITE);
   assert.deepEqual(moneyDepths, [1, 1]);
+  moneyDepths.length = 0;
+  agent.checkerSearchMode = 'staged3ply';
+  scoreCheckerMoves(agent,
+    context({ mode: 'money', enabled: true, available: true }), move, WHITE);
+  assert.deepEqual(moneyDepths, [2, 2]);
 
   const matchDepths = [];
   agent.mwcSearch = (...args) => {
     matchDepths.push(args[3]);
     return 0.4;
   };
+  agent.checkerSearchMode = 'legacy';
   scoreCheckerMoves(agent,
     context({ mode: 'match', enabled: true, available: true }), move, WHITE);
   assert.deepEqual(matchDepths, [1, 1]);
 
   matchDepths.length = 0;
+  agent.checkerSearchMode = 'staged3ply';
+  scoreCheckerMoves(agent,
+    context({ mode: 'match', enabled: true, available: true }), move, WHITE);
+  assert.deepEqual(matchDepths, [2, 2]);
+
+  matchDepths.length = 0;
+  agent.checkerSearchMode = 'legacy';
   scoreCheckerMoves(agent,
     context({ mode: 'match', enabled: false, available: false }), move, WHITE);
   assert.deepEqual(matchDepths, [1]);
