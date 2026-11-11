@@ -8,10 +8,12 @@
 import { WHITE, BLACK, opponent } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
 import {
-  agentFor, levelById, setBearoffDatabase, DEFAULT_LEVEL, ADVICE_LEVEL,
+  agentFor, levelById, setBearoffDatabase, setMoneyBearoffDatabase,
+  DEFAULT_LEVEL, ADVICE_LEVEL,
 } from './src/agent.js';
 import { checkerContextFor, rankCheckerMoves, selectCheckerMove } from './src/checker.js';
 import { BearoffDatabase } from './src/bearoff.js';
+import { MoneyBearoffDatabase } from './src/money-bearoff.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
 import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach, findPointMakeAction, findBearOffAction, canPlayerDouble } from './src/rules.js';
@@ -54,6 +56,7 @@ const state = {
   runId: 0,            // 対局をまたいで古いアニメーションが動き続けないように
   busy: false,
   threaded: false,     // Worker で思考できているか
+  moneyBearoffLoadPromise: null,
   thinking: false,     // 思考中の表示を出すか
 };
 
@@ -93,6 +96,7 @@ const thinker = {
 
 /** ベアオフ DB の置き場（モデルと同じ src/ の下）。 */
 const BEAROFF_URL = './src/bearoff-6x15.bin';
+const MONEY_BEAROFF_URL = './src/money-bg2n-6x6-v4.bin';
 
 function startThinker(modelUrl) {
   let worker;
@@ -121,6 +125,7 @@ function startThinker(modelUrl) {
     kind: 'load',
     url: new URL(modelUrl, import.meta.url).href,
     bearoffUrl: new URL(BEAROFF_URL, import.meta.url).href,
+    moneyBearoffUrl: new URL(MONEY_BEAROFF_URL, import.meta.url).href,
   })
     .then(() => true)
     .catch((error) => {
@@ -139,6 +144,20 @@ function ask(payload) {
     thinker.pending.set(id, { resolve, reject });
     worker.postMessage({ id, ...payload });
   });
+}
+
+/** Workerが使えない場合だけ、Money cube判断の直前にBG2Nを読む。 */
+async function ensureMainMoneyBearoff(match) {
+  if (match !== null || !state.agent?.useMoneyBearoff) return;
+  if (!state.moneyBearoffLoadPromise) {
+    state.moneyBearoffLoadPromise = MoneyBearoffDatabase.load(MONEY_BEAROFF_URL)
+      .then((database) => setMoneyBearoffDatabase(database))
+      .catch((error) => {
+        setMoneyBearoffDatabase(null);
+        console.warn('Money BG2N DB を読めませんでした。従来評価へ戻します', error);
+      });
+  }
+  await state.moneyBearoffLoadPromise;
 }
 
 
@@ -168,6 +187,7 @@ async function askCube(game, kind) {
         cubeValue: game.cube.value,
         cubeOwner: game.cube.owner,
         jacoby: game.jacoby,
+        crawford: game.crawford,
         level: state.level,
         match,
       });
@@ -176,6 +196,7 @@ async function askCube(game, kind) {
       console.warn('Worker でのキューブ判断に失敗しました。こちらで決めます', error);
     }
   }
+  await ensureMainMoneyBearoff(match);
   return kind === 'accept'
     ? state.agent.shouldAcceptDouble(game, match)
     : state.agent.shouldDouble(game, match);

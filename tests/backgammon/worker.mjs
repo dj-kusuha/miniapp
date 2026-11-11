@@ -14,14 +14,20 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join, normalize } from 'node:path';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../docs/backgammon');
+let moneyDbRequests = 0;
 
 const types = { '.js': 'text/javascript', '.json': 'application/json' };
 const server = createServer(async (req, res) => {
   try {
-    const rel = normalize(decodeURIComponent(req.url.split('?')[0])).replace(/^(\.\.[/\\])+/, '');
+    const rel = normalize(decodeURIComponent(req.url.split('?')[0]))
+      .replace(/^[\/\\]+/, '').replace(/^(\.\.[/\\])+/, '');
+    if (rel.endsWith('money-bg2n-6x6-v4.bin')) moneyDbRequests += 1;
     const body = await readFile(join(ROOT, rel));
     const ext = rel.slice(rel.lastIndexOf('.'));
-    res.writeHead(200, { 'content-type': types[ext] ?? 'application/octet-stream' });
+    res.writeHead(200, {
+      'content-type': types[ext] ?? 'application/octet-stream',
+      connection: 'close',
+    });
     res.end(body);
   } catch {
     res.writeHead(404);
@@ -62,7 +68,8 @@ const { Game, ROLLING, MOVING, GAME_OVER } = await import(src('game.js'));
 const { Match } = await import(src('match.js'));
 const { checkerContextFor } = await import(src('checker.js'));
 
-await ask({ kind: 'load', url: `${base}src/model.json` });
+await ask({ kind: 'load', url: `${base}src/model.json`, moneyBearoffUrl: `${base}src/money-bg2n-6x6-v4.bin` });
+assert.equal(moneyDbRequests, 0, 'Money BG2N remains unloaded after worker initialization');
 const net = await NeuralNet.load(`${base}src/model.json`);
 
 // checker context付きのselect/rankもWorkerとfallbackで同じ評価にする。
@@ -137,6 +144,7 @@ for (const scenario of checkerCases) {
     index: entry.index, equity: entry.equity, loss: entry.loss, probabilities: entry.probabilities,
   })), `${scenario.id}: ranked candidates`);
 }
+assert.equal(moneyDbRequests, 0, 'checker selection and hint do not load the Money cube DB');
 
 // 実際の5pt Match/Gameから作ったcontextで、CPU選択・Hint・スコア遷移をsmokeする。
 let openingRoll = 0;
@@ -284,7 +292,7 @@ for (const level of LEVELS) {
           off: [board.off[WHITE], board.off[opponent(WHITE)]],
         },
         player: turn, cubeValue: value, cubeOwner: owner, jacoby: true,
-        level: level.id, match: null,
+        level: level.id, match: null, crawford: false,
       };
       for (const kind of ['double', 'accept']) {
         const reply = await ask({ ...payload, ask: kind });
@@ -313,6 +321,7 @@ for (const level of LEVELS) {
     done += 1;
   }
 }
+assert.equal(moneyDbRequests, 1, 'eligible Money cube work lazily loads one BG2N instance');
 
 // **初心者のマッチ文脈でも Worker とメインが一致すること（2026-11-09）。**
 // 上のキューブ照合はマネー（match: null）だけなので、ダブルマージンが

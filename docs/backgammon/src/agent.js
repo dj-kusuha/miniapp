@@ -21,6 +21,7 @@ import {
 } from './nn.js';
 import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
 import { generateMoves, diceValues, boardKey } from './rules.js';
+import { evaluateMoneyBg2nRoot, MONEY_BG2N_FILE_SHA256 } from './money-bearoff.js';
 
 /** マネー用 CubeHead のフロア（ADR-0057 Phase 11）。大規模2-ply学習により自律的に抑制されるため既定0.0。 */
 export const DEFAULT_CUBE_EFFICIENCY_FLOOR = 0.0;
@@ -389,10 +390,16 @@ export function levelById(id) {
  * 自分の側で 1 度読む（同じ URL なのでブラウザのキャッシュが効く）。
  */
 let sharedBearoff = null;
+let sharedMoneyBearoff = null;
 
 /** 読み込んだベアオフ DB を全 Agent で使うようにする。 */
 export function setBearoffDatabase(database) {
   sharedBearoff = database;
+}
+
+/** BG2N v4 reader. Unlike the checker BGBO reader, it is loaded on first Money cube use. */
+export function setMoneyBearoffDatabase(database) {
+  sharedMoneyBearoff = database;
 }
 
 export function agentFor(net, levelId) {
@@ -400,6 +407,7 @@ export function agentFor(net, levelId) {
   return new Agent(net, level.plies, filtersFor(level.plies), {
     noise: level.noise,
     maxLoss: level.maxLoss,
+    useMoneyBearoff: level.useBearoff !== false,
     blotPenalty: level.blotPenalty ?? 0,
     // **段ごとのキューブ設定。** 無い段は Agent の既定（engine と同じ）。
     // 強い段だけ深く読ませるための口（`DEEP_CUBE`）。
@@ -461,6 +469,7 @@ export class Agent {
     cubeHeadMatch = null,
     cubeEfficiencyFloor = DEFAULT_CUBE_EFFICIENCY_FLOOR,
     cubeEfficiencyFloorDt = DEFAULT_CUBE_EFFICIENCY_FLOOR_DT,
+    useMoneyBearoff = true,
     // **既定は共有 DB**（`setBearoffDatabase()` で差したもの）。
     // ここを null 既定にすると、`new Agent(...)` を直接呼んだ場所だけ
     // 厳密解を失う——実際にパリティのテストがそれで engine と食い違った。
@@ -472,6 +481,9 @@ export class Agent {
     this.useCubeHead = useCubeHead ?? (this.cubeHeadMoney !== null || this.cubeHeadMatch !== null);
     this.cubeEfficiencyFloor = cubeEfficiencyFloor;
     this.cubeEfficiencyFloorDt = cubeEfficiencyFloorDt;
+    this.useMoneyBearoff = Boolean(useMoneyBearoff);
+    this.moneyBg2nStats = { attempts: 0, exactRoots: 0, fallbackRoots: 0 };
+    this.moneyBg2nLastRoot = null;
     this.searchPlies = searchPlies;
     this.filters = filters;
     this.doublePoint = doublePoint;
@@ -847,7 +859,7 @@ export class Agent {
    * これを入れるまで、ダブル側は探索の値で「相手はテイクする」と見込むのに
    * 受ける側は Janowski の定数式で判断していた（**同じ局面に 2 つの基準**）。
    */
-  wouldTakeSearch(board, proposer, cubeValue = 1, takeMargin = 0) {
+  wouldTakeSearch(board, proposer, cubeValue = 1, takeMargin = 0, unboundedMoney = false) {
     let eff = (this.useCubeHead && this.cubeHeadMoney)
       ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent')
       : this.cubeEfficiencyDtFor(board, proposer);
@@ -855,14 +867,15 @@ export class Agent {
       board, proposer, 'opponent', this.cubeSearchDepth, false, null, eff, {
         cubeValue: cubeValue * 2,
         actionContext: 'post_double_take',
+        unboundedMoney,
       });
     return take < 1.0 - takeMargin;
   }
 
   /** テイクするか（**方式の振り分けはここ 1 箇所**）。 */
-  wouldTakeFor(board, proposer, cubeValue = 1, takeMargin = 0) {
+  wouldTakeFor(board, proposer, cubeValue = 1, takeMargin = 0, unboundedMoney = false) {
     if (this.cubeDecision === 'search') {
-      return this.wouldTakeSearch(board, proposer, cubeValue, takeMargin);
+      return this.wouldTakeSearch(board, proposer, cubeValue, takeMargin, unboundedMoney);
     }
     const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
@@ -1146,17 +1159,20 @@ export class Agent {
 
   /** 手番側がキューブを検討できるなら 3 択も評価する（turn 視点）。 */
   cubeNode(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null,
-           cubeValue = 1, allowDouble = true, cashPolicy = null) {
+           cubeValue = 1, allowDouble = true, cashPolicy = null,
+           unboundedMoney = false) {
     const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby, leaf, cubeEfficiency,
-      { cubeValue, allowDouble, cashPolicy });
-    // 相手所有・キューブ64・キューブ禁止の局はダブルを提案できない。
-    if (!allowDouble || owner === 'opponent' || cubeValue >= 64) return noDouble;
+      { cubeValue, allowDouble, cashPolicy, unboundedMoney });
+    // 相手所有・キューブ64（Money unboundedを除く）・キューブ禁止の局は提案できない。
+    if (!allowDouble || owner === 'opponent'
+        || (cubeValue >= 64 && !unboundedMoney)) return noDouble;
 
     const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false, leaf,
       cubeEfficiency, {
         cubeValue: cubeValue * 2,
         allowDouble,
         actionContext: 'post_double_take',
+        unboundedMoney,
       });
     return Math.max(noDouble, Math.min(take, 1.0));
   }
@@ -1169,6 +1185,7 @@ export class Agent {
     cubeValue = 1,
     allowDouble = true,
     actionContext = 'post_no_double',
+    unboundedMoney = false,
   } = {}) {
     const cashPolicy = actionContext === 'post_double_take' ? null : inheritedCashPolicy;
     const terminal = this.terminalVector(board);
@@ -1180,7 +1197,7 @@ export class Agent {
       return this.terminalEquity(board, turn);
     }
     if (depth <= 0) {
-      if (cubeValue >= 64) {
+      if (cubeValue >= 64 && !unboundedMoney) {
         const vector = this.searchedVectorFor(board, turn, turn, leaf ?? this.cubeLeafPlies);
         return equity(vector);
       }
@@ -1191,7 +1208,7 @@ export class Agent {
     const flipped = Agent.flipOwner(owner);
     // Jacoby時も旧cash専用葉評価経路を保ち、cash式は後段で別に判定する。
     const cashPathEligible = this.cashOptionPathEligible(
-      cashPolicy, depth, owner, cubeValue, allowDouble, actionContext);
+      cashPolicy, depth, owner, cubeValue, allowDouble, actionContext, unboundedMoney);
     // V_rollなどの既存直接呼び出しはroot depth=1の契約を保つ。
     const legacyCash = cashOption && depth === 1;
     const alpha = cashAlpha ?? this.cubeCashAlpha;
@@ -1222,7 +1239,7 @@ export class Agent {
           total += weight * v;
         } else {
           total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency,
-            cubeValue, allowDouble, cashPolicy);
+            cubeValue, allowDouble, cashPolicy, unboundedMoney);
         }
         continue;
       }
@@ -1257,7 +1274,7 @@ export class Agent {
           }
         } else {
           value = -this.cubeNode(b, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency,
-            cubeValue, allowDouble, cashPolicy);
+            cubeValue, allowDouble, cashPolicy, unboundedMoney);
         }
         if (best === null || value > best) {
           best = value;
@@ -1268,9 +1285,11 @@ export class Agent {
     return total;
   }
 
-  cashOptionPathEligible(policy, depth, owner, cubeValue, allowDouble, actionContext) {
+  cashOptionPathEligible(policy, depth, owner, cubeValue, allowDouble, actionContext,
+                         unboundedMoney = false) {
     return Boolean(policy && depth === 1 && (owner === 'center' || owner === 'me') &&
-      allowDouble && cubeValue < 64 && actionContext !== 'post_double_take');
+      allowDouble && (cubeValue < 64 || unboundedMoney)
+      && actionContext !== 'post_double_take');
   }
 
   cashOptionValue(vector, alpha) {
@@ -1297,6 +1316,7 @@ export class Agent {
       const ndOptions = {
         cubeValue: game.cube.value,
         actionContext: 'post_no_double',
+        unboundedMoney: game.cube.unboundedMoney === true,
       };
       const nd = this.cubeCashOption
         ? this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd,
@@ -1307,6 +1327,7 @@ export class Agent {
         {
           cubeValue: 2 * game.cube.value,
           actionContext: 'post_double_take',
+          unboundedMoney: game.cube.unboundedMoney === true,
         });
       return [nd, Math.min(tk, 1.0)];
     };
@@ -1347,6 +1368,57 @@ export class Agent {
 
     const take = 2.0 * this.cubefulEquity(vector, 'opponent', xDt);
     return Math.min(take, 1.0) > noDouble + this.doubleMargin;
+  }
+
+  /**
+   * Money strict-rootを試し、非対応root・DB異常・子missならnullを返す。
+   * 呼出側はnull時に従来のcube searchをroot全体で実行する。
+   */
+  tryMoneyBg2nRoot(game, match, source) {
+    if (match !== null || game.crawford || !game.cube.unboundedMoney
+        || !this.useMoneyBearoff) return null;
+
+    this.moneyBg2nStats.attempts += 1;
+    const fallback = (reason, category = 'unsupported_root') => {
+      this.moneyBg2nStats.fallbackRoots += 1;
+      this.moneyBg2nLastRoot = { status: 'fallback', source, reason, category };
+      return null;
+    };
+    const database = sharedMoneyBearoff;
+    if (!database) return fallback('Money BG2N database is not available', 'database_unavailable');
+
+    const proposer = game.doublingProposer ?? game.currentPlayer;
+    const owner = this.cubeOwnerKind(game, proposer);
+    try {
+      const result = evaluateMoneyBg2nRoot(
+        game.board, proposer, game.cube.value, owner, database,
+      );
+      this.moneyBg2nStats.exactRoots += 1;
+      this.moneyBg2nLastRoot = {
+        status: 'exact',
+        source,
+        action: result.action,
+        cube: result.cube,
+        owner: result.owner,
+        valuesPoints: {
+          ND: result.ND_points,
+          DT: result.DT_points,
+          DP: result.DP_points,
+        },
+        valuesCurrentCube: {
+          noDouble: result.no_double,
+          doubleTake: result.double_take,
+          doublePass: result.double_pass,
+        },
+        fileSha256: MONEY_BG2N_FILE_SHA256,
+        payloadSha256: database.payloadSha256,
+      };
+      return result;
+    } catch (error) {
+      const category = error.category ?? 'runtime_error';
+      if (category === 'runtime_error') setMoneyBearoffDatabase(null);
+      return fallback(`${error.name ?? 'Error'}: ${error.message ?? error}`, category);
+    }
   }
 
   /**
@@ -1394,6 +1466,9 @@ export class Agent {
       return Math.min(e.take, e.pass) > (e.noDouble + holdMargin + this.matchDoubleMargin);
     }
 
+    const exact = this.tryMoneyBg2nRoot(game, null, 'should_double');
+    if (exact !== null) return exact.action !== 'no_double';
+
     if (this.cubeDecision === 'cubeful') {
       return this.shouldDoubleCubeful(game);
     }
@@ -1414,7 +1489,8 @@ export class Agent {
     // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
     // 数えられないので「ダブルせずギャモンを狙う」に意味が無い）。
     if (!jacobyNow && value > 1
-        && !this.opponentWouldTake(game.board, proposer, game.cube.value)) return false;
+        && !this.wouldTakeFor(game.board, proposer, game.cube.value, 0,
+          game.cube.unboundedMoney === true)) return false;
 
     return true;
   }
@@ -1434,9 +1510,16 @@ export class Agent {
       return e.take < e.pass - this.matchTakeMargin;
     }
 
+    const exact = this.tryMoneyBg2nRoot(game, null, 'should_accept_double');
+    if (exact !== null && exact.DT_points !== null) {
+      // engine's response rule: equality passes.
+      return exact.double_take < exact.double_pass;
+    }
+
     // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
     // ギャモンは数えられる。通常の equity でよい。
-    return this.wouldTakeFor(game.board, proposer, game.cube.value, this.takeMargin);
+    return this.wouldTakeFor(game.board, proposer, game.cube.value, this.takeMargin,
+      game.cube.unboundedMoney === true);
   }
 
   /**

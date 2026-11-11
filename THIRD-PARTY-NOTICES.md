@@ -2,6 +2,21 @@
 
 このリポジトリが同梱している第三者の成果物と、その許諾条件。
 
+## Backgammon Money BG2N v4 データ
+
+- **同梱先**: [`docs/backgammon/src/money-bg2n-6x6-v4.bin`](docs/backgammon/src/money-bg2n-6x6-v4.bin)
+- **生成元**: [dj-kusuha/backgammon_engine](https://github.com/dj-kusuha/backgammon_engine)
+  production `main`、参照SHA `b2bedb479876162efb48262d612530d8ffe20ad9`
+- **形式**: BG2N v4、little-endian uint16、5,111,574 records、10,223,244 bytes
+- **file SHA-256**: `2ddee6d0b8285c8f755e0fe027bb5c66b678269a9dc89427f8ae9921d4a7daa1`
+- **payload SHA-256**: `e03d9e57b641ab4854ab0021fa6ef8fc2945ee2bf4d47c76b026e82f2a0ef01d`
+- **source SHA-256**: `b594caed010b59d7b91b0b3e99201e8da553c325423385bd6b01f4bba3acd658`
+
+このファイルは同一プロジェクトのengineが生成した評価データをbyte単位でコピーしたもの。
+生成方式はengineの[`docs/money-bg2n.md`](https://github.com/dj-kusuha/backgammon_engine/blob/b2bedb479876162efb48262d612530d8ffe20ad9/docs/money-bg2n.md)
+と[`docs/adr/0167-bg2n-money-production-uint16-v4.md`](https://github.com/dj-kusuha/backgammon_engine/blob/b2bedb479876162efb48262d612530d8ffe20ad9/docs/adr/0167-bg2n-money-production-uint16-v4.md)
+に記録されている。Web版readerは`money-bearoff.js`に分離し、既存BGBOデータは変更しない。
+
 ## Kazaross XG2 マッチエクイティ表
 
 - **使っている場所**: [`docs/backgammon/src/met-table.js`](docs/backgammon/src/met-table.js)

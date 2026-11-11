@@ -27,13 +27,17 @@ export class Game {
    * @param {boolean} options.crawford クロフォード局。**この 1 局だけ
    *   どちらもダブルを提案できない。** マッチで片方がマッチポイント
    *   （あと 1 点）に達した直後の 1 局に立てる。
+   * @param {boolean} options.unboundedMoneyCube Money gameでcubeの64倍上限を外す。
    */
-  constructor(board = null, rng = Math.random, { jacoby = true, crawford = false } = {}) {
+  constructor(board = null, rng = Math.random, {
+    jacoby = true, crawford = false, unboundedMoneyCube = false,
+  } = {}) {
     this.board = board ?? new Board();
     this.rng = rng;
     this.jacoby = jacoby;
     this.crawford = crawford;
     this.cube = new DoublingCube();
+    if (unboundedMoneyCube && !crawford) this.cube.enableUnboundedMoney();
     /** ダブルを提案した側（返事待ちの間だけ入る）。 */
     this.doublingProposer = null;
     this.currentPlayer = null;
