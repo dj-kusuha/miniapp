@@ -340,7 +340,7 @@ test('Match/GameからWorker DTOへscore・Crawford・Jacoby・権利が届く',
     crawford: false, crawfordPlayed: false, jacoby: false,
   });
   assert.deepEqual(preDto.cube, {
-    value: 1, owner: 'center', enabled: true, available: true,
+    value: 1, owner: 'center', enabled: true, unboundedMoney: false, available: true,
   });
 
   const crawford = makeMatch({ scoreWhite: 4, scoreBlack: 3 });
@@ -361,6 +361,7 @@ test('Match/GameからWorker DTOへscore・Crawford・Jacoby・権利が届く',
   const moneyDto = checkerContextFor(moneyGame, money, WHITE);
   assert.deepEqual(moneyDto.match, { mode: 'money', jacoby: true });
   assert.equal(moneyDto.cube.enabled, false);
+  assert.equal(moneyDto.cube.unboundedMoney, true);
   assert.equal(moneyDto.cube.available, false);
 
   pre.game.cube.owner = WHITE;

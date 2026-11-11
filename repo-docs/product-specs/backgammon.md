@@ -249,6 +249,26 @@ engine が先に計算して配っている（`src/bearoff-6x15.bin`）。
   打ち方」のもとで計算されており、勝率を最大化する打ち方とは厳密には別物
   （片側 DB の宿命で gnubg も同じ）
 
+### Money cube のBG2N strict root（2026-11-11）
+
+Money cube判断は、双方がホーム内・バーなし・各6枚以下のsingle-only局面で、
+engine productionのBG2N v4から ND / DT / DP を同一readerで評価する。
+従来のBGBO float16 readerは着手評価用として残す。対象外のroot、子局面miss、
+DB検証/実行時異常では、部分的なexact値を使わず判断root全体を従来評価へ戻す。
+
+- DBは `src/money-bg2n-6x6-v4.bin`（10,223,244 bytes、uint16）。Money cubeが
+  必要になったときだけWorkerまたはmain-thread fallbackで読み込む。readerは
+  10.2 MBの読み取り専用bufferと923件の配置rank indexを保持する
+- Money cubeは64倍を超えても提案できる。Matchでは通常上限64を維持し、
+  Crawford局もdouble禁止のまま。Jacoby、cube所有権、cube OFFも各既存文脈に従う
+- 初心者は従来のベアオフDBと同じくMoney BG2Nも無効。Match MWCではMoney DBを使わない
+- DBの出所とSHA、engineの固定fixture、読込/探索計測は
+  [Issue #543実行計画](../exec-plans/active/issue543-bg2n-v4.md)に記録する
+
+BG2Nはsingle-onlyの評価値なので、Jacobyがギャモンを1点として数える局面でも
+production engineと同様にこのroot評価を使う。これはengine fixtureとのパリティを
+保つ選択であり、BG2Nの適用範囲外では従来評価のJacoby処理がそのまま働く。
+
 ### 弱い相手の作り方（2026-09-15 更新）
 
 **先読み 0 が床なので、それより弱くするには別の軸が要る。** wide4 / cycle200

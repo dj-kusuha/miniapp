@@ -99,7 +99,11 @@ export class Match {
     if (this.isOver) return null;
     const crawford = this.crawfordPending;
     if (crawford) this.crawfordDone = true;
-    const game = new Game(null, this.rng, { jacoby: this.jacoby, crawford });
+    const game = new Game(null, this.rng, {
+      jacoby: this.jacoby,
+      crawford,
+      unboundedMoneyCube: this.isMoney,
+    });
     this.entries.push({ game, scores: { ...this.scores }, crawford });
     this.game = game;
     this.recorded = false;

@@ -1,0 +1,55 @@
+{
+  "engineSha": "b2bedb479876162efb48262d612530d8ffe20ad9",
+  "databaseSha256": "2ddee6d0b8285c8f755e0fe027bb5c66b678269a9dc89427f8ae9921d4a7daa1",
+  "white": [2, 1, 0, 0, 0, 0],
+  "black": [1, 0, 0, 0, 0, 1],
+  "lookups": [
+    { "turn": "WHITE", "owner": "center", "value": 0.6111026337473677 },
+    { "turn": "WHITE", "owner": "opponent", "value": 0.30555131687368386 },
+    { "turn": "BLACK", "owner": "opponent", "value": 0.8004089480269784 }
+  ],
+  "roots": [
+    {
+      "turn": "WHITE", "cube": 1, "owner": "center",
+      "ND_points": -1.0000000000000002,
+      "DT_points": -2.0000000000000004,
+      "DP_points": 1,
+      "action": "no_double"
+    },
+    {
+      "turn": "BLACK", "cube": 1, "owner": "center",
+      "ND_points": 0.6106067079683829,
+      "DT_points": 1.1337643225060445,
+      "DP_points": 1,
+      "action": "double_pass"
+    },
+    {
+      "turn": "BLACK", "cube": 2, "owner": "me",
+      "ND_points": 1.2381884890964148,
+      "DT_points": 2.267528645012089,
+      "DP_points": 2,
+      "action": "double_pass"
+    },
+    {
+      "turn": "BLACK", "cube": 64, "owner": "me",
+      "ND_points": 39.62203165108527,
+      "DT_points": 72.56091664038685,
+      "DP_points": 64,
+      "action": "double_pass"
+    },
+    {
+      "turn": "BLACK", "cube": 128, "owner": "me",
+      "ND_points": 79.24406330217055,
+      "DT_points": 145.1218332807737,
+      "DP_points": 128,
+      "action": "double_pass"
+    },
+    {
+      "turn": "WHITE", "cube": 2, "owner": "opponent",
+      "ND_points": -2.0000000000000004,
+      "DT_points": null,
+      "DP_points": null,
+      "action": "no_double"
+    }
+  ]
+}

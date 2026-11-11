@@ -22,6 +22,9 @@ function validateCheckerContext(position) {
       || !Number.isInteger(cube.value) || !['center', WHITE, BLACK, 'white', 'black'].includes(cube.owner)) {
     throw new Error('checker contextにはcube.enabled/available/value/ownerが必要です');
   }
+  if (cube.unboundedMoney !== undefined && typeof cube.unboundedMoney !== 'boolean') {
+    throw new Error('cube.unboundedMoneyはbooleanで指定してください');
+  }
   if (!match || !['money', 'match'].includes(match.mode)) {
     throw new Error('checker contextにはmatch.modeが必要です');
   }
@@ -58,13 +61,18 @@ function checkerCubeEnabled(position) {
   return Boolean(position.cube.enabled);
 }
 
+function checkerCubeCanRedouble(position) {
+  return checkerCubeEnabled(position) && !position.match.crawford
+    && (position.cube.value < 64
+      || (position.match.mode === 'money' && position.cube.unboundedMoney === true));
+}
+
 function checkerSearchDepth(agent, position) {
   // checker levelのpliesには今の着手が含まれる。Match MWCとMoney cubefulは
   // afterstate探索を次の1ロールまでに制限し、3-plyで探索が急増するのを防ぐ。
   // Money cube OFFは通常のchecker探索なのでprofile本来の深さを保つ。
   const depth = Math.max(0, agent.searchPlies - 1);
-  const cubeCanContinue = checkerCubeEnabled(position)
-    && !position.match.crawford && position.cube.value < 64;
+  const cubeCanContinue = checkerCubeCanRedouble(position);
   return position.match.mode === 'match' || cubeCanContinue
     ? Math.min(depth, 1)
     : depth;
@@ -90,6 +98,7 @@ function withCheckerSearchCache(agent, callback) {
       options.cubeValue ?? 1,
       options.allowDouble ?? true,
       options.actionContext ?? 'post_no_double',
+      options.unboundedMoney ?? false,
     ]);
     if (cubefulCache.has(key)) return cubefulCache.get(key);
     const value = oldCubeful.call(this, board, ...args);
@@ -137,7 +146,9 @@ function checkerValue(agent, position, board, player, match, enabled, depth) {
   const rawOwner = position.cube.owner;
   const owner = rawOwner === 'center' ? 'center'
     : enginePlayer(rawOwner) === next ? 'me' : 'opponent';
-  const canOffer = enabled && !position.match.crawford && cubeValue < 64
+  const canOffer = enabled && !position.match.crawford
+    && (cubeValue < 64 || (position.match.mode === 'money'
+      && position.cube.unboundedMoney === true))
     && owner !== 'opponent';
 
   if (match) {
@@ -180,11 +191,13 @@ function checkerValue(agent, position, board, player, match, enabled, depth) {
   const nd = agent.cubefulSearch(board, next, owner, depth, jacoby, 0, xNd, {
     cashPolicy: agent.cubeCashOption ? { alpha: agent.cubeCashAlpha } : null,
     cubeValue,
+    unboundedMoney: position.cube.unboundedMoney === true,
   });
   if (!canOffer) return -nd;
   const dt = 2 * agent.cubefulSearch(board, next, 'opponent', depth, false, 0, xDt, {
     cubeValue: cubeValue * 2,
     actionContext: 'post_double_take',
+    unboundedMoney: position.cube.unboundedMoney === true,
   });
   return -Math.max(nd, Math.min(dt, 1));
 }
@@ -228,8 +241,11 @@ export function checkerContextFor(game, match, player) {
       value: cube.value,
       owner: cube.owner ?? 'center',
       enabled,
+      unboundedMoney: match.isMoney && cube.unboundedMoney === true,
       // 評価基点は着手後の相手ROLLING。次手番側の提示権を示す。
-      available: enabled && !game.crawford && cube.value < 64 && cube.canDouble(next),
+      available: enabled && !game.crawford
+        && (cube.value < 64 || (match.isMoney && cube.unboundedMoney))
+        && cube.canDouble(next),
     },
     match: match.isMoney ? {
       mode: 'money',
@@ -293,6 +309,7 @@ export function rankCheckerMoves(agent, position, moves, player, limit = 3) {
     entries,
     unit: position.match.mode === 'match' ? 'mwc' : 'cube-units',
     evaluation: checkerCubeEnabled(position) && !position.match.crawford
-      && position.cube.value < 64 ? 'cubeful' : 'cube-disabled',
+      && (position.cube.value < 64 || (position.match.mode === 'money'
+        && position.cube.unboundedMoney === true)) ? 'cubeful' : 'cube-disabled',
   };
 }

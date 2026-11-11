@@ -9,9 +9,15 @@ import { WHITE, BLACK } from './board.js';
 export const MAX_CUBE_VALUE = 64;
 
 export class DoublingCube {
-  constructor(value = 1, owner = null) {
+  constructor(value = 1, owner = null, unboundedMoney = false) {
     this.value = value;
     this.owner = owner;   // null = センター
+    this.unboundedMoney = unboundedMoney;
+  }
+
+  /** Money gameだけ通常の64倍上限を外す。Matchのキューブには使わない。 */
+  enableUnboundedMoney() {
+    this.unboundedMoney = true;
   }
 
   /**
@@ -19,7 +25,7 @@ export class DoublingCube {
    * センターか、自分が持っているときだけ提案できる（相手が持っていたら不可）。
    */
   canDouble(player) {
-    if (this.value >= MAX_CUBE_VALUE) return false;
+    if (!this.unboundedMoney && this.value >= MAX_CUBE_VALUE) return false;
     return this.owner === null || this.owner === player;
   }
 
@@ -51,7 +57,7 @@ export class DoublingCube {
   }
 
   clone() {
-    return new DoublingCube(this.value, this.owner);
+    return new DoublingCube(this.value, this.owner, this.unboundedMoney);
   }
 
   toString() {

@@ -10,13 +10,29 @@
 import { Board } from './board.js';
 import { Game, ROLLING } from './game.js';
 import { NeuralNet } from './nn.js';
-import { agentFor, setBearoffDatabase } from './agent.js';
+import { agentFor, setBearoffDatabase, setMoneyBearoffDatabase } from './agent.js';
 import { rankCheckerMoves, selectCheckerMove } from './checker.js';
 import { BearoffDatabase } from './bearoff.js';
+import { MoneyBearoffDatabase } from './money-bearoff.js';
 import { generateMoves, boardKey } from './rules.js';
 
 let net = null;
+let moneyBearoffUrl = null;
+let moneyBearoffLoadPromise = null;
 const agents = new Map();   // level id -> Agent（作り直さず使い回す）
+
+async function ensureMoneyBearoff(agent, match) {
+  if (match !== null || !agent.useMoneyBearoff || moneyBearoffLoadPromise) {
+    return moneyBearoffLoadPromise;
+  }
+  moneyBearoffLoadPromise = MoneyBearoffDatabase.load(moneyBearoffUrl)
+    .then((database) => setMoneyBearoffDatabase(database))
+    .catch((error) => {
+      setMoneyBearoffDatabase(null);
+      console.warn('Money BG2N DB を読めませんでした。従来評価へ戻します', error);
+    });
+  return moneyBearoffLoadPromise;
+}
 
 /**
  * **鍵は段（level）であって先読みの深さ（plies）ではない。**
@@ -39,6 +55,8 @@ self.onmessage = async (event) => {
   try {
     if (kind === 'load') {
       net = await NeuralNet.load(event.data.url);
+      moneyBearoffUrl = event.data.moneyBearoffUrl
+        || new URL('./money-bg2n-6x6-v4.bin', import.meta.url).href;
       // **ベアオフ DB もここで読む。** 無くても動く（ネットの推定に落ちる）ので、
       // 読めなかったら警告だけ出して先へ進む。
       if (event.data.bearoffUrl) {
@@ -102,13 +120,18 @@ self.onmessage = async (event) => {
     // キューブの値と所有者・ジャコビーだけなので、それだけ送って
     // こちらで組み立て直す。
     if (kind === 'cube') {
-      const { board, player, cubeValue, cubeOwner, jacoby, level, match, ask } = event.data;
-      const game = new Game(Board.fromJson(board), Math.random, { jacoby });
+      const { board, player, cubeValue, cubeOwner, jacoby, crawford, level, match, ask } = event.data;
+      const agent = agentForLevel(level);
+      if (match == null) await ensureMoneyBearoff(agent, match);
+      const game = new Game(Board.fromJson(board), Math.random, {
+        jacoby,
+        crawford: Boolean(crawford),
+        unboundedMoneyCube: match == null,
+      });
       game.currentPlayer = player;
       game.state = ROLLING;
       game.cube.value = cubeValue;
       game.cube.owner = cubeOwner;
-      const agent = agentForLevel(level);
       let answer;
       if (ask === 'accept') {
         // **テイク判断は「提案された状態」でしか呼べない。**
