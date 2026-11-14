@@ -424,3 +424,53 @@ test('3-ply legacyは従来深度を保ち、明示modeでMatch/Moneyが実効3-
     context({ mode: 'money', enabled: false, available: false }), move, WHITE);
   assert.deepEqual(moneyOffDepths, [2]);
 });
+
+test('noise付き3-plyはfull-root/staged3plyでも初期評価・足切り・再評価の探索深度を揃える', () => {
+  const scenarios = [
+    { name: 'Money cubeful', ctx: context({ mode: 'money', enabled: true, available: true }) },
+    { name: 'Match MWC', ctx: context({ mode: 'match', enabled: true, available: true }) },
+  ];
+
+  for (const mode of ['full-root', 'staged3ply']) {
+    for (const { name, ctx } of scenarios) {
+      const a = board();
+      const b = board();
+      const values = new WeakMap([
+        [a, [0.62, 0.16, 0.02, 0.08, 0.01]],
+        [b, [0.59, 0.12, 0.01, 0.11, 0.02]],
+      ]);
+      const agent = makeAgent(values);
+      agent.searchPlies = 3;
+      agent.checkerSearchMode = mode;
+      agent.noise = 0.1;
+      agent.maxLoss = 0.2;
+      agent.cubeEfficiencyDtFor = () => agent.cubeEfficiency;
+      const noiseByBoard = new WeakMap([[a, 0.08], [b, -0.04]]);
+      agent.noiseFor = (candidate) => noiseByBoard.get(candidate) ?? 0;
+
+      const calls = [];
+      if (ctx.match.mode === 'money') {
+        agent.cubefulSearch = (candidate, _turn, _owner, depth, _jacoby, _leaf, _eff, options) => {
+          calls.push({ candidate, depth, noise: agent.noiseFor(candidate) });
+          return options.cubeValue === 1 ? -0.2 : -0.4;
+        };
+      } else {
+        agent.mwcSearch = (candidate, _turn, _owner, depth) => {
+          calls.push({ candidate, depth, noise: agent.noiseFor(candidate) });
+          return 0.4;
+        };
+      }
+
+      selectCheckerMove(agent, ctx, [{ resultingBoard: a }, { resultingBoard: b }], WHITE);
+      assert.ok(calls.length > 0, `${mode} ${name}: 探索が実行される`);
+      assert.ok(calls.every((call) => call.depth === 2),
+        `${mode} ${name}: 初期評価・足切り・ノイズ再評価のすべてがdepth 2になる`);
+      assert.ok(calls.some((call) => call.noise === 0 && call.depth === 2),
+        `${mode} ${name}: 初期順位はnoise=0でdepth 2評価`);
+      assert.ok(calls.some((call) => call.noise === -0.2 && call.depth === 2),
+        `${mode} ${name}: maxLoss足切りはdepth 2評価`);
+      assert.ok(calls.some((call) => call.noise === 0.08 && call.depth === 2),
+        `${mode} ${name}: ノイズ再評価はdepth 2評価`);
+    }
+  }
+});

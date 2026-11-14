@@ -298,15 +298,20 @@ function scoreStagedCheckerMoves(agent, position, moves, player, match, enabled)
     || b.value - a.value || a.index - b.index);
 }
 
+function resolveCheckerSearchMode(agent, requestedMode = null) {
+  const mode = requestedMode ?? agent.checkerSearchMode ?? 'legacy';
+  if (!['legacy', 'full-root', 'staged3ply'].includes(mode)) {
+    throw new Error(`未対応のchecker評価mode: ${mode}`);
+  }
+  return mode;
+}
+
 /** 全候補を評価する。full-root / staged3plyはfixture・採否計測にも使う。 */
 export function scoreCheckerMoves(agent, position, moves, player, requestedMode = null) {
   validateCheckerContext(position);
   const match = matchContext(position, player);
   const enabled = checkerCubeEnabled(position);
-  const mode = requestedMode ?? agent.checkerSearchMode ?? 'legacy';
-  if (!['legacy', 'full-root', 'staged3ply'].includes(mode)) {
-    throw new Error(`未対応のchecker評価mode: ${mode}`);
-  }
+  const mode = resolveCheckerSearchMode(agent, requestedMode);
   return agent.withCheckerVectorCache(() => withCheckerSearchCache(agent, () =>
     withCheckerNoise(agent, () => 0, () => {
       if (mode === 'staged3ply') {
@@ -322,11 +327,10 @@ export function scoreCheckerMoves(agent, position, moves, player, requestedMode 
     })));
 }
 
-function checkerMoveValueWithNoise(agent, position, move, player, noise) {
+function checkerMoveValueWithNoise(agent, position, move, player, noise, depth) {
   validateCheckerContext(position);
   const match = matchContext(position, player);
   const enabled = checkerCubeEnabled(position);
-  const depth = checkerSearchDepth(agent, position);
   const whiteNoise = player === WHITE ? noise : -noise;
   return agent.withCheckerVectorCache(() => withCheckerSearchCache(agent, () =>
     withCheckerNoise(agent,
@@ -370,15 +374,22 @@ export function checkerContextFor(game, match, player) {
 /** 共通checker評価からCPUの手を選ぶ。 */
 export function selectCheckerMove(agent, position, moves, player) {
   if (moves.length <= 1) return 0;
-  const scored = scoreCheckerMoves(agent, position, moves, player);
+  const requestedMode = resolveCheckerSearchMode(agent);
+  // noise > 0 / maxLoss有限の選択では全候補を同一深度で評価して足切り・ノイズ再評価する。
+  // staged3plyは候補ごとに探索深度が異なるため、noise付きAgentではfull-rootへ揃える。
+  const mode = agent.noise > 0 && requestedMode === 'staged3ply'
+    ? 'full-root'
+    : requestedMode;
+  const scored = scoreCheckerMoves(agent, position, moves, player, mode);
   if (!scored.length) return 0;
   if (agent.noise <= 0) return scored[0].index;
 
+  const depth = checkerSearchDepth(agent, position, mode);
   // noise/maxLossはcubeless equity単位。確率の勝率をずらして再評価し、
   // MWCやcubefulの値へ変換してから足切り・選択する。
   const cutoff = Number.isFinite(agent.maxLoss)
     ? checkerMoveValueWithNoise(agent, position, scored[0].move,
-      player, -agent.maxLoss)
+      player, -agent.maxLoss, depth)
     : -Infinity;
   let selected = scored[0];
   let selectedScore = -Infinity;
@@ -387,7 +398,7 @@ export function selectCheckerMove(agent, position, moves, player) {
     const noise = agent.noiseFor(entry.move.resultingBoard);
     const noisy = noise === 0
       ? entry.value
-      : checkerMoveValueWithNoise(agent, position, entry.move, player, noise);
+      : checkerMoveValueWithNoise(agent, position, entry.move, player, noise, depth);
     if (noisy > selectedScore) {
       selected = entry;
       selectedScore = noisy;
