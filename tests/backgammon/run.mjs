@@ -15,7 +15,7 @@ const specs = ['parity-encode.mjs', 'parity-nn.mjs', 'hierarchical-output.mjs',
   'parity-moves.mjs', 'parity-select.mjs',
   'parity-game.mjs', 'parity-cube.mjs', 'parity-bearoff.mjs', 'worker.mjs', 'levels.mjs', 'match.mjs',
   'cube-search-context.mjs', 'cube-cash-option-parity.mjs', 'match-cube-parity.mjs',
-  'checker-context.mjs', 'money-bg2n.mjs', 'money-bg2n-worker.mjs', 'met.mjs', 'mat.mjs',
+  'checker-context.mjs', 'checker-staged-policy.mjs', 'money-bg2n.mjs', 'money-bg2n-worker.mjs', 'met.mjs', 'mat.mjs',
   'auto-roll.mjs', 'app-ui.mjs'];
 let failed = 0;
 for (const spec of specs) {

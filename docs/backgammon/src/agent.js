@@ -402,7 +402,7 @@ export function setMoneyBearoffDatabase(database) {
   sharedMoneyBearoff = database;
 }
 
-export function agentFor(net, levelId) {
+export function agentFor(net, levelId, overrides = {}) {
   const level = levelById(levelId);
   return new Agent(net, level.plies, filtersFor(level.plies), {
     noise: level.noise,
@@ -416,6 +416,7 @@ export function agentFor(net, levelId) {
     // 完璧になる。`bearoff: null` を明示するとコンストラクタの既定
     // （共有DB）に落ちないので、この形で渡す。
     ...(level.useBearoff === false ? { bearoff: null } : {}),
+    ...overrides,
   });
 }
 
@@ -470,6 +471,7 @@ export class Agent {
     cubeEfficiencyFloor = DEFAULT_CUBE_EFFICIENCY_FLOOR,
     cubeEfficiencyFloorDt = DEFAULT_CUBE_EFFICIENCY_FLOOR_DT,
     useMoneyBearoff = true,
+    checkerSearchMode = 'legacy',
     // **既定は共有 DB**（`setBearoffDatabase()` で差したもの）。
     // ここを null 既定にすると、`new Agent(...)` を直接呼んだ場所だけ
     // 厳密解を失う——実際にパリティのテストがそれで engine と食い違った。
@@ -482,6 +484,10 @@ export class Agent {
     this.cubeEfficiencyFloor = cubeEfficiencyFloor;
     this.cubeEfficiencyFloorDt = cubeEfficiencyFloorDt;
     this.useMoneyBearoff = Boolean(useMoneyBearoff);
+    if (!['legacy', 'full-root', 'staged3ply'].includes(checkerSearchMode)) {
+      throw new Error(`未対応のcheckerSearchMode: ${checkerSearchMode}`);
+    }
+    this.checkerSearchMode = checkerSearchMode;
     this.moneyBg2nStats = { attempts: 0, exactRoots: 0, fallbackRoots: 0 };
     this.moneyBg2nLastRoot = null;
     this.searchPlies = searchPlies;
@@ -550,6 +556,13 @@ export class Agent {
     this.bearoff = bearoff;
     // checker候補を同時に評価する間だけ、重複するafterstateの5-vectorを再利用する。
     this.checkerVectorCache = null;
+    this.checkerRollCache = null;
+    this.checkerSearchStats = {
+      rollExpansionHits: 0,
+      rollExpansionMisses: 0,
+      batchCalls: 0,
+      batchVectors: 0,
+    };
   }
 
   /**
@@ -571,6 +584,40 @@ export class Agent {
     if (result === undefined) result = this.net.predict(encodeBoard(board, WHITE, turn));
     if (key !== null && cache.size < 50000) cache.set(key, result);
     return result;
+  }
+
+  /**
+   * checker cubeful/MWC leafで使うraw vectorだけを重複排除してbatch推論する。
+   * cube owner/value/Jacoby/ND-DTの変換は後続の探索関数が個別に適用する。
+   */
+  prefetchCheckerVectors(boards, turn) {
+    const cache = this.checkerVectorCache;
+    if (!cache || typeof this.net?.predictBatch !== 'function') return;
+
+    const pending = new Map();
+    for (const board of boards) {
+      if (this.terminalVector(board) !== null) continue;
+      const key = `${turn}:${boardKey(board)}`;
+      if (cache.has(key) || pending.has(key)) continue;
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(board, turn);
+        if (exact !== null) {
+          cache.set(key, exact);
+          continue;
+        }
+      }
+      pending.set(key, board);
+    }
+    if (pending.size === 0) return;
+
+    const entries = [...pending.entries()];
+    const features = entries.map(([, board]) => encodeBoard(board, WHITE, turn));
+    const vectors = this.net.predictBatch(features);
+    for (let index = 0; index < entries.length; index += 1) {
+      cache.set(entries[index][0], vectors[index]);
+    }
+    this.checkerSearchStats.batchCalls += 1;
+    this.checkerSearchStats.batchVectors += entries.length;
   }
 
   /** checker rootの同期探索中だけ、同一局面のNN推論を共有する。 */
@@ -996,21 +1043,39 @@ export class Agent {
 
     let total = 0.0;
     const flipped = Agent.flipOwner(owner);
-    for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = generateMoves(board, turn, die1, die2);
-      if (moves.length === 0) {
+    const preparedRolls = this.checkerRollCache
+      ? ALL_ROLLS.map((roll) => ({
+        roll,
+        selection: this.checkerRollBoards(board, turn, roll, depth),
+      }))
+      : null;
+    const leafPlies = leaf ?? this.cubeLeafPlies;
+    if (depth === 1 && leafPlies === 0 && preparedRolls) {
+      const leafTurn = opponent(turn);
+      const leafBoards = [];
+      for (const { selection } of preparedRolls) {
+        if (selection.hasMoves) leafBoards.push(...selection.boards);
+        else leafBoards.push(board);
+      }
+      this.prefetchCheckerVectors(leafBoards, leafTurn);
+    }
+    for (let rollIndex = 0; rollIndex < ALL_ROLLS.length; rollIndex += 1) {
+      const roll = ALL_ROLLS[rollIndex];
+      const { die1, die2, weight } = roll;
+      const selection = preparedRolls
+        ? preparedRolls[rollIndex].selection
+        : this.checkerRollBoards(board, turn, roll, depth);
+      if (!selection.hasMoves) {
         total += weight * (1.0 - this.mwcNode(
           board, opponent(turn), flipped, depth - 1, cube, match, leaf,
           matchCubeEfficiency, allowDouble));
         continue;
       }
-      const boards = moves.map((m) => m.resultingBoard);
       let best = null;
       // **マネー側（`cubefulSearch`）と同じ段で絞る。**
-      for (const i of this.shortlist(
-        boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters)) {
+      for (const selectedBoard of selection.boards) {
         const value = 1.0 - this.mwcNode(
-          boards[i], opponent(turn), flipped, depth - 1, cube, match, leaf,
+          selectedBoard, opponent(turn), flipped, depth - 1, cube, match, leaf,
           matchCubeEfficiency, allowDouble);
         if (best === null || value > best) best = value;
       }
@@ -1212,9 +1277,30 @@ export class Agent {
     // V_rollなどの既存直接呼び出しはroot depth=1の契約を保つ。
     const legacyCash = cashOption && depth === 1;
     const alpha = cashAlpha ?? this.cubeCashAlpha;
-    for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = generateMoves(board, turn, die1, die2);
-      if (moves.length === 0) {
+    const preparedRolls = this.checkerRollCache
+      ? ALL_ROLLS.map((roll) => ({
+        roll,
+        selection: this.checkerRollBoards(board, turn, roll, depth),
+      }))
+      : null;
+    const leafPlies = leaf ?? this.cubeLeafPlies;
+    if (depth === 1 && leafPlies === 0 && preparedRolls) {
+      const leafTurn = opponent(turn);
+      const leafBoards = [];
+      for (const { selection } of preparedRolls) {
+        if (selection.hasMoves) leafBoards.push(...selection.boards);
+        else leafBoards.push(board);
+      }
+      this.prefetchCheckerVectors(leafBoards, leafTurn);
+    }
+
+    for (let rollIndex = 0; rollIndex < ALL_ROLLS.length; rollIndex += 1) {
+      const roll = ALL_ROLLS[rollIndex];
+      const { weight } = roll;
+      const selection = preparedRolls
+        ? preparedRolls[rollIndex].selection
+        : this.checkerRollBoards(board, turn, roll, depth);
+      if (!selection.hasMoves) {
         const termVector = this.terminalVector(board);
         if (termVector !== null) {
           const term = jacoby && owner === 'center'
@@ -1243,13 +1329,8 @@ export class Agent {
         }
         continue;
       }
-      const boards = moves.map((m) => m.resultingBoard);
-      // **キューブ木は着手木の「段 1 以降」と同じ絞り方で読む**（`cubeFilterLevelFor`）
-      const picks = this.shortlist(
-        boards, turn, this.cubeFilterLevelFor(depth), this.cubeFilters);
       let best = null;
-      for (const i of picks) {
-        const b = boards[i];
+      for (const b of selection.boards) {
         let value;
         if (cashPathEligible || legacyCash) {
           const termVector = this.terminalVector(b);
@@ -1624,6 +1705,37 @@ export class Agent {
       return order.filter((i) => own[i] >= best - filter.tolerance);
     }
     return order;
+  }
+
+  /**
+   * 1 rollの合法手展開とshortlistをchecker root内で共有する。選ばれた盤面は
+   * cube文脈に依存しないが、その先のcubeful/MWC値は個別に評価する。
+   */
+  checkerRollBoards(board, turn, roll, depth, filters = this.cubeFilters) {
+    const level = this.cubeFilterLevelFor(depth);
+    const filter = this.filterFor(level, filters);
+    const key = this.checkerRollCache ? JSON.stringify([
+      boardKey(board), turn, roll.die1, roll.die2,
+      level, filter.candidates, filter.tolerance,
+    ]) : null;
+    if (key !== null && this.checkerRollCache.has(key)) {
+      this.checkerSearchStats.rollExpansionHits += 1;
+      return this.checkerRollCache.get(key);
+    }
+    if (key !== null) this.checkerSearchStats.rollExpansionMisses += 1;
+
+    const moves = generateMoves(board, turn, roll.die1, roll.die2);
+    let selection;
+    if (moves.length === 0) selection = { hasMoves: false, boards: [] };
+    else {
+      const boards = moves.map((move) => move.resultingBoard);
+      const indices = this.shortlist(boards, turn, level, filters);
+      selection = { hasMoves: true, boards: indices.map((index) => boards[index]) };
+    }
+    if (key !== null && this.checkerRollCache.size < 16_384) {
+      this.checkerRollCache.set(key, selection);
+    }
+    return selection;
   }
 
   /**
