@@ -1,0 +1,1969 @@
+{
+  "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36",
+  "positionsCount": 12,
+  "repeatsPerPosition": 3,
+  "coldStarts": {
+    "main:legacy": 1309.3,
+    "main:staged3ply": 8299.4,
+    "worker:legacy": 1861.1,
+    "worker:staged3ply": 8502
+  },
+  "records": [
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F021",
+      "category": "contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 62,
+      "samplesMs": [
+        1800.9,
+        1724.5,
+        1720.4
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1748.6,
+        "p50Ms": 1724.5,
+        "p95Ms": 1800.9,
+        "maxMs": 1800.9
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F061",
+      "category": "tactical-contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 52,
+      "samplesMs": [
+        1196.5,
+        1185.1,
+        1172.6
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1184.73,
+        "p50Ms": 1185.1,
+        "p95Ms": 1196.5,
+        "maxMs": 1196.5
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F091",
+      "category": "prime",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 0,
+      "samplesMs": [
+        2812.6,
+        2809.9,
+        2890.4
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 2837.63,
+        "p50Ms": 2812.6,
+        "p95Ms": 2890.4,
+        "maxMs": 2890.4
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F121",
+      "category": "backgame",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 103,
+      "samplesMs": [
+        5377.3,
+        5196.1,
+        5264.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 5279.2,
+        "p50Ms": 5264.2,
+        "p95Ms": 5377.3,
+        "maxMs": 5377.3
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F153",
+      "category": "bearoff",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 307,
+      "samplesMs": [
+        729.4,
+        672.5,
+        700
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 700.63,
+        "p50Ms": 700,
+        "p95Ms": 729.4,
+        "maxMs": 729.4
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F183",
+      "category": "opening",
+      "searchMode": "money",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 5,
+      "samplesMs": [
+        232.2,
+        246.6,
+        203.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 227.5,
+        "p50Ms": 232.2,
+        "p95Ms": 246.6,
+        "maxMs": 246.6
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F026",
+      "category": "contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 21,
+      "samplesMs": [
+        267.2,
+        294.7,
+        296.6
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 286.17,
+        "p50Ms": 294.7,
+        "p95Ms": 296.6,
+        "maxMs": 296.6
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F056",
+      "category": "tactical-contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 1,
+      "samplesMs": [
+        391.8,
+        413,
+        432.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 412.33,
+        "p50Ms": 413,
+        "p95Ms": 432.2,
+        "maxMs": 432.2
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F096",
+      "category": "prime",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 48,
+      "samplesMs": [
+        88.4,
+        95.4,
+        97.6
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 93.8,
+        "p50Ms": 95.4,
+        "p95Ms": 97.6,
+        "maxMs": 97.6
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F126",
+      "category": "backgame",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 17,
+      "samplesMs": [
+        322.6,
+        329.1,
+        330.9
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 327.53,
+        "p50Ms": 329.1,
+        "p95Ms": 330.9,
+        "maxMs": 330.9
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F146",
+      "category": "race",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 1,
+      "samplesMs": [
+        810.3,
+        831.3,
+        885.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 842.43,
+        "p50Ms": 831.3,
+        "p95Ms": 885.7,
+        "maxMs": 885.7
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "legacy",
+      "id": "F020",
+      "category": "opening",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 2,
+      "samplesMs": [
+        211.5,
+        236.1,
+        194.1
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 213.9,
+        "p50Ms": 211.5,
+        "p95Ms": 236.1,
+        "maxMs": 236.1
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F021",
+      "category": "contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 5,
+      "samplesMs": [
+        8220.8,
+        8033.8,
+        7949.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 8068.13,
+        "p50Ms": 8033.8,
+        "p95Ms": 8220.8,
+        "maxMs": 8220.8
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F061",
+      "category": "tactical-contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 52,
+      "samplesMs": [
+        9186.6,
+        9056.4,
+        9327.5
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 9190.17,
+        "p50Ms": 9186.6,
+        "p95Ms": 9327.5,
+        "maxMs": 9327.5
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F091",
+      "category": "prime",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 0,
+      "samplesMs": [
+        11990.9,
+        11988.1,
+        11887.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 11955.57,
+        "p50Ms": 11988.1,
+        "p95Ms": 11990.9,
+        "maxMs": 11990.9
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F121",
+      "category": "backgame",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 103,
+      "samplesMs": [
+        12224.6,
+        12377.3,
+        12472.1
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 12358,
+        "p50Ms": 12377.3,
+        "p95Ms": 12472.1,
+        "maxMs": 12472.1
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F153",
+      "category": "bearoff",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 307,
+      "samplesMs": [
+        4278.4,
+        4497,
+        4526.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 4434.07,
+        "p50Ms": 4497,
+        "p95Ms": 4526.8,
+        "maxMs": 4526.8
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F183",
+      "category": "opening",
+      "searchMode": "money",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": 0,
+      "action": 5,
+      "samplesMs": [
+        211.7,
+        238.6,
+        223.9
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 224.73,
+        "p50Ms": 223.9,
+        "p95Ms": 238.6,
+        "maxMs": 238.6
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F026",
+      "category": "contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 10,
+      "samplesMs": [
+        11624.3,
+        11577.7,
+        11427.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 11543.07,
+        "p50Ms": 11577.7,
+        "p95Ms": 11624.3,
+        "maxMs": 11624.3
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F056",
+      "category": "tactical-contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 7,
+      "samplesMs": [
+        1405.6,
+        1460.4,
+        1508.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1458.07,
+        "p50Ms": 1460.4,
+        "p95Ms": 1508.2,
+        "maxMs": 1508.2
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F096",
+      "category": "prime",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 48,
+      "samplesMs": [
+        716.4,
+        769.8,
+        765.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 750.67,
+        "p50Ms": 765.8,
+        "p95Ms": 769.8,
+        "maxMs": 769.8
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F126",
+      "category": "backgame",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "action": 17,
+      "samplesMs": [
+        2240.5,
+        2257.1,
+        2120.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 2206.13,
+        "p50Ms": 2240.5,
+        "p95Ms": 2257.1,
+        "maxMs": 2257.1
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F146",
+      "category": "race",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": 2,
+      "action": 1,
+      "samplesMs": [
+        8270.3,
+        8260,
+        8016.9
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 8182.4,
+        "p50Ms": 8260,
+        "p95Ms": 8270.3,
+        "maxMs": 8270.3
+      }
+    },
+    {
+      "path": "main-thread",
+      "mode": "staged3ply",
+      "id": "F020",
+      "category": "opening",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": 0,
+      "action": 2,
+      "samplesMs": [
+        212.5,
+        202.4,
+        208.6
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 207.83,
+        "p50Ms": 208.6,
+        "p95Ms": 212.5,
+        "maxMs": 212.5
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F021",
+      "category": "contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 62,
+      "samplesMs": [
+        1795,
+        1756.7,
+        1725.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1759.13,
+        "p50Ms": 1756.7,
+        "p95Ms": 1795,
+        "maxMs": 1795
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F061",
+      "category": "tactical-contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 52,
+      "samplesMs": [
+        1186.9,
+        1287.4,
+        1256.1
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1243.47,
+        "p50Ms": 1256.1,
+        "p95Ms": 1287.4,
+        "maxMs": 1287.4
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F091",
+      "category": "prime",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 0,
+      "samplesMs": [
+        2749.7,
+        2896.4,
+        2928.5
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 2858.2,
+        "p50Ms": 2896.4,
+        "p95Ms": 2928.5,
+        "maxMs": 2928.5
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F121",
+      "category": "backgame",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 103,
+      "samplesMs": [
+        5445.2,
+        5508.7,
+        5513.4
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 5489.1,
+        "p50Ms": 5508.7,
+        "p95Ms": 5513.4,
+        "maxMs": 5513.4
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F153",
+      "category": "bearoff",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 307,
+      "samplesMs": [
+        766.2,
+        770.2,
+        746.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 761.03,
+        "p50Ms": 766.2,
+        "p95Ms": 770.2,
+        "maxMs": 770.2
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F183",
+      "category": "opening",
+      "searchMode": "money",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 5,
+      "samplesMs": [
+        238.7,
+        249.2,
+        266.1
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 251.33,
+        "p50Ms": 249.2,
+        "p95Ms": 266.1,
+        "maxMs": 266.1
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F026",
+      "category": "contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 21,
+      "samplesMs": [
+        307.7,
+        308.9,
+        304.5
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 307.03,
+        "p50Ms": 307.7,
+        "p95Ms": 308.9,
+        "maxMs": 308.9
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F056",
+      "category": "tactical-contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 1,
+      "samplesMs": [
+        372.6,
+        413.9,
+        422.3
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 402.93,
+        "p50Ms": 413.9,
+        "p95Ms": 422.3,
+        "maxMs": 422.3
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F096",
+      "category": "prime",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 48,
+      "samplesMs": [
+        84,
+        100.4,
+        92
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 92.13,
+        "p50Ms": 92,
+        "p95Ms": 100.4,
+        "maxMs": 100.4
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F126",
+      "category": "backgame",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 17,
+      "samplesMs": [
+        328.8,
+        310.9,
+        282.6
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 307.43,
+        "p50Ms": 310.9,
+        "p95Ms": 328.8,
+        "maxMs": 328.8
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F146",
+      "category": "race",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 1,
+      "samplesMs": [
+        853.8,
+        847.3,
+        868.1
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 856.4,
+        "p50Ms": 853.8,
+        "p95Ms": 868.1,
+        "maxMs": 868.1
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "legacy",
+      "id": "F020",
+      "category": "opening",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 2,
+      "samplesMs": [
+        203.3,
+        213.5,
+        238.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 218.5,
+        "p50Ms": 213.5,
+        "p95Ms": 238.7,
+        "maxMs": 238.7
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F021",
+      "category": "contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 5,
+      "samplesMs": [
+        8334.6,
+        8147.6,
+        8479.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 8320.47,
+        "p50Ms": 8334.6,
+        "p95Ms": 8479.2,
+        "maxMs": 8479.2
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F061",
+      "category": "tactical-contact",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 52,
+      "samplesMs": [
+        9137.5,
+        7737.5,
+        6912.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 7929.07,
+        "p50Ms": 7737.5,
+        "p95Ms": 9137.5,
+        "maxMs": 9137.5
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F091",
+      "category": "prime",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 0,
+      "samplesMs": [
+        9157.2,
+        9159.3,
+        9136.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 9151.1,
+        "p50Ms": 9157.2,
+        "p95Ms": 9159.3,
+        "maxMs": 9159.3
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F121",
+      "category": "backgame",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 103,
+      "samplesMs": [
+        9387.5,
+        9421.6,
+        9390.7
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 9399.93,
+        "p50Ms": 9390.7,
+        "p95Ms": 9421.6,
+        "maxMs": 9421.6
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F153",
+      "category": "bearoff",
+      "searchMode": "money",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 307,
+      "samplesMs": [
+        3457.5,
+        3473,
+        3432.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 3454.43,
+        "p50Ms": 3457.5,
+        "p95Ms": 3473,
+        "maxMs": 3473
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F183",
+      "category": "opening",
+      "searchMode": "money",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 5,
+      "samplesMs": [
+        178.7,
+        180,
+        174.5
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 177.73,
+        "p50Ms": 178.7,
+        "p95Ms": 180,
+        "maxMs": 180
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F026",
+      "category": "contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 10,
+      "samplesMs": [
+        8689.9,
+        8616.7,
+        8666.3
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 8657.63,
+        "p50Ms": 8666.3,
+        "p95Ms": 8689.9,
+        "maxMs": 8689.9
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F056",
+      "category": "tactical-contact",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 7,
+      "samplesMs": [
+        1089.9,
+        1092.1,
+        1098.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1093.4,
+        "p50Ms": 1092.1,
+        "p95Ms": 1098.2,
+        "maxMs": 1098.2
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F096",
+      "category": "prime",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 48,
+      "samplesMs": [
+        588.8,
+        573.8,
+        586.5
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 583.03,
+        "p50Ms": 586.5,
+        "p95Ms": 588.8,
+        "maxMs": 588.8
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F126",
+      "category": "backgame",
+      "searchMode": "match",
+      "deepTag": "deep",
+      "maxAdditionalDepth": null,
+      "action": 17,
+      "samplesMs": [
+        1696.1,
+        1692.2,
+        1700.2
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 1696.17,
+        "p50Ms": 1696.1,
+        "p95Ms": 1700.2,
+        "maxMs": 1700.2
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F146",
+      "category": "race",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 1,
+      "samplesMs": [
+        6218,
+        6136.9,
+        6150.8
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 6168.57,
+        "p50Ms": 6150.8,
+        "p95Ms": 6218,
+        "maxMs": 6218
+      }
+    },
+    {
+      "path": "worker",
+      "mode": "staged3ply",
+      "id": "F020",
+      "category": "opening",
+      "searchMode": "match",
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": null,
+      "action": 2,
+      "samplesMs": [
+        153.5,
+        146.6,
+        149.3
+      ],
+      "stats": {
+        "samples": 3,
+        "meanMs": 149.8,
+        "p50Ms": 149.3,
+        "p95Ms": 153.5,
+        "maxMs": 153.5
+      }
+    }
+  ],
+  "benchPositions": [
+    {
+      "id": "F021",
+      "category": "contact",
+      "stratum": "money-center-jacoby",
+      "mode": "money",
+      "cubeEnabled": true,
+      "legalMovesCount": 81,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          -2,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          4,
+          0,
+          0,
+          0,
+          -4,
+          4,
+          0,
+          0,
+          0,
+          -2,
+          0,
+          -5,
+          0,
+          -2,
+          1,
+          0,
+          1
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "WHITE",
+      "die1": 4,
+      "die2": 4,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": true
+        },
+        "match": {
+          "mode": "money",
+          "jacoby": true
+        }
+      }
+    },
+    {
+      "id": "F061",
+      "category": "tactical-contact",
+      "stratum": "money-center-jacoby",
+      "mode": "money",
+      "cubeEnabled": true,
+      "legalMovesCount": 75,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          -2,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          3,
+          0,
+          0,
+          1,
+          -5,
+          4,
+          0,
+          0,
+          0,
+          -3,
+          0,
+          -4,
+          0,
+          1,
+          0,
+          1,
+          -1
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "BLACK",
+      "die1": 2,
+      "die2": 2,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": true
+        },
+        "match": {
+          "mode": "money",
+          "jacoby": true
+        }
+      }
+    },
+    {
+      "id": "F091",
+      "category": "prime",
+      "stratum": "money-center-jacoby",
+      "mode": "money",
+      "cubeEnabled": true,
+      "legalMovesCount": 271,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          0,
+          2,
+          2,
+          -2,
+          3,
+          4,
+          2,
+          2,
+          0,
+          0,
+          0,
+          -2,
+          0,
+          -1,
+          -1,
+          0,
+          0,
+          0,
+          -2,
+          -1,
+          -2,
+          -2,
+          -2,
+          0
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "BLACK",
+      "die1": 1,
+      "die2": 1,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": true
+        },
+        "match": {
+          "mode": "money",
+          "jacoby": true
+        }
+      }
+    },
+    {
+      "id": "F121",
+      "category": "backgame",
+      "stratum": "money-center-jacoby",
+      "mode": "money",
+      "cubeEnabled": true,
+      "legalMovesCount": 207,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          -2,
+          0,
+          -2,
+          0,
+          0,
+          5,
+          0,
+          3,
+          0,
+          0,
+          1,
+          -3,
+          4,
+          -2,
+          0,
+          0,
+          -2,
+          2,
+          -2,
+          0,
+          -2,
+          0,
+          0,
+          0
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "BLACK",
+      "die1": 2,
+      "die2": 2,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": true
+        },
+        "match": {
+          "mode": "money",
+          "jacoby": true
+        }
+      }
+    },
+    {
+      "id": "F153",
+      "category": "bearoff",
+      "stratum": "money-owned-white",
+      "mode": "money",
+      "cubeEnabled": true,
+      "legalMovesCount": 342,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          0,
+          1,
+          2,
+          2,
+          0,
+          5,
+          0,
+          1,
+          0,
+          2,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          -2,
+          -1,
+          -4,
+          -4
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          4
+        ]
+      },
+      "player": "WHITE",
+      "die1": 1,
+      "die2": 1,
+      "context": {
+        "cube": {
+          "value": 2,
+          "owner": "WHITE",
+          "enabled": true,
+          "available": false,
+          "unboundedMoney": true
+        },
+        "match": {
+          "mode": "money",
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F183",
+      "category": "opening",
+      "stratum": "money-owned-white",
+      "mode": "money",
+      "cubeEnabled": true,
+      "legalMovesCount": 16,
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": 0,
+      "board": {
+        "points": [
+          -2,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          3,
+          0,
+          0,
+          0,
+          -5,
+          5,
+          0,
+          0,
+          0,
+          -3,
+          0,
+          -5,
+          0,
+          0,
+          0,
+          0,
+          2
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "WHITE",
+      "die1": 3,
+      "die2": 1,
+      "context": {
+        "cube": {
+          "value": 2,
+          "owner": "WHITE",
+          "enabled": true,
+          "available": false,
+          "unboundedMoney": true
+        },
+        "match": {
+          "mode": "money",
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F026",
+      "category": "contact",
+      "stratum": "match-normal-center",
+      "mode": "match",
+      "cubeEnabled": true,
+      "legalMovesCount": 33,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          2,
+          2,
+          0,
+          0,
+          0,
+          3,
+          0,
+          3,
+          0,
+          0,
+          0,
+          -5,
+          5,
+          0,
+          0,
+          0,
+          -3,
+          0,
+          -5,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "BLACK",
+      "die1": 2,
+      "die2": 2,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": false
+        },
+        "match": {
+          "mode": "match",
+          "targetPoints": 5,
+          "scoreWhite": 1,
+          "scoreBlack": 2,
+          "crawford": false,
+          "crawfordPlayed": false,
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F056",
+      "category": "tactical-contact",
+      "stratum": "match-normal-center",
+      "mode": "match",
+      "cubeEnabled": true,
+      "legalMovesCount": 213,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          -2,
+          0,
+          0,
+          0,
+          2,
+          5,
+          0,
+          4,
+          0,
+          0,
+          0,
+          -3,
+          2,
+          0,
+          -1,
+          0,
+          -2,
+          0,
+          -2,
+          -2,
+          -2,
+          0,
+          0,
+          -1
+        ],
+        "bar": [
+          2,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "BLACK",
+      "die1": 2,
+      "die2": 2,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": false
+        },
+        "match": {
+          "mode": "match",
+          "targetPoints": 5,
+          "scoreWhite": 1,
+          "scoreBlack": 2,
+          "crawford": false,
+          "crawfordPlayed": false,
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F096",
+      "category": "prime",
+      "stratum": "match-normal-center",
+      "mode": "match",
+      "cubeEnabled": true,
+      "legalMovesCount": 50,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          -2,
+          2,
+          2,
+          2,
+          3,
+          2,
+          2,
+          0,
+          0,
+          0,
+          0,
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          1,
+          -1,
+          -2,
+          -2,
+          -2,
+          -2,
+          -3
+        ],
+        "bar": [
+          0,
+          1
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "WHITE",
+      "die1": 3,
+      "die2": 3,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": false
+        },
+        "match": {
+          "mode": "match",
+          "targetPoints": 5,
+          "scoreWhite": 1,
+          "scoreBlack": 2,
+          "crawford": false,
+          "crawfordPlayed": false,
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F126",
+      "category": "backgame",
+      "stratum": "match-normal-center",
+      "mode": "match",
+      "cubeEnabled": true,
+      "legalMovesCount": 28,
+      "deepTag": "deep",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          0,
+          0,
+          -1,
+          2,
+          2,
+          3,
+          0,
+          1,
+          0,
+          0,
+          0,
+          -2,
+          2,
+          -2,
+          0,
+          0,
+          1,
+          0,
+          -5,
+          2,
+          -3,
+          -2,
+          0,
+          2
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "WHITE",
+      "die1": 5,
+      "die2": 4,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": false
+        },
+        "match": {
+          "mode": "match",
+          "targetPoints": 5,
+          "scoreWhite": 1,
+          "scoreBlack": 2,
+          "crawford": false,
+          "crawfordPlayed": false,
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F146",
+      "category": "race",
+      "stratum": "match-normal-center",
+      "mode": "match",
+      "cubeEnabled": true,
+      "legalMovesCount": 18,
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": 2,
+      "board": {
+        "points": [
+          0,
+          1,
+          0,
+          2,
+          1,
+          5,
+          0,
+          2,
+          0,
+          2,
+          0,
+          1,
+          0,
+          0,
+          1,
+          0,
+          -5,
+          -1,
+          -6,
+          0,
+          -2,
+          -1,
+          0,
+          0
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "BLACK",
+      "die1": 3,
+      "die2": 2,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": false
+        },
+        "match": {
+          "mode": "match",
+          "targetPoints": 5,
+          "scoreWhite": 1,
+          "scoreBlack": 2,
+          "crawford": false,
+          "crawfordPlayed": false,
+          "jacoby": false
+        }
+      }
+    },
+    {
+      "id": "F020",
+      "category": "opening",
+      "stratum": "match-post-crawford",
+      "mode": "match",
+      "cubeEnabled": true,
+      "legalMovesCount": 16,
+      "deepTag": "1ply-unique",
+      "maxAdditionalDepth": 0,
+      "board": {
+        "points": [
+          -1,
+          0,
+          0,
+          0,
+          0,
+          5,
+          0,
+          3,
+          0,
+          0,
+          0,
+          -6,
+          5,
+          0,
+          0,
+          0,
+          -3,
+          0,
+          -5,
+          0,
+          0,
+          0,
+          0,
+          2
+        ],
+        "bar": [
+          0,
+          0
+        ],
+        "off": [
+          0,
+          0
+        ]
+      },
+      "player": "WHITE",
+      "die1": 1,
+      "die2": 3,
+      "context": {
+        "cube": {
+          "value": 1,
+          "owner": "center",
+          "enabled": true,
+          "available": true,
+          "unboundedMoney": false
+        },
+        "match": {
+          "mode": "match",
+          "targetPoints": 5,
+          "scoreWhite": 4,
+          "scoreBlack": 2,
+          "crawford": false,
+          "crawfordPlayed": true,
+          "jacoby": false
+        }
+      }
+    }
+  ],
+  "summary": {
+    "overall": {
+      "mainLegacy": {
+        "samples": 36,
+        "meanMs": 1179.54,
+        "p50Ms": 432.2,
+        "p95Ms": 5264.2,
+        "maxMs": 5377.3
+      },
+      "mainStaged": {
+        "samples": 36,
+        "meanMs": 5881.57,
+        "p50Ms": 4526.8,
+        "p95Ms": 12377.3,
+        "maxMs": 12472.1
+      },
+      "workerLegacy": {
+        "samples": 36,
+        "meanMs": 1212.22,
+        "p50Ms": 422.3,
+        "p95Ms": 5508.7,
+        "maxMs": 5513.4
+      },
+      "workerStaged": {
+        "samples": 36,
+        "meanMs": 4731.78,
+        "p50Ms": 3473,
+        "p95Ms": 9390.7,
+        "maxMs": 9421.6
+      }
+    },
+    "byModeAndDepth": {
+      "moneyDeep": {
+        "mainLegacy": {
+          "samples": 15,
+          "meanMs": 2350.16,
+          "p50Ms": 1724.5,
+          "p95Ms": 5377.3,
+          "maxMs": 5377.3
+        },
+        "mainStaged": {
+          "samples": 15,
+          "meanMs": 9201.19,
+          "p50Ms": 9186.6,
+          "p95Ms": 12472.1,
+          "maxMs": 12472.1
+        },
+        "workerLegacy": {
+          "samples": 15,
+          "meanMs": 2422.19,
+          "p50Ms": 1756.7,
+          "p95Ms": 5513.4,
+          "maxMs": 5513.4
+        },
+        "workerStaged": {
+          "samples": 15,
+          "meanMs": 7651,
+          "p50Ms": 8479.2,
+          "p95Ms": 9421.6,
+          "maxMs": 9421.6
+        }
+      },
+      "matchDeep": {
+        "mainLegacy": {
+          "samples": 12,
+          "meanMs": 279.96,
+          "p50Ms": 296.6,
+          "p95Ms": 432.2,
+          "maxMs": 432.2
+        },
+        "mainStaged": {
+          "samples": 12,
+          "meanMs": 3989.48,
+          "p50Ms": 1508.2,
+          "p95Ms": 11624.3,
+          "maxMs": 11624.3
+        },
+        "workerLegacy": {
+          "samples": 12,
+          "meanMs": 277.38,
+          "p50Ms": 307.7,
+          "p95Ms": 422.3,
+          "maxMs": 422.3
+        },
+        "workerStaged": {
+          "samples": 12,
+          "meanMs": 3007.56,
+          "p50Ms": 1098.2,
+          "p95Ms": 8689.9,
+          "maxMs": 8689.9
+        }
+      },
+      "onePlyUnique": {
+        "mainLegacy": {
+          "samples": 9,
+          "meanMs": 427.94,
+          "p50Ms": 236.1,
+          "p95Ms": 885.7,
+          "maxMs": 885.7
+        },
+        "mainStaged": {
+          "samples": 9,
+          "meanMs": 2871.66,
+          "p50Ms": 223.9,
+          "p95Ms": 8270.3,
+          "maxMs": 8270.3
+        },
+        "workerLegacy": {
+          "samples": 9,
+          "meanMs": 442.08,
+          "p50Ms": 249.2,
+          "p95Ms": 868.1,
+          "maxMs": 868.1
+        },
+        "workerStaged": {
+          "samples": 9,
+          "meanMs": 2165.37,
+          "p50Ms": 178.7,
+          "p95Ms": 6218,
+          "maxMs": 6218
+        }
+      }
+    }
+  }
+}
