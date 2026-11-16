@@ -16,6 +16,7 @@ docs/ は GitHub Pages 用の公開コンテンツに予約しています。
 - product-specs/: アプリごとの仕様
 - exec-plans/: 進行中と完了済みの作業計画
 - references/: 外部資料の要点や抜粋
+  - [issue549-staged-3ply-results.md](references/issue549-staged-3ply-results.md): Issue #549 staged3ply 実局面品質・regret・ブラウザレイテンシ検証結果
 
 ## 関連手順
 
