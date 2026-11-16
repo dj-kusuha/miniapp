@@ -103,6 +103,23 @@ if (!isMainThread) {
   const prevRaw = reuseFullRoot && existsSync(outPath)
     ? JSON.parse(readFileSync(outPath, 'utf8'))
     : null;
+  const requiredShaKeys = [
+    'modelJson',
+    'bearoff6x15',
+    'moneyBg2nV4',
+    'checkerJs',
+    'agentJs',
+    'nnJs',
+    'fixturesJson',
+  ];
+  const prevShas = prevRaw?.metadata?.shas ?? null;
+  const shasMatch = Boolean(
+    prevShas
+    && requiredShaKeys.every((key) => typeof shas[key] === 'string' && prevShas[key] === shas[key]),
+  );
+  if (reuseFullRoot && prevRaw && !shasMatch) {
+    console.error('Warning: --reuse-full-root ignored because input SHAs do not match previous raw output.');
+  }
   const prevById = new Map((prevRaw?.results ?? []).map((r) => [r.id, r]));
 
   console.error(`Phase A: Evaluating ${fixtures.positions.length} fixtures (Legacy & staged3ply)...`);
@@ -226,6 +243,7 @@ if (!isMainThread) {
     const prev = prevById.get(id);
     if (
       reuseFullRoot
+      && shasMatch
       && prev?.fullRoot
       && prev.legacyAction === res.legacyAction
       && prev.stagedAction === res.stagedAction
