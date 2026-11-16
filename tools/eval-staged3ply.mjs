@@ -50,6 +50,15 @@ async function loadRuntime() {
       checkerJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/checker.js'))),
       agentJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/agent.js'))),
       nnJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/nn.js'))),
+      boardJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/board.js'))),
+      rulesJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/rules.js'))),
+      metJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/met.js'))),
+      metTableJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/met-table.js'))),
+      bearoffJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/bearoff.js'))),
+      moneyBearoffJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/money-bearoff.js'))),
+      gameJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/game.js'))),
+      cubeJs: sha256(readFileSync(resolve(repoRoot, 'docs/backgammon/src/cube.js'))),
+      evalScriptJs: sha256(readFileSync(fileURLToPath(import.meta.url))),
     },
   };
 }
@@ -110,6 +119,15 @@ if (!isMainThread) {
     'checkerJs',
     'agentJs',
     'nnJs',
+    'boardJs',
+    'rulesJs',
+    'metJs',
+    'metTableJs',
+    'bearoffJs',
+    'moneyBearoffJs',
+    'gameJs',
+    'cubeJs',
+    'evalScriptJs',
     'fixturesJson',
   ];
   const prevShas = prevRaw?.metadata?.shas ?? null;

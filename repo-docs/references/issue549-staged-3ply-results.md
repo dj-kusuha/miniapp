@@ -54,6 +54,15 @@
 | `docs/backgammon/src/checker.js` | `7ea8445b6d9c7f414040258e308554970f100994b2c5a58142768463bd40636e` |
 | `docs/backgammon/src/agent.js` | `76fc626755196ae46914155a5ed580404ac6428acae598a2872f8a776d582255` |
 | `docs/backgammon/src/nn.js` | `f26351be996fa99f994e277e33c274aa65366a2be707d76dbc9c8287b64044df` |
+| `docs/backgammon/src/board.js` | `83c139fb76da3288d3f85826317dacf892be71ffb9d3722575fbff4168104366` |
+| `docs/backgammon/src/rules.js` | `cd3c987be0e783b1cbdcaa7a891bc967b5bc0c2535327d67470dbab7e8b53aa8` |
+| `docs/backgammon/src/met.js` | `e982ba462134510670bd7db7a506801a936a732a140fa57bcbdc413ecea2803d` |
+| `docs/backgammon/src/met-table.js` | `c156597442f173bcf14d71defce148c651c1d589e93889d74faf0faed43432db` |
+| `docs/backgammon/src/bearoff.js` | `90b22620fb9aa1b32dc7a26e6a5e50ddc42780613631c7b469369d7496af83c5` |
+| `docs/backgammon/src/money-bearoff.js` | `e1965efc30230b1026147c2a98569cd378eb5dd576cc9de69e1d86610202d97d` |
+| `docs/backgammon/src/game.js` | `7e706beabc4b500c494e3bd66e65f46b1eeb2da27522cd1e184f305b09acd816` |
+| `docs/backgammon/src/cube.js` | `d9664cad6d228a71ff76d8ea1f4518d5fbf5f8c17ff4e7013e07084b23fbac09` |
+| `tools/eval-staged3ply.mjs` | `5ff113ab73f49ced8bea1b88b16870e598db490cedf949579b587f67247266e3` |
 | `tests/backgammon/staged-3ply-eval-fixtures.json` | `5ee8eee432ed0ffe1f2b1fa238dc313e8b1d2019f341072a9713f7b815c1d5bb` |
 
 ---
