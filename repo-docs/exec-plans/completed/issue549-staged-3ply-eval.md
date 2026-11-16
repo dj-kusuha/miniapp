@@ -47,7 +47,7 @@ miniapp PR #68 で段階選別 3-ply 探索（`?checker-search=staged3ply`）と
 ## Decision Log
 
 - 2026-11-14: `main` (`1e55789`) にて `stagedMetric` が Match MWC `0.010/0.005`、Money cubeful `0.160/0.080`、候補上限 `8/4` であることをコードから確認。
-- 2026-11-15: Full-root 60局面で Match 100% 一致・regret 0、Money 96% 一致・最大 regret 0.006643 と品質は高い一方、Stage 2/3 到達時のブラウザ応答が Worker p50 6.2s / p95 9.4s（main-thread 最大 12.5s ブロック）であるため、既定 ON 化は **`reject`（既定 OFF / opt-in 維持）** を提案する。
+- 2026-11-15: Full-root 60局面で Match 100% 一致（35/35）・regret 0、Money 全体 96.0% 一致（24/25）・cube ON 95.2% 一致（20/21、最大 regret 0.006643）・cube OFF 100.0% 一致（4/4）と品質は高い一方、Stage 2/3 到達時のブラウザ応答が Worker p50 6.3s / p95 9.7s（main-thread 最大 9.3s ブロック）であるため、既定 ON 化は **`reject`（既定 OFF / opt-in 維持）** を提案する。
 
 ## Validation
 

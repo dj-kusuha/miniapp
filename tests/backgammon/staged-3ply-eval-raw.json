@@ -1,6 +1,6 @@
 {
   "metadata": {
-    "evaluatedAt": "2026-11-14T15:27:24.278Z",
+    "evaluatedAt": "2026-11-15T14:10:41.651Z",
     "nodeVersion": "v24.13.0",
     "platform": "linux",
     "arch": "x64",
@@ -19,17 +19,17 @@
   "summary": {
     "totalFixtures": 200,
     "legacyVsStagedMatchRate": 0.795,
-    "stagedApplicableCount": 200,
+    "stagedApplicableCount": 180,
     "stageReachCounts": {
-      "stage1Only": 28,
-      "stage2Reached": 172,
-      "stage2Stopped": 27,
-      "stage3Reached": 145
+      "stage1Only": 27,
+      "stage2Reached": 153,
+      "stage2Stopped": 23,
+      "stage3Reached": 130
     },
     "candidateReductionMean": {
-      "onePly": 29.4,
-      "twoPly": 5.24,
-      "threePly": 2.55
+      "onePly": 29.93,
+      "twoPly": 5.13,
+      "threePly": 2.52
     },
     "fullRootEvaluatedCount": 60,
     "moneyFullRoot": {
@@ -49,6 +49,44 @@
         "p95": 0.01227905,
         "max": 0.01536419,
         "mean": 0.00156299
+      }
+    },
+    "moneyCubeOnFullRoot": {
+      "count": 21,
+      "stagedVsFullMatchRate": 0.9524,
+      "legacyVsFullMatchRate": 0.8095,
+      "stagedRegret": {
+        "median": 0,
+        "p90": 0,
+        "p95": 0,
+        "max": 0.00664298,
+        "mean": 0.00031633
+      },
+      "legacyRegret": {
+        "median": 0,
+        "p90": 0.00664298,
+        "p95": 0.01227905,
+        "max": 0.01536419,
+        "mean": 0.0018607
+      }
+    },
+    "moneyCubeOffFullRoot": {
+      "count": 4,
+      "stagedVsFullMatchRate": 1,
+      "legacyVsFullMatchRate": 1,
+      "stagedRegret": {
+        "median": 0,
+        "p90": 0,
+        "p95": 0,
+        "max": 0,
+        "mean": 0
+      },
+      "legacyRegret": {
+        "median": 0,
+        "p90": 0,
+        "p95": 0,
+        "max": 0,
+        "mean": 0
       }
     },
     "matchFullRoot": {
@@ -87,11 +125,11 @@
       "legalMovesCount": 75,
       "legacyAction": 21,
       "legacyBestValue": 0.2551921370210161,
-      "legacyMs": 1292.16,
+      "legacyMs": 1358.9,
       "stagedAction": 21,
       "stagedBestValue": 0.27313422159043554,
       "stagedBestStage": 3,
-      "stagedMs": 14602.57,
+      "stagedMs": 14540.97,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -100,7 +138,8 @@
         "onePlyCandidates": 75,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 28602,
@@ -120,11 +159,11 @@
       "legalMovesCount": 73,
       "legacyAction": 67,
       "legacyBestValue": 0.3728606811352465,
-      "legacyMs": 1278.33,
+      "legacyMs": 1312.53,
       "stagedAction": 67,
       "stagedBestValue": 0.3727725756564354,
       "stagedBestStage": 3,
-      "stagedMs": 13267.4,
+      "stagedMs": 13241.09,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -133,7 +172,8 @@
         "onePlyCandidates": 73,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 31059,
@@ -153,11 +193,11 @@
       "legalMovesCount": 52,
       "legacyAction": 4,
       "legacyBestValue": 0.1828700612753246,
-      "legacyMs": 880.21,
+      "legacyMs": 823.94,
       "stagedAction": 4,
       "stagedBestValue": 0.1828700612753246,
       "stagedBestStage": 2,
-      "stagedMs": 808.58,
+      "stagedMs": 816.38,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -166,7 +206,8 @@
         "onePlyCandidates": 52,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 147,
@@ -186,11 +227,11 @@
       "legalMovesCount": 46,
       "legacyAction": 34,
       "legacyBestValue": 0.353957616832512,
-      "legacyMs": 1053.35,
+      "legacyMs": 1070.54,
       "stagedAction": 34,
       "stagedBestValue": 0.35119506297729725,
       "stagedBestStage": 3,
-      "stagedMs": 10352.18,
+      "stagedMs": 10451.73,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -199,7 +240,8 @@
         "onePlyCandidates": 46,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8316,
@@ -219,20 +261,19 @@
       "legalMovesCount": 42,
       "legacyAction": 30,
       "legacyBestValue": 0.24141540538025952,
-      "legacyMs": 21820.44,
+      "legacyMs": 22872.26,
       "stagedAction": 30,
       "stagedBestValue": 0.24141540538025952,
       "stagedBestStage": null,
-      "stagedMs": 21760.73,
+      "stagedMs": 23892.29,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 46,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 42,
+        "twoPlyCandidates": 42,
+        "threePlyCandidates": 42,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -252,11 +293,11 @@
       "legalMovesCount": 25,
       "legacyAction": 15,
       "legacyBestValue": 0.4311589949778327,
-      "legacyMs": 480.14,
+      "legacyMs": 449.81,
       "stagedAction": 15,
       "stagedBestValue": 0.4311589949778327,
       "stagedBestStage": 2,
-      "stagedMs": 429.75,
+      "stagedMs": 417.96,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -265,7 +306,8 @@
         "onePlyCandidates": 25,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 126,
@@ -285,11 +327,11 @@
       "legalMovesCount": 22,
       "legacyAction": 13,
       "legacyBestValue": 0.4882811637335156,
-      "legacyMs": 416.22,
+      "legacyMs": 410.69,
       "stagedAction": 13,
       "stagedBestValue": 0.4882811637335156,
       "stagedBestStage": 2,
-      "stagedMs": 390.35,
+      "stagedMs": 402.91,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -298,7 +340,8 @@
         "onePlyCandidates": 22,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -318,11 +361,11 @@
       "legalMovesCount": 21,
       "legacyAction": 18,
       "legacyBestValue": 0.5231646945079168,
-      "legacyMs": 489.43,
+      "legacyMs": 514.41,
       "stagedAction": 18,
       "stagedBestValue": 0.5231646945079168,
       "stagedBestStage": 2,
-      "stagedMs": 448.85,
+      "stagedMs": 463.43,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -331,7 +374,8 @@
         "onePlyCandidates": 21,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -351,11 +395,11 @@
       "legalMovesCount": 18,
       "legacyAction": 0,
       "legacyBestValue": 0.216855012258522,
-      "legacyMs": 570.65,
+      "legacyMs": 592.87,
       "stagedAction": 13,
       "stagedBestValue": 0.2164286236778159,
       "stagedBestStage": 3,
-      "stagedMs": 7087.97,
+      "stagedMs": 7289.7,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -364,7 +408,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -394,11 +439,11 @@
       "legalMovesCount": 17,
       "legacyAction": 5,
       "legacyBestValue": 0.31962245847615933,
-      "legacyMs": 311.59,
+      "legacyMs": 328.88,
       "stagedAction": 5,
       "stagedBestValue": 0.32075234897072524,
       "stagedBestStage": 3,
-      "stagedMs": 6806.52,
+      "stagedMs": 6924.6,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -407,7 +452,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 14511,
@@ -427,11 +473,11 @@
       "legalMovesCount": 17,
       "legacyAction": 1,
       "legacyBestValue": 0.003312171111834057,
-      "legacyMs": 312.95,
+      "legacyMs": 297.77,
       "stagedAction": 4,
       "stagedBestValue": 0.0011526972953984204,
       "stagedBestStage": 3,
-      "stagedMs": 10308.9,
+      "stagedMs": 10503.97,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -440,7 +486,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 29358,
@@ -470,11 +517,11 @@
       "legalMovesCount": 17,
       "legacyAction": 12,
       "legacyBestValue": 0.039368624976834646,
-      "legacyMs": 527.72,
+      "legacyMs": 518.29,
       "stagedAction": 12,
       "stagedBestValue": 0.030599995702069054,
       "stagedBestStage": 3,
-      "stagedMs": 7644.06,
+      "stagedMs": 7671.28,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -483,7 +530,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 27363,
@@ -503,11 +551,11 @@
       "legalMovesCount": 17,
       "legacyAction": 4,
       "legacyBestValue": -0.21785852294180472,
-      "legacyMs": 331.95,
+      "legacyMs": 342.07,
       "stagedAction": 4,
       "stagedBestValue": -0.2162560929641172,
       "stagedBestStage": 3,
-      "stagedMs": 6347.03,
+      "stagedMs": 6366.34,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -516,7 +564,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 16758,
@@ -536,11 +585,11 @@
       "legalMovesCount": 17,
       "legacyAction": 15,
       "legacyBestValue": -0.2576941134511475,
-      "legacyMs": 468.97,
+      "legacyMs": 414.62,
       "stagedAction": 10,
       "stagedBestValue": -0.2692716053317857,
       "stagedBestStage": 3,
-      "stagedMs": 11089.43,
+      "stagedMs": 7338.36,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -549,7 +598,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18144,
@@ -579,20 +629,19 @@
       "legalMovesCount": 17,
       "legacyAction": 11,
       "legacyBestValue": 0.01375297360407135,
-      "legacyMs": 11334.77,
+      "legacyMs": 8023.94,
       "stagedAction": 11,
       "stagedBestValue": 0.01375297360407135,
       "stagedBestStage": null,
-      "stagedMs": 10253.1,
+      "stagedMs": 8115.73,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
         "onePlyCandidates": 17,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "twoPlyCandidates": 17,
+        "threePlyCandidates": 17,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -612,11 +661,11 @@
       "legalMovesCount": 17,
       "legacyAction": 1,
       "legacyBestValue": 0.5486024013139066,
-      "legacyMs": 611.47,
+      "legacyMs": 513.48,
       "stagedAction": 0,
       "stagedBestValue": 0.5610993313938475,
       "stagedBestStage": 3,
-      "stagedMs": 9267.37,
+      "stagedMs": 8270.85,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -625,7 +674,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 25998,
@@ -655,11 +705,11 @@
       "legalMovesCount": 14,
       "legacyAction": 2,
       "legacyBestValue": 0.4678787504410089,
-      "legacyMs": 271.04,
+      "legacyMs": 259.05,
       "stagedAction": 13,
       "stagedBestValue": 0.4677722980887661,
       "stagedBestStage": 3,
-      "stagedMs": 7535.11,
+      "stagedMs": 6955.76,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -668,7 +718,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 15498,
@@ -698,11 +749,11 @@
       "legalMovesCount": 13,
       "legacyAction": 9,
       "legacyBestValue": 0.4627754439910253,
-      "legacyMs": 425.11,
+      "legacyMs": 374.64,
       "stagedAction": 9,
       "stagedBestValue": 0.4627754439910253,
       "stagedBestStage": 2,
-      "stagedMs": 404.61,
+      "stagedMs": 341.35,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -711,7 +762,8 @@
         "onePlyCandidates": 13,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -731,11 +783,11 @@
       "legalMovesCount": 8,
       "legacyAction": 0,
       "legacyBestValue": 0.24719882945183214,
-      "legacyMs": 130.06,
+      "legacyMs": 128.81,
       "stagedAction": 0,
       "stagedBestValue": 0.24709960659445063,
       "stagedBestStage": 3,
-      "stagedMs": 5176.12,
+      "stagedMs": 4631.92,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -744,7 +796,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -774,11 +827,11 @@
       "legalMovesCount": 16,
       "legacyAction": 2,
       "legacyBestValue": 0.6842911191698577,
-      "legacyMs": 256.49,
+      "legacyMs": 232.7,
       "stagedAction": 2,
       "stagedBestValue": 0.6855514124035835,
       "stagedBestStage": 1,
-      "stagedMs": 226.22,
+      "stagedMs": 216.54,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -787,7 +840,8 @@
         "onePlyCandidates": 16,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -817,11 +871,11 @@
       "legalMovesCount": 81,
       "legacyAction": 62,
       "legacyBestValue": 0.08569905511842257,
-      "legacyMs": 2091.55,
+      "legacyMs": 2029.96,
       "stagedAction": 5,
       "stagedBestValue": 0.08503175251639312,
       "stagedBestStage": 3,
-      "stagedMs": 9685.02,
+      "stagedMs": 9577.95,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -830,7 +884,8 @@
         "onePlyCandidates": 81,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 23751,
@@ -850,11 +905,11 @@
       "legalMovesCount": 37,
       "legacyAction": 36,
       "legacyBestValue": 0.16723230903194053,
-      "legacyMs": 551.78,
+      "legacyMs": 555.4,
       "stagedAction": 28,
       "stagedBestValue": 0.1378199922439333,
       "stagedBestStage": 3,
-      "stagedMs": 8250.43,
+      "stagedMs": 8115.95,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -863,7 +918,8 @@
         "onePlyCandidates": 37,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8883,
@@ -883,11 +939,11 @@
       "legalMovesCount": 36,
       "legacyAction": 25,
       "legacyBestValue": -0.6074189065671987,
-      "legacyMs": 510.34,
+      "legacyMs": 519.31,
       "stagedAction": 26,
       "stagedBestValue": -0.6130467789625365,
       "stagedBestStage": 3,
-      "stagedMs": 4838.98,
+      "stagedMs": 4672.47,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -896,7 +952,8 @@
         "onePlyCandidates": 36,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8904,
@@ -916,11 +973,11 @@
       "legalMovesCount": 34,
       "legacyAction": 18,
       "legacyBestValue": -0.1357970500643369,
-      "legacyMs": 534.75,
+      "legacyMs": 530.02,
       "stagedAction": 17,
       "stagedBestValue": -0.13658770544706908,
       "stagedBestStage": 3,
-      "stagedMs": 13826.3,
+      "stagedMs": 13839.3,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -929,7 +986,8 @@
         "onePlyCandidates": 34,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 16800,
@@ -949,20 +1007,19 @@
       "legalMovesCount": 34,
       "legacyAction": 31,
       "legacyBestValue": 0.011749740151611343,
-      "legacyMs": 12636.49,
+      "legacyMs": 12567.58,
       "stagedAction": 31,
       "stagedBestValue": 0.011749740151611343,
       "stagedBestStage": null,
-      "stagedMs": 12623.84,
+      "stagedMs": 12581.63,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
         "onePlyCandidates": 34,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "twoPlyCandidates": 34,
+        "threePlyCandidates": 34,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -982,11 +1039,11 @@
       "legalMovesCount": 33,
       "legacyAction": 21,
       "legacyBestValue": 0.5242001585995277,
-      "legacyMs": 341.51,
+      "legacyMs": 352.29,
       "stagedAction": 10,
       "stagedBestValue": 0.5204748018928577,
       "stagedBestStage": 3,
-      "stagedMs": 12948.67,
+      "stagedMs": 12775.37,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -995,7 +1052,8 @@
         "onePlyCandidates": 33,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 37674,
@@ -1015,11 +1073,11 @@
       "legalMovesCount": 32,
       "legacyAction": 6,
       "legacyBestValue": 0.4513509097460817,
-      "legacyMs": 940.51,
+      "legacyMs": 999.73,
       "stagedAction": 6,
       "stagedBestValue": 0.4492174983389241,
       "stagedBestStage": 1,
-      "stagedMs": 825.09,
+      "stagedMs": 862.41,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1028,7 +1086,8 @@
         "onePlyCandidates": 32,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1058,11 +1117,11 @@
       "legalMovesCount": 27,
       "legacyAction": 20,
       "legacyBestValue": 0.22268425838814832,
-      "legacyMs": 280.62,
+      "legacyMs": 289.1,
       "stagedAction": 7,
       "stagedBestValue": 0.2239892739848588,
       "stagedBestStage": 3,
-      "stagedMs": 5089.27,
+      "stagedMs": 5026.48,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -1071,7 +1130,8 @@
         "onePlyCandidates": 27,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 10563,
@@ -1091,11 +1151,11 @@
       "legalMovesCount": 26,
       "legacyAction": 23,
       "legacyBestValue": 0.7388885665905445,
-      "legacyMs": 422.9,
+      "legacyMs": 408.65,
       "stagedAction": 23,
       "stagedBestValue": 0.7388881591782642,
       "stagedBestStage": 3,
-      "stagedMs": 6463.43,
+      "stagedMs": 6549.03,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1104,7 +1164,8 @@
         "onePlyCandidates": 26,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1124,11 +1185,11 @@
       "legalMovesCount": 25,
       "legacyAction": 23,
       "legacyBestValue": 0.7241423462207119,
-      "legacyMs": 453.12,
+      "legacyMs": 430.98,
       "stagedAction": 23,
       "stagedBestValue": 0.7341543901711702,
       "stagedBestStage": 1,
-      "stagedMs": 399.09,
+      "stagedMs": 400.46,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1137,7 +1198,8 @@
         "onePlyCandidates": 25,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1167,11 +1229,11 @@
       "legalMovesCount": 25,
       "legacyAction": 13,
       "legacyBestValue": 0.2788714330319561,
-      "legacyMs": 426.37,
+      "legacyMs": 419.77,
       "stagedAction": 8,
       "stagedBestValue": 0.39507281543581874,
       "stagedBestStage": 3,
-      "stagedMs": 14755.95,
+      "stagedMs": 14587.31,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -1180,7 +1242,8 @@
         "onePlyCandidates": 25,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 24843,
@@ -1200,11 +1263,11 @@
       "legalMovesCount": 25,
       "legacyAction": 0,
       "legacyBestValue": 0.9236964760968834,
-      "legacyMs": 667.94,
+      "legacyMs": 670.67,
       "stagedAction": 0,
       "stagedBestValue": 1.0000000000000002,
       "stagedBestStage": 3,
-      "stagedMs": 4172.71,
+      "stagedMs": 4200.88,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1213,7 +1276,8 @@
         "onePlyCandidates": 25,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18606,
@@ -1233,11 +1297,11 @@
       "legalMovesCount": 24,
       "legacyAction": 8,
       "legacyBestValue": -0.48535123202019037,
-      "legacyMs": 385.07,
+      "legacyMs": 386.84,
       "stagedAction": 8,
       "stagedBestValue": -0.5051635055480277,
       "stagedBestStage": 3,
-      "stagedMs": 3339.03,
+      "stagedMs": 3444.29,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1246,7 +1310,8 @@
         "onePlyCandidates": 24,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 2562,
@@ -1266,11 +1331,11 @@
       "legalMovesCount": 23,
       "legacyAction": 3,
       "legacyBestValue": -0.1507131947650392,
-      "legacyMs": 351.09,
+      "legacyMs": 348.46,
       "stagedAction": 3,
       "stagedBestValue": -0.16421519258531808,
       "stagedBestStage": 3,
-      "stagedMs": 13865.34,
+      "stagedMs": 13803.28,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1279,7 +1344,8 @@
         "onePlyCandidates": 23,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 17136,
@@ -1299,20 +1365,19 @@
       "legalMovesCount": 23,
       "legacyAction": 6,
       "legacyBestValue": 0.08866824776240212,
-      "legacyMs": 8572.12,
+      "legacyMs": 8782.85,
       "stagedAction": 6,
       "stagedBestValue": 0.08866824776240212,
       "stagedBestStage": null,
-      "stagedMs": 8519.05,
+      "stagedMs": 8803.37,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
         "onePlyCandidates": 23,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "twoPlyCandidates": 23,
+        "threePlyCandidates": 23,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1332,11 +1397,11 @@
       "legalMovesCount": 21,
       "legacyAction": 16,
       "legacyBestValue": 0.5878577382893488,
-      "legacyMs": 473.13,
+      "legacyMs": 481.54,
       "stagedAction": 16,
       "stagedBestValue": 0.6270655323851062,
       "stagedBestStage": 3,
-      "stagedMs": 7691.3,
+      "stagedMs": 7596.54,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1345,7 +1410,8 @@
         "onePlyCandidates": 21,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18333,
@@ -1365,11 +1431,11 @@
       "legalMovesCount": 20,
       "legacyAction": 19,
       "legacyBestValue": 0.5230844262927405,
-      "legacyMs": 605.78,
+      "legacyMs": 621.62,
       "stagedAction": 19,
       "stagedBestValue": 0.5240387784292415,
       "stagedBestStage": 1,
-      "stagedMs": 527.5,
+      "stagedMs": 547.2,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1378,7 +1444,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1398,11 +1465,11 @@
       "legalMovesCount": 19,
       "legacyAction": 7,
       "legacyBestValue": 0.5269809216260911,
-      "legacyMs": 624.03,
+      "legacyMs": 614.43,
       "stagedAction": 10,
       "stagedBestValue": 0.5230552280597666,
       "stagedBestStage": 3,
-      "stagedMs": 15925.92,
+      "stagedMs": 15632.95,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -1411,7 +1478,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 29757,
@@ -1431,11 +1499,11 @@
       "legalMovesCount": 19,
       "legacyAction": 14,
       "legacyBestValue": 0.7834255801404775,
-      "legacyMs": 297.76,
+      "legacyMs": 310.99,
       "stagedAction": 14,
       "stagedBestValue": 0.7838215948515531,
       "stagedBestStage": 3,
-      "stagedMs": 2858.14,
+      "stagedMs": 2929.89,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1444,7 +1512,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1464,11 +1533,11 @@
       "legalMovesCount": 18,
       "legacyAction": 1,
       "legacyBestValue": 0.27154589330570555,
-      "legacyMs": 493.49,
+      "legacyMs": 484.98,
       "stagedAction": 1,
       "stagedBestValue": 0.27154589330570555,
       "stagedBestStage": 2,
-      "stagedMs": 439.33,
+      "stagedMs": 453.57,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1477,7 +1546,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 63,
@@ -1497,11 +1567,11 @@
       "legalMovesCount": 18,
       "legacyAction": 8,
       "legacyBestValue": -0.07490663674187428,
-      "legacyMs": 586,
+      "legacyMs": 586.34,
       "stagedAction": 8,
       "stagedBestValue": -0.08253747334740297,
       "stagedBestStage": 3,
-      "stagedMs": 2988.11,
+      "stagedMs": 2847.62,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1510,7 +1580,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 11571,
@@ -1530,11 +1601,11 @@
       "legalMovesCount": 17,
       "legacyAction": 12,
       "legacyBestValue": -0.18535487359901445,
-      "legacyMs": 349.69,
+      "legacyMs": 320.67,
       "stagedAction": 12,
       "stagedBestValue": -0.17114298853140475,
       "stagedBestStage": 3,
-      "stagedMs": 4890.07,
+      "stagedMs": 4956.71,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1543,7 +1614,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 11865,
@@ -1573,11 +1645,11 @@
       "legalMovesCount": 17,
       "legacyAction": 7,
       "legacyBestValue": -0.3423741720616385,
-      "legacyMs": 415.43,
+      "legacyMs": 413.64,
       "stagedAction": 4,
       "stagedBestValue": -0.344777960067937,
       "stagedBestStage": 3,
-      "stagedMs": 4972.87,
+      "stagedMs": 4783.38,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -1586,7 +1658,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 7644,
@@ -1606,11 +1679,11 @@
       "legalMovesCount": 17,
       "legacyAction": 0,
       "legacyBestValue": 0.9146271436673853,
-      "legacyMs": 277.52,
+      "legacyMs": 275.33,
       "stagedAction": 0,
       "stagedBestValue": 0.9146271436673853,
       "stagedBestStage": 2,
-      "stagedMs": 241.81,
+      "stagedMs": 249.4,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1619,7 +1692,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1639,20 +1713,19 @@
       "legalMovesCount": 16,
       "legacyAction": 3,
       "legacyBestValue": -0.15298041029692044,
-      "legacyMs": 8201.76,
+      "legacyMs": 8074.91,
       "stagedAction": 3,
       "stagedBestValue": -0.15298041029692044,
       "stagedBestStage": null,
-      "stagedMs": 8122.91,
+      "stagedMs": 8302.36,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 17,
-        "twoPlyCandidates": 3,
-        "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "onePlyCandidates": 16,
+        "twoPlyCandidates": 16,
+        "threePlyCandidates": 16,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1672,11 +1745,11 @@
       "legalMovesCount": 14,
       "legacyAction": 12,
       "legacyBestValue": 0.5660515085711737,
-      "legacyMs": 535.63,
+      "legacyMs": 579.46,
       "stagedAction": 12,
       "stagedBestValue": 0.606532836165139,
       "stagedBestStage": 3,
-      "stagedMs": 5400.53,
+      "stagedMs": 5402.04,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1685,7 +1758,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18837,
@@ -1715,11 +1789,11 @@
       "legalMovesCount": 14,
       "legacyAction": 8,
       "legacyBestValue": 0.4280003467752368,
-      "legacyMs": 385.09,
+      "legacyMs": 357.88,
       "stagedAction": 5,
       "stagedBestValue": 0.42056274301417074,
       "stagedBestStage": 3,
-      "stagedMs": 13861.46,
+      "stagedMs": 13729.56,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -1728,7 +1802,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 25494,
@@ -1758,11 +1833,11 @@
       "legalMovesCount": 14,
       "legacyAction": 1,
       "legacyBestValue": 0.49630349046654176,
-      "legacyMs": 675.04,
+      "legacyMs": 674.26,
       "stagedAction": 1,
       "stagedBestValue": 0.49709802865982056,
       "stagedBestStage": 1,
-      "stagedMs": 567.17,
+      "stagedMs": 587.45,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1771,7 +1846,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1791,11 +1867,11 @@
       "legalMovesCount": 13,
       "legacyAction": 0,
       "legacyBestValue": 0.22189583046628503,
-      "legacyMs": 260.42,
+      "legacyMs": 263.16,
       "stagedAction": 2,
       "stagedBestValue": 0.21693601164782772,
       "stagedBestStage": 3,
-      "stagedMs": 1087.66,
+      "stagedMs": 1038.03,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -1804,7 +1880,8 @@
         "onePlyCandidates": 13,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1834,11 +1911,11 @@
       "legalMovesCount": 12,
       "legacyAction": 4,
       "legacyBestValue": 0.4474726839301486,
-      "legacyMs": 407.33,
+      "legacyMs": 370.81,
       "stagedAction": 4,
       "stagedBestValue": 0.41567965093362436,
       "stagedBestStage": 1,
-      "stagedMs": 344.24,
+      "stagedMs": 323.32,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -1847,7 +1924,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -1867,11 +1945,11 @@
       "legalMovesCount": 11,
       "legacyAction": 10,
       "legacyBestValue": -0.07083280886854416,
-      "legacyMs": 221.97,
+      "legacyMs": 211.26,
       "stagedAction": 10,
       "stagedBestValue": -0.07083280886854416,
       "stagedBestStage": 2,
-      "stagedMs": 205.66,
+      "stagedMs": 193.24,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1880,7 +1958,8 @@
         "onePlyCandidates": 11,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -1900,11 +1979,11 @@
       "legalMovesCount": 9,
       "legacyAction": 8,
       "legacyBestValue": 0.8868086497810058,
-      "legacyMs": 84.29,
+      "legacyMs": 77.32,
       "stagedAction": 8,
       "stagedBestValue": 0.9598294299430032,
       "stagedBestStage": 3,
-      "stagedMs": 8528.51,
+      "stagedMs": 8592.41,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1913,7 +1992,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 37674,
@@ -1943,11 +2023,11 @@
       "legalMovesCount": 7,
       "legacyAction": 2,
       "legacyBestValue": 0.37062485383128624,
-      "legacyMs": 125.93,
+      "legacyMs": 122.22,
       "stagedAction": 2,
       "stagedBestValue": 0.3597115144826537,
       "stagedBestStage": 3,
-      "stagedMs": 3553.55,
+      "stagedMs": 3589.74,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1956,7 +2036,8 @@
         "onePlyCandidates": 7,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3738,
@@ -1986,11 +2067,11 @@
       "legalMovesCount": 21,
       "legacyAction": 20,
       "legacyBestValue": -0.15583737258428432,
-      "legacyMs": 415.21,
+      "legacyMs": 422.64,
       "stagedAction": 20,
       "stagedBestValue": -0.15583737258428432,
       "stagedBestStage": 2,
-      "stagedMs": 378.95,
+      "stagedMs": 394.96,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -1999,7 +2080,8 @@
         "onePlyCandidates": 21,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 105,
@@ -2019,20 +2101,19 @@
       "legalMovesCount": 11,
       "legacyAction": 3,
       "legacyBestValue": -0.020410752477823424,
-      "legacyMs": 3736.72,
+      "legacyMs": 3738.47,
       "stagedAction": 3,
       "stagedBestValue": -0.020410752477823424,
       "stagedBestStage": null,
-      "stagedMs": 3758.55,
+      "stagedMs": 3807.13,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 21,
-        "twoPlyCandidates": 5,
-        "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "onePlyCandidates": 11,
+        "twoPlyCandidates": 11,
+        "threePlyCandidates": 11,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -2052,11 +2133,11 @@
       "legalMovesCount": 213,
       "legacyAction": 1,
       "legacyBestValue": 0.6381106673107187,
-      "legacyMs": 470.73,
+      "legacyMs": 508.48,
       "stagedAction": 7,
       "stagedBestValue": 0.6524324321205973,
       "stagedBestStage": 3,
-      "stagedMs": 1662.78,
+      "stagedMs": 1702.83,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -2065,7 +2146,8 @@
         "onePlyCandidates": 213,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3969,
@@ -2085,11 +2167,11 @@
       "legalMovesCount": 123,
       "legacyAction": 97,
       "legacyBestValue": 0.4453059211915449,
-      "legacyMs": 4864.03,
+      "legacyMs": 4818.27,
       "stagedAction": 97,
       "stagedBestValue": 0.4453059211915449,
       "stagedBestStage": 2,
-      "stagedMs": 3598.98,
+      "stagedMs": 3595.63,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2098,7 +2180,8 @@
         "onePlyCandidates": 123,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 168,
@@ -2118,11 +2201,11 @@
       "legalMovesCount": 113,
       "legacyAction": 98,
       "legacyBestValue": 0.7467260277933545,
-      "legacyMs": 2366.5,
+      "legacyMs": 2350.03,
       "stagedAction": 98,
       "stagedBestValue": 0.7503648373171871,
       "stagedBestStage": 3,
-      "stagedMs": 4392.14,
+      "stagedMs": 4397.19,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2131,7 +2214,8 @@
         "onePlyCandidates": 113,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8379,
@@ -2151,11 +2235,11 @@
       "legalMovesCount": 79,
       "legacyAction": 0,
       "legacyBestValue": 0.2892625297984569,
-      "legacyMs": 1846.65,
+      "legacyMs": 1879.39,
       "stagedAction": 0,
       "stagedBestValue": 0.28731637759784223,
       "stagedBestStage": 3,
-      "stagedMs": 10838.55,
+      "stagedMs": 10722.16,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2164,7 +2248,8 @@
         "onePlyCandidates": 79,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -2184,11 +2269,11 @@
       "legalMovesCount": 75,
       "legacyAction": 0,
       "legacyBestValue": 0.2375340271747619,
-      "legacyMs": 2475.77,
+      "legacyMs": 2346.6,
       "stagedAction": 0,
       "stagedBestValue": 0.23327557769365126,
       "stagedBestStage": 3,
-      "stagedMs": 13471.99,
+      "stagedMs": 13207.41,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2197,7 +2282,8 @@
         "onePlyCandidates": 75,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18564,
@@ -2217,11 +2303,11 @@
       "legalMovesCount": 75,
       "legacyAction": 52,
       "legacyBestValue": 0.11288960337740171,
-      "legacyMs": 1443.92,
+      "legacyMs": 1481.65,
       "stagedAction": 52,
       "stagedBestValue": 0.10329433704770921,
       "stagedBestStage": 3,
-      "stagedMs": 10327.5,
+      "stagedMs": 10200.6,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2230,7 +2316,8 @@
         "onePlyCandidates": 75,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 21924,
@@ -2250,11 +2337,11 @@
       "legalMovesCount": 55,
       "legacyAction": 21,
       "legacyBestValue": 0.9141299929326472,
-      "legacyMs": 102.64,
+      "legacyMs": 89.95,
       "stagedAction": 21,
       "stagedBestValue": 1.0630224819094778,
       "stagedBestStage": 3,
-      "stagedMs": 523.68,
+      "stagedMs": 512.38,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2263,7 +2350,8 @@
         "onePlyCandidates": 55,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 1323,
@@ -2283,11 +2371,11 @@
       "legalMovesCount": 52,
       "legacyAction": 6,
       "legacyBestValue": 0.24402619737928988,
-      "legacyMs": 347.33,
+      "legacyMs": 355.51,
       "stagedAction": 6,
       "stagedBestValue": 0.2596015908291338,
       "stagedBestStage": 3,
-      "stagedMs": 9245.94,
+      "stagedMs": 9045.55,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2296,7 +2384,8 @@
         "onePlyCandidates": 52,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 10962,
@@ -2316,11 +2405,11 @@
       "legalMovesCount": 51,
       "legacyAction": 22,
       "legacyBestValue": 0.06662044526755766,
-      "legacyMs": 1593.78,
+      "legacyMs": 1560.4,
       "stagedAction": 22,
       "stagedBestValue": 0.07134121292216403,
       "stagedBestStage": 3,
-      "stagedMs": 7413.32,
+      "stagedMs": 7316.25,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2329,7 +2418,8 @@
         "onePlyCandidates": 51,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 5544,
@@ -2349,20 +2439,19 @@
       "legalMovesCount": 49,
       "legacyAction": 0,
       "legacyBestValue": 0.1582145225848275,
-      "legacyMs": 8555.76,
+      "legacyMs": 8572.53,
       "stagedAction": 0,
       "stagedBestValue": 0.1582145225848275,
       "stagedBestStage": null,
-      "stagedMs": 8615.07,
+      "stagedMs": 8516.55,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 51,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 49,
+        "twoPlyCandidates": 49,
+        "threePlyCandidates": 49,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -2382,11 +2471,11 @@
       "legalMovesCount": 45,
       "legacyAction": 23,
       "legacyBestValue": 0.5528949678092268,
-      "legacyMs": 634.79,
+      "legacyMs": 673.9,
       "stagedAction": 23,
       "stagedBestValue": 0.5666912449659292,
       "stagedBestStage": 3,
-      "stagedMs": 3949.7,
+      "stagedMs": 3978.41,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2395,7 +2484,8 @@
         "onePlyCandidates": 45,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 9282,
@@ -2415,11 +2505,11 @@
       "legalMovesCount": 44,
       "legacyAction": 0,
       "legacyBestValue": 0.5615663515766581,
-      "legacyMs": 2172.56,
+      "legacyMs": 2035.57,
       "stagedAction": 0,
       "stagedBestValue": 0.5580012057535446,
       "stagedBestStage": 3,
-      "stagedMs": 7929.36,
+      "stagedMs": 7693.77,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2428,7 +2518,8 @@
         "onePlyCandidates": 44,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 12726,
@@ -2448,11 +2539,11 @@
       "legalMovesCount": 34,
       "legacyAction": 25,
       "legacyBestValue": 0.6080163369576137,
-      "legacyMs": 201.93,
+      "legacyMs": 190.93,
       "stagedAction": 25,
       "stagedBestValue": 0.6107943360406309,
       "stagedBestStage": 3,
-      "stagedMs": 7389.67,
+      "stagedMs": 7434.09,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2461,7 +2552,8 @@
         "onePlyCandidates": 34,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 10668,
@@ -2491,11 +2583,11 @@
       "legalMovesCount": 32,
       "legacyAction": 7,
       "legacyBestValue": 0.24167071660180728,
-      "legacyMs": 514.31,
+      "legacyMs": 524.13,
       "stagedAction": 7,
       "stagedBestValue": 0.24167071660180728,
       "stagedBestStage": 2,
-      "stagedMs": 46.67,
+      "stagedMs": 46.03,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2504,7 +2596,8 @@
         "onePlyCandidates": 32,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -2524,11 +2617,11 @@
       "legalMovesCount": 31,
       "legacyAction": 25,
       "legacyBestValue": 0.735630041284215,
-      "legacyMs": 1143.62,
+      "legacyMs": 1081.4,
       "stagedAction": 25,
       "stagedBestValue": 0.735630041284215,
       "stagedBestStage": 2,
-      "stagedMs": 1011.89,
+      "stagedMs": 952.75,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2537,7 +2630,8 @@
         "onePlyCandidates": 31,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -2557,11 +2651,11 @@
       "legalMovesCount": 29,
       "legacyAction": 0,
       "legacyBestValue": 0.13132743695083804,
-      "legacyMs": 837.57,
+      "legacyMs": 854.23,
       "stagedAction": 0,
       "stagedBestValue": 0.13636135066391422,
       "stagedBestStage": 3,
-      "stagedMs": 7509.05,
+      "stagedMs": 7519.81,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2570,7 +2664,8 @@
         "onePlyCandidates": 29,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 17976,
@@ -2590,11 +2685,11 @@
       "legalMovesCount": 27,
       "legacyAction": 14,
       "legacyBestValue": -0.24970981276485035,
-      "legacyMs": 430.36,
+      "legacyMs": 442.42,
       "stagedAction": 14,
       "stagedBestValue": -0.23052588608612015,
       "stagedBestStage": 3,
-      "stagedMs": 3392.87,
+      "stagedMs": 3472.28,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2603,7 +2698,8 @@
         "onePlyCandidates": 27,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8778,
@@ -2623,11 +2719,11 @@
       "legalMovesCount": 26,
       "legacyAction": 25,
       "legacyBestValue": -0.12210635336423949,
-      "legacyMs": 939.59,
+      "legacyMs": 939.07,
       "stagedAction": 25,
       "stagedBestValue": -0.13550566982243945,
       "stagedBestStage": 3,
-      "stagedMs": 5327.06,
+      "stagedMs": 5152.26,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2636,7 +2732,8 @@
         "onePlyCandidates": 26,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 6846,
@@ -2656,11 +2753,11 @@
       "legalMovesCount": 25,
       "legacyAction": 17,
       "legacyBestValue": 0.2225613634343664,
-      "legacyMs": 835.44,
+      "legacyMs": 833.77,
       "stagedAction": 16,
       "stagedBestValue": 0.21360229699968616,
       "stagedBestStage": 3,
-      "stagedMs": 14600.12,
+      "stagedMs": 14504.11,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -2669,7 +2766,8 @@
         "onePlyCandidates": 25,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 24801,
@@ -2689,20 +2787,19 @@
       "legalMovesCount": 25,
       "legacyAction": 22,
       "legacyBestValue": 0.891590196448544,
-      "legacyMs": 5408.73,
+      "legacyMs": 5482.37,
       "stagedAction": 22,
       "stagedBestValue": 0.891590196448544,
       "stagedBestStage": null,
-      "stagedMs": 5477.59,
+      "stagedMs": 5229.32,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
         "onePlyCandidates": 25,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "twoPlyCandidates": 25,
+        "threePlyCandidates": 25,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -2722,11 +2819,11 @@
       "legalMovesCount": 24,
       "legacyAction": 6,
       "legacyBestValue": 0.6186367193356164,
-      "legacyMs": 178.18,
+      "legacyMs": 179.19,
       "stagedAction": 4,
       "stagedBestValue": 0.6328979115277827,
       "stagedBestStage": 3,
-      "stagedMs": 1563.4,
+      "stagedMs": 1569.95,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -2735,7 +2832,8 @@
         "onePlyCandidates": 24,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 6363,
@@ -2765,11 +2863,11 @@
       "legalMovesCount": 23,
       "legacyAction": 22,
       "legacyBestValue": 0.4138370512260331,
-      "legacyMs": 626.2,
+      "legacyMs": 640.15,
       "stagedAction": 22,
       "stagedBestValue": 0.4138370512260331,
       "stagedBestStage": 2,
-      "stagedMs": 595.74,
+      "stagedMs": 575.23,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2778,7 +2876,8 @@
         "onePlyCandidates": 23,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -2798,11 +2897,11 @@
       "legalMovesCount": 21,
       "legacyAction": 2,
       "legacyBestValue": 0.47097101145320486,
-      "legacyMs": 148.87,
+      "legacyMs": 154.79,
       "stagedAction": 2,
       "stagedBestValue": 0.47097101145320486,
       "stagedBestStage": 2,
-      "stagedMs": 147.34,
+      "stagedMs": 146.07,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2811,7 +2910,8 @@
         "onePlyCandidates": 21,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 84,
@@ -2831,11 +2931,11 @@
       "legalMovesCount": 20,
       "legacyAction": 8,
       "legacyBestValue": 0.22766927229129652,
-      "legacyMs": 495.4,
+      "legacyMs": 508.14,
       "stagedAction": 8,
       "stagedBestValue": 0.22941317138958728,
       "stagedBestStage": 1,
-      "stagedMs": 0.74,
+      "stagedMs": 0.78,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2844,7 +2944,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -2874,11 +2975,11 @@
       "legalMovesCount": 20,
       "legacyAction": 13,
       "legacyBestValue": 0.7449271905125998,
-      "legacyMs": 491.49,
+      "legacyMs": 502.23,
       "stagedAction": 13,
       "stagedBestValue": 0.7449271905125998,
       "stagedBestStage": 2,
-      "stagedMs": 465.18,
+      "stagedMs": 453.66,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -2887,7 +2988,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 84,
@@ -2907,11 +3009,11 @@
       "legalMovesCount": 19,
       "legacyAction": 4,
       "legacyBestValue": 0.05327821455084182,
-      "legacyMs": 784.51,
+      "legacyMs": 777.43,
       "stagedAction": 4,
       "stagedBestValue": 0.025984709780254706,
       "stagedBestStage": 3,
-      "stagedMs": 26906.4,
+      "stagedMs": 18721.56,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -2920,7 +3022,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 38934,
@@ -2940,11 +3043,11 @@
       "legalMovesCount": 18,
       "legacyAction": 0,
       "legacyBestValue": -0.13739935190878302,
-      "legacyMs": 677.51,
+      "legacyMs": 575.4,
       "stagedAction": 13,
       "stagedBestValue": -0.12338988482788218,
       "stagedBestStage": 3,
-      "stagedMs": 5647.07,
+      "stagedMs": 4466.43,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -2953,7 +3056,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 14322,
@@ -2973,11 +3077,11 @@
       "legalMovesCount": 17,
       "legacyAction": 7,
       "legacyBestValue": -0.15067178931420244,
-      "legacyMs": 144.44,
+      "legacyMs": 114.46,
       "stagedAction": 9,
       "stagedBestValue": -0.17712276459106377,
       "stagedBestStage": 3,
-      "stagedMs": 1651.12,
+      "stagedMs": 1263.08,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -2986,7 +3090,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 4032,
@@ -3016,11 +3121,11 @@
       "legalMovesCount": 13,
       "legacyAction": 7,
       "legacyBestValue": 0.0667770563548925,
-      "legacyMs": 377.18,
+      "legacyMs": 288.62,
       "stagedAction": 7,
       "stagedBestValue": 0.0532106429445869,
       "stagedBestStage": 3,
-      "stagedMs": 16507.85,
+      "stagedMs": 14958.25,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3029,7 +3134,8 @@
         "onePlyCandidates": 13,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 7245,
@@ -3059,20 +3165,19 @@
       "legalMovesCount": 9,
       "legacyAction": 0,
       "legacyBestValue": 0.7676760368276632,
-      "legacyMs": 1470.01,
+      "legacyMs": 1376.11,
       "stagedAction": 0,
       "stagedBestValue": 0.7676760368276632,
       "stagedBestStage": null,
-      "stagedMs": 1472.95,
+      "stagedMs": 1355.67,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 13,
-        "twoPlyCandidates": 7,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 9,
+        "twoPlyCandidates": 9,
+        "threePlyCandidates": 9,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3102,11 +3207,11 @@
       "legalMovesCount": 4,
       "legacyAction": 2,
       "legacyBestValue": 0.41280422358004654,
-      "legacyMs": 34.63,
+      "legacyMs": 32.02,
       "stagedAction": 2,
       "stagedBestValue": 0.41280422358004654,
       "stagedBestStage": 2,
-      "stagedMs": 34.58,
+      "stagedMs": 33.01,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3115,7 +3220,8 @@
         "onePlyCandidates": 4,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 63,
@@ -3135,11 +3241,11 @@
       "legalMovesCount": 3,
       "legacyAction": 0,
       "legacyBestValue": 0.4672790157614992,
-      "legacyMs": 26.1,
+      "legacyMs": 23.42,
       "stagedAction": 1,
       "stagedBestValue": 0.4669770712730448,
       "stagedBestStage": 3,
-      "stagedMs": 4128.85,
+      "stagedMs": 3999.96,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -3148,7 +3254,8 @@
         "onePlyCandidates": 3,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8358,
@@ -3178,11 +3285,11 @@
       "legalMovesCount": 29,
       "legacyAction": 21,
       "legacyBestValue": 0.5220478723446529,
-      "legacyMs": 462.3,
+      "legacyMs": 448.57,
       "stagedAction": 21,
       "stagedBestValue": 0.526723176240921,
       "stagedBestStage": 1,
-      "stagedMs": 418.51,
+      "stagedMs": 401.75,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3191,7 +3298,8 @@
         "onePlyCandidates": 29,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3221,11 +3329,11 @@
       "legalMovesCount": 14,
       "legacyAction": 6,
       "legacyBestValue": 0.7745978550657413,
-      "legacyMs": 496.5,
+      "legacyMs": 472.69,
       "stagedAction": 6,
       "stagedBestValue": 0.7768327378727868,
       "stagedBestStage": 1,
-      "stagedMs": 0.68,
+      "stagedMs": 0.54,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3234,7 +3342,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3254,11 +3363,11 @@
       "legalMovesCount": 6,
       "legacyAction": 0,
       "legacyBestValue": 0.2869526586598822,
-      "legacyMs": 175.91,
+      "legacyMs": 178.12,
       "stagedAction": 0,
       "stagedBestValue": 0.26108944101226816,
       "stagedBestStage": 1,
-      "stagedMs": 169.6,
+      "stagedMs": 158.25,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3267,7 +3376,8 @@
         "onePlyCandidates": 6,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3287,11 +3397,11 @@
       "legalMovesCount": 271,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 3296.13,
+      "legacyMs": 3105.66,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 13871.33,
+      "stagedMs": 13504.73,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3300,7 +3410,8 @@
         "onePlyCandidates": 271,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 17325,
@@ -3320,11 +3431,11 @@
       "legalMovesCount": 104,
       "legacyAction": 24,
       "legacyBestValue": 0.9534360410865795,
-      "legacyMs": 2824.18,
+      "legacyMs": 2766.3,
       "stagedAction": 24,
       "stagedBestValue": 1.0729564385124706,
       "stagedBestStage": 3,
-      "stagedMs": 7477.22,
+      "stagedMs": 7315.31,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3333,7 +3444,8 @@
         "onePlyCandidates": 104,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 9954,
@@ -3353,11 +3465,11 @@
       "legalMovesCount": 72,
       "legacyAction": 3,
       "legacyBestValue": -0.7645063694921257,
-      "legacyMs": 1983.93,
+      "legacyMs": 1920.15,
       "stagedAction": 3,
       "stagedBestValue": -0.792609160795265,
       "stagedBestStage": 3,
-      "stagedMs": 8590.87,
+      "stagedMs": 8493.41,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3366,7 +3478,8 @@
         "onePlyCandidates": 72,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 13944,
@@ -3386,11 +3499,11 @@
       "legalMovesCount": 58,
       "legacyAction": 41,
       "legacyBestValue": -0.13453767998753663,
-      "legacyMs": 973.46,
+      "legacyMs": 899.07,
       "stagedAction": 41,
       "stagedBestValue": -0.17015435894865863,
       "stagedBestStage": 3,
-      "stagedMs": 4239.15,
+      "stagedMs": 4225.77,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3399,7 +3512,8 @@
         "onePlyCandidates": 58,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3822,
@@ -3419,20 +3533,19 @@
       "legalMovesCount": 55,
       "legacyAction": 0,
       "legacyBestValue": 0.73089669810202,
-      "legacyMs": 11778.76,
+      "legacyMs": 11472.68,
       "stagedAction": 0,
       "stagedBestValue": 0.73089669810202,
       "stagedBestStage": null,
-      "stagedMs": 11639.22,
+      "stagedMs": 11355.5,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 58,
-        "twoPlyCandidates": 7,
-        "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 55,
+        "twoPlyCandidates": 55,
+        "threePlyCandidates": 55,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3452,11 +3565,11 @@
       "legalMovesCount": 50,
       "legacyAction": 48,
       "legacyBestValue": 0.5117897378762268,
-      "legacyMs": 116.83,
+      "legacyMs": 121.42,
       "stagedAction": 48,
       "stagedBestValue": 0.5238996230347195,
       "stagedBestStage": 3,
-      "stagedMs": 879.2,
+      "stagedMs": 881.31,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3465,7 +3578,8 @@
         "onePlyCandidates": 50,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 5040,
@@ -3485,11 +3599,11 @@
       "legalMovesCount": 45,
       "legacyAction": 12,
       "legacyBestValue": 0.6226629066229923,
-      "legacyMs": 632.04,
+      "legacyMs": 643.55,
       "stagedAction": 12,
       "stagedBestValue": 0.6226714557646471,
       "stagedBestStage": 1,
-      "stagedMs": 554.93,
+      "stagedMs": 583.28,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3498,7 +3612,8 @@
         "onePlyCandidates": 45,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3528,11 +3643,11 @@
       "legalMovesCount": 39,
       "legacyAction": 8,
       "legacyBestValue": 0.9664531648159027,
-      "legacyMs": 105.63,
+      "legacyMs": 109.89,
       "stagedAction": 14,
       "stagedBestValue": 0.9639581926167011,
       "stagedBestStage": 3,
-      "stagedMs": 169.49,
+      "stagedMs": 175.5,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -3541,7 +3656,8 @@
         "onePlyCandidates": 39,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 441,
@@ -3561,11 +3677,11 @@
       "legalMovesCount": 39,
       "legacyAction": 0,
       "legacyBestValue": 0.9284292593522788,
-      "legacyMs": 760.91,
+      "legacyMs": 787.66,
       "stagedAction": 0,
       "stagedBestValue": 0.9221058169240679,
       "stagedBestStage": 1,
-      "stagedMs": 1.58,
+      "stagedMs": 1.43,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3574,7 +3690,8 @@
         "onePlyCandidates": 39,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3604,11 +3721,11 @@
       "legalMovesCount": 38,
       "legacyAction": 1,
       "legacyBestValue": 0.04943242002476245,
-      "legacyMs": 274.88,
+      "legacyMs": 270.47,
       "stagedAction": 11,
       "stagedBestValue": 0.04531059556520467,
       "stagedBestStage": 3,
-      "stagedMs": 12677.93,
+      "stagedMs": 12395.93,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -3617,7 +3734,8 @@
         "onePlyCandidates": 38,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 19593,
@@ -3637,11 +3755,11 @@
       "legalMovesCount": 36,
       "legacyAction": 4,
       "legacyBestValue": 0.9840928253185748,
-      "legacyMs": 85.87,
+      "legacyMs": 79.52,
       "stagedAction": 0,
       "stagedBestValue": 1.0000000000000002,
       "stagedBestStage": 3,
-      "stagedMs": 125.58,
+      "stagedMs": 107.71,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -3650,7 +3768,8 @@
         "onePlyCandidates": 36,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 504,
@@ -3670,11 +3789,11 @@
       "legalMovesCount": 36,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 344.3,
+      "legacyMs": 339.05,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 18858.9,
+      "stagedMs": 18879.95,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3683,7 +3802,8 @@
         "onePlyCandidates": 36,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 23310,
@@ -3703,11 +3823,11 @@
       "legalMovesCount": 31,
       "legacyAction": 3,
       "legacyBestValue": -0.5161487717157088,
-      "legacyMs": 80.26,
+      "legacyMs": 85.97,
       "stagedAction": 2,
       "stagedBestValue": -0.5192308366638873,
       "stagedBestStage": 3,
-      "stagedMs": 2072.27,
+      "stagedMs": 2135.42,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -3716,7 +3836,8 @@
         "onePlyCandidates": 31,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3759,
@@ -3736,11 +3857,11 @@
       "legalMovesCount": 30,
       "legacyAction": 23,
       "legacyBestValue": -0.11283000488837322,
-      "legacyMs": 398.7,
+      "legacyMs": 400.11,
       "stagedAction": 5,
       "stagedBestValue": -0.11151379876879657,
       "stagedBestStage": 3,
-      "stagedMs": 5142.29,
+      "stagedMs": 5066.63,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -3749,7 +3870,8 @@
         "onePlyCandidates": 30,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 4410,
@@ -3769,20 +3891,19 @@
       "legalMovesCount": 29,
       "legacyAction": 2,
       "legacyBestValue": 0.6383260708895404,
-      "legacyMs": 13728.75,
+      "legacyMs": 13707.09,
       "stagedAction": 2,
       "stagedBestValue": 0.6383260708895404,
       "stagedBestStage": null,
-      "stagedMs": 13542.2,
+      "stagedMs": 13617.13,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 30,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 29,
+        "twoPlyCandidates": 29,
+        "threePlyCandidates": 29,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3802,11 +3923,11 @@
       "legalMovesCount": 29,
       "legacyAction": 9,
       "legacyBestValue": 0.5,
-      "legacyMs": 1226.61,
+      "legacyMs": 1271.73,
       "stagedAction": 12,
       "stagedBestValue": 0.4999594674899336,
       "stagedBestStage": 3,
-      "stagedMs": 7398,
+      "stagedMs": 7275.04,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -3815,7 +3936,8 @@
         "onePlyCandidates": 29,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 31689,
@@ -3835,11 +3957,11 @@
       "legalMovesCount": 27,
       "legacyAction": 12,
       "legacyBestValue": 0.6492044509452636,
-      "legacyMs": 356.29,
+      "legacyMs": 355.42,
       "stagedAction": 12,
       "stagedBestValue": 0.6399062243115807,
       "stagedBestStage": 1,
-      "stagedMs": 319.56,
+      "stagedMs": 317.66,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3848,7 +3970,8 @@
         "onePlyCandidates": 27,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3868,11 +3991,11 @@
       "legalMovesCount": 27,
       "legacyAction": 17,
       "legacyBestValue": 0.22295170525709807,
-      "legacyMs": 187.17,
+      "legacyMs": 185.34,
       "stagedAction": 18,
       "stagedBestValue": 0.21606488106197408,
       "stagedBestStage": 3,
-      "stagedMs": 4666.6,
+      "stagedMs": 4817.1,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -3881,7 +4004,8 @@
         "onePlyCandidates": 27,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 11508,
@@ -3901,11 +4025,11 @@
       "legalMovesCount": 26,
       "legacyAction": 6,
       "legacyBestValue": 0.6973675548303666,
-      "legacyMs": 1143.58,
+      "legacyMs": 1141.75,
       "stagedAction": 6,
       "stagedBestValue": 0.6946707957765385,
       "stagedBestStage": 3,
-      "stagedMs": 1840.06,
+      "stagedMs": 1883.91,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3914,7 +4038,8 @@
         "onePlyCandidates": 26,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -3934,11 +4059,11 @@
       "legalMovesCount": 23,
       "legacyAction": 19,
       "legacyBestValue": 0.4823378534358409,
-      "legacyMs": 169.14,
+      "legacyMs": 177.89,
       "stagedAction": 19,
       "stagedBestValue": 0.48257192570136076,
       "stagedBestStage": 3,
-      "stagedMs": 3170.41,
+      "stagedMs": 3245.11,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -3947,7 +4072,8 @@
         "onePlyCandidates": 23,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 23814,
@@ -3967,11 +4093,11 @@
       "legalMovesCount": 23,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 210.71,
+      "legacyMs": 218.32,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 13760.22,
+      "stagedMs": 13941.13,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -3980,7 +4106,8 @@
         "onePlyCandidates": 23,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 24570,
@@ -4000,11 +4127,11 @@
       "legalMovesCount": 22,
       "legacyAction": 18,
       "legacyBestValue": -0.6928206856906924,
-      "legacyMs": 64.43,
+      "legacyMs": 70.14,
       "stagedAction": 21,
       "stagedBestValue": -0.8382133096249078,
       "stagedBestStage": 3,
-      "stagedMs": 1380.88,
+      "stagedMs": 1462.69,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -4013,7 +4140,8 @@
         "onePlyCandidates": 22,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 8505,
@@ -4033,11 +4161,11 @@
       "legalMovesCount": 19,
       "legacyAction": 4,
       "legacyBestValue": -0.6461956622553329,
-      "legacyMs": 260.3,
+      "legacyMs": 276.11,
       "stagedAction": 4,
       "stagedBestValue": -0.670923254769541,
       "stagedBestStage": 3,
-      "stagedMs": 2024.44,
+      "stagedMs": 2095.57,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4046,7 +4174,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 5103,
@@ -4076,11 +4205,11 @@
       "legalMovesCount": 19,
       "legacyAction": 11,
       "legacyBestValue": -0.16910752425135417,
-      "legacyMs": 110.46,
+      "legacyMs": 106.67,
       "stagedAction": 11,
       "stagedBestValue": -0.20730353020003583,
       "stagedBestStage": 3,
-      "stagedMs": 1630.57,
+      "stagedMs": 1584.69,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4089,7 +4218,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 2184,
@@ -4119,20 +4249,19 @@
       "legalMovesCount": 16,
       "legacyAction": 10,
       "legacyBestValue": 1.1086001893030604,
-      "legacyMs": 4382.54,
+      "legacyMs": 4589.8,
       "stagedAction": 10,
       "stagedBestValue": 1.1086001893030604,
       "stagedBestStage": null,
-      "stagedMs": 4399.96,
+      "stagedMs": 4532.23,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 19,
-        "twoPlyCandidates": 3,
-        "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 16,
+        "twoPlyCandidates": 16,
+        "threePlyCandidates": 16,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4162,11 +4291,11 @@
       "legalMovesCount": 13,
       "legacyAction": 0,
       "legacyBestValue": 0.4999999999999999,
-      "legacyMs": 625.98,
+      "legacyMs": 656.19,
       "stagedAction": 0,
       "stagedBestValue": 0.4999999999999999,
       "stagedBestStage": 3,
-      "stagedMs": 5588.94,
+      "stagedMs": 5803.69,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4175,7 +4304,8 @@
         "onePlyCandidates": 13,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 36309,
@@ -4205,11 +4335,11 @@
       "legalMovesCount": 8,
       "legacyAction": 5,
       "legacyBestValue": 0.4434107924352356,
-      "legacyMs": 42.62,
+      "legacyMs": 42.16,
       "stagedAction": 5,
       "stagedBestValue": 0.4434107924352356,
       "stagedBestStage": 2,
-      "stagedMs": 41.25,
+      "stagedMs": 41.78,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4218,7 +4348,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -4238,11 +4369,11 @@
       "legalMovesCount": 7,
       "legacyAction": 6,
       "legacyBestValue": 0.8208789891666837,
-      "legacyMs": 193.88,
+      "legacyMs": 187.92,
       "stagedAction": 6,
       "stagedBestValue": 0.8114116191864014,
       "stagedBestStage": 1,
-      "stagedMs": 167.37,
+      "stagedMs": 162.09,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4251,7 +4382,8 @@
         "onePlyCandidates": 7,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4271,11 +4403,11 @@
       "legalMovesCount": 5,
       "legacyAction": 1,
       "legacyBestValue": 0.03306689502765492,
-      "legacyMs": 76.75,
+      "legacyMs": 74.6,
       "stagedAction": 0,
       "stagedBestValue": 0.03219375052501694,
       "stagedBestStage": 3,
-      "stagedMs": 799.43,
+      "stagedMs": 774.09,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -4284,7 +4416,8 @@
         "onePlyCandidates": 5,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4314,11 +4447,11 @@
       "legalMovesCount": 20,
       "legacyAction": 16,
       "legacyBestValue": 0.7969670252771013,
-      "legacyMs": 528.46,
+      "legacyMs": 511.91,
       "stagedAction": 16,
       "stagedBestValue": 0.7953767217695713,
       "stagedBestStage": 1,
-      "stagedMs": 466.76,
+      "stagedMs": 483.69,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4327,7 +4460,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4347,11 +4481,11 @@
       "legalMovesCount": 207,
       "legacyAction": 103,
       "legacyBestValue": -0.05492408703202262,
-      "legacyMs": 5984.16,
+      "legacyMs": 6073.8,
       "stagedAction": 103,
       "stagedBestValue": -0.04721569613229512,
       "stagedBestStage": 3,
-      "stagedMs": 16623.51,
+      "stagedMs": 14026.85,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4360,7 +4494,8 @@
         "onePlyCandidates": 207,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 17808,
@@ -4380,11 +4515,11 @@
       "legalMovesCount": 111,
       "legacyAction": 100,
       "legacyBestValue": -0.9856345160095775,
-      "legacyMs": 2503.98,
+      "legacyMs": 2067.25,
       "stagedAction": 1,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 15159.64,
+      "stagedMs": 14358.42,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -4393,7 +4528,8 @@
         "onePlyCandidates": 111,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 32949,
@@ -4413,11 +4549,11 @@
       "legalMovesCount": 70,
       "legacyAction": 26,
       "legacyBestValue": 0.3945298852163406,
-      "legacyMs": 1575.58,
+      "legacyMs": 1643.06,
       "stagedAction": 26,
       "stagedBestValue": 0.3933998606380795,
       "stagedBestStage": 3,
-      "stagedMs": 14021.99,
+      "stagedMs": 14164.94,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4426,7 +4562,8 @@
         "onePlyCandidates": 70,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 9387,
@@ -4446,11 +4583,11 @@
       "legalMovesCount": 36,
       "legacyAction": 35,
       "legacyBestValue": -0.28669360735400234,
-      "legacyMs": 180.92,
+      "legacyMs": 188.83,
       "stagedAction": 35,
       "stagedBestValue": -0.27726709453176157,
       "stagedBestStage": 3,
-      "stagedMs": 2654.34,
+      "stagedMs": 2791.99,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4459,7 +4596,8 @@
         "onePlyCandidates": 36,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 4746,
@@ -4479,20 +4617,19 @@
       "legalMovesCount": 33,
       "legacyAction": 32,
       "legacyBestValue": 0.30555409442334813,
-      "legacyMs": 25806.56,
+      "legacyMs": 25759.53,
       "stagedAction": 32,
       "stagedBestValue": 0.30555409442334813,
       "stagedBestStage": null,
-      "stagedMs": 32059.75,
+      "stagedMs": 25946.97,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 36,
-        "twoPlyCandidates": 6,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 33,
+        "twoPlyCandidates": 33,
+        "threePlyCandidates": 33,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4512,11 +4649,11 @@
       "legalMovesCount": 28,
       "legacyAction": 17,
       "legacyBestValue": 0.3999562676995676,
-      "legacyMs": 374.02,
+      "legacyMs": 374.89,
       "stagedAction": 17,
       "stagedBestValue": 0.42542359787769435,
       "stagedBestStage": 3,
-      "stagedMs": 2514.68,
+      "stagedMs": 2555.75,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4525,7 +4662,8 @@
         "onePlyCandidates": 28,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 4998,
@@ -4545,11 +4683,11 @@
       "legalMovesCount": 27,
       "legacyAction": 2,
       "legacyBestValue": 0.4423995303502618,
-      "legacyMs": 356.79,
+      "legacyMs": 343.15,
       "stagedAction": 2,
       "stagedBestValue": 0.4431851739193503,
       "stagedBestStage": 1,
-      "stagedMs": 321.77,
+      "stagedMs": 301.54,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4558,7 +4696,8 @@
         "onePlyCandidates": 27,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4588,11 +4727,11 @@
       "legalMovesCount": 22,
       "legacyAction": 16,
       "legacyBestValue": 0.6091914450128874,
-      "legacyMs": 75.94,
+      "legacyMs": 72.97,
       "stagedAction": 16,
       "stagedBestValue": 0.6091914450128874,
       "stagedBestStage": 2,
-      "stagedMs": 66.47,
+      "stagedMs": 64.34,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4601,7 +4740,8 @@
         "onePlyCandidates": 22,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -4621,11 +4761,11 @@
       "legalMovesCount": 21,
       "legacyAction": 8,
       "legacyBestValue": 0.7052012230887057,
-      "legacyMs": 223.68,
+      "legacyMs": 219.7,
       "stagedAction": 11,
       "stagedBestValue": 0.7052757522742465,
       "stagedBestStage": 3,
-      "stagedMs": 5244.06,
+      "stagedMs": 5249.4,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -4634,7 +4774,8 @@
         "onePlyCandidates": 21,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4654,11 +4795,11 @@
       "legalMovesCount": 19,
       "legacyAction": 17,
       "legacyBestValue": 0.4438342709715166,
-      "legacyMs": 330.4,
+      "legacyMs": 333.67,
       "stagedAction": 6,
       "stagedBestValue": 0.4450926022908801,
       "stagedBestStage": 3,
-      "stagedMs": 8311.91,
+      "stagedMs": 8260.44,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -4667,7 +4808,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 30009,
@@ -4697,11 +4839,11 @@
       "legalMovesCount": 15,
       "legacyAction": 7,
       "legacyBestValue": -0.9371130682012907,
-      "legacyMs": 232.62,
+      "legacyMs": 231.36,
       "stagedAction": 7,
       "stagedBestValue": -0.968432976387331,
       "stagedBestStage": 3,
-      "stagedMs": 11140.02,
+      "stagedMs": 11023.99,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4710,7 +4852,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 35091,
@@ -4730,11 +4873,11 @@
       "legalMovesCount": 14,
       "legacyAction": 3,
       "legacyBestValue": 0.3476611313782043,
-      "legacyMs": 782.51,
+      "legacyMs": 708.66,
       "stagedAction": 3,
       "stagedBestValue": 0.36305640177976134,
       "stagedBestStage": 3,
-      "stagedMs": 4364.24,
+      "stagedMs": 4351.94,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4743,7 +4886,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 17472,
@@ -4763,11 +4907,11 @@
       "legalMovesCount": 12,
       "legacyAction": 5,
       "legacyBestValue": -0.19697664854989938,
-      "legacyMs": 308.53,
+      "legacyMs": 299.63,
       "stagedAction": 5,
       "stagedBestValue": -0.19824177309909854,
       "stagedBestStage": 3,
-      "stagedMs": 11563.95,
+      "stagedMs": 11526.27,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4776,7 +4920,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 23184,
@@ -4806,11 +4951,11 @@
       "legalMovesCount": 12,
       "legacyAction": 7,
       "legacyBestValue": 0.9593506774554943,
-      "legacyMs": 428.09,
+      "legacyMs": 434.45,
       "stagedAction": 7,
       "stagedBestValue": 0.9501024911598798,
       "stagedBestStage": 3,
-      "stagedMs": 4563.43,
+      "stagedMs": 4401.51,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -4819,7 +4964,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 6363,
@@ -4849,20 +4995,19 @@
       "legalMovesCount": 12,
       "legacyAction": 1,
       "legacyBestValue": 0.26737095459571325,
-      "legacyMs": 1674.87,
+      "legacyMs": 1693.9,
       "stagedAction": 1,
       "stagedBestValue": 0.26737095459571325,
       "stagedBestStage": null,
-      "stagedMs": 1666.97,
+      "stagedMs": 1682.35,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
         "onePlyCandidates": 12,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "twoPlyCandidates": 12,
+        "threePlyCandidates": 12,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -4892,11 +5037,11 @@
       "legalMovesCount": 11,
       "legacyAction": 7,
       "legacyBestValue": 0.4076937084461467,
-      "legacyMs": 274.72,
+      "legacyMs": 272.74,
       "stagedAction": 7,
       "stagedBestValue": 0.4369213637774657,
       "stagedBestStage": 3,
-      "stagedMs": 5247.52,
+      "stagedMs": 5092.64,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4905,7 +5050,8 @@
         "onePlyCandidates": 11,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 16170,
@@ -4935,11 +5081,11 @@
       "legalMovesCount": 8,
       "legacyAction": 0,
       "legacyBestValue": 0.33130000000000004,
-      "legacyMs": 191.52,
+      "legacyMs": 193.68,
       "stagedAction": 0,
       "stagedBestValue": 0.33130000000000004,
       "stagedBestStage": 3,
-      "stagedMs": 9597.74,
+      "stagedMs": 9366.06,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4948,7 +5094,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 23835,
@@ -4978,11 +5125,11 @@
       "legalMovesCount": 3,
       "legacyAction": 2,
       "legacyBestValue": 0.8775404459900327,
-      "legacyMs": 16.74,
+      "legacyMs": 17.46,
       "stagedAction": 2,
       "stagedBestValue": 0.8775404459900327,
       "stagedBestStage": 2,
-      "stagedMs": 17.52,
+      "stagedMs": 17.4,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -4991,7 +5138,8 @@
         "onePlyCandidates": 3,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -5011,11 +5159,11 @@
       "legalMovesCount": 22,
       "legacyAction": 19,
       "legacyBestValue": 0.27205637554709083,
-      "legacyMs": 479.49,
+      "legacyMs": 478.27,
       "stagedAction": 19,
       "stagedBestValue": 0.27267667157508435,
       "stagedBestStage": 1,
-      "stagedMs": 0.77,
+      "stagedMs": 0.85,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5024,7 +5172,8 @@
         "onePlyCandidates": 22,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5054,11 +5203,11 @@
       "legalMovesCount": 33,
       "legacyAction": 31,
       "legacyBestValue": 0.6744432540403471,
-      "legacyMs": 659.47,
+      "legacyMs": 635.21,
       "stagedAction": 31,
       "stagedBestValue": 0.6666946187615395,
       "stagedBestStage": 1,
-      "stagedMs": 563.53,
+      "stagedMs": 563.04,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5067,7 +5216,8 @@
         "onePlyCandidates": 33,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5087,11 +5237,11 @@
       "legalMovesCount": 53,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 679.44,
+      "legacyMs": 672.86,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 24906.35,
+      "stagedMs": 24508.74,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5100,7 +5250,8 @@
         "onePlyCandidates": 53,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 33138,
@@ -5120,11 +5271,11 @@
       "legalMovesCount": 45,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 786.87,
+      "legacyMs": 775.98,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 25815.36,
+      "stagedMs": 25643.86,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5133,7 +5284,8 @@
         "onePlyCandidates": 45,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 35112,
@@ -5153,11 +5305,11 @@
       "legalMovesCount": 37,
       "legacyAction": 27,
       "legacyBestValue": -0.6787655935253448,
-      "legacyMs": 505.48,
+      "legacyMs": 513.03,
       "stagedAction": 25,
       "stagedBestValue": -0.6720689538069783,
       "stagedBestStage": 3,
-      "stagedMs": 18495.13,
+      "stagedMs": 18358.09,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -5166,7 +5318,8 @@
         "onePlyCandidates": 37,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 10101,
@@ -5186,11 +5339,11 @@
       "legalMovesCount": 26,
       "legacyAction": 1,
       "legacyBestValue": 0.7621988165536959,
-      "legacyMs": 801.95,
+      "legacyMs": 841.26,
       "stagedAction": 1,
       "stagedBestValue": 0.7302343319036931,
       "stagedBestStage": 3,
-      "stagedMs": 11340.19,
+      "stagedMs": 11182.88,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5199,7 +5352,8 @@
         "onePlyCandidates": 26,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 12327,
@@ -5229,20 +5383,19 @@
       "legalMovesCount": 22,
       "legacyAction": 13,
       "legacyBestValue": -0.2154484591411242,
-      "legacyMs": 25750.91,
+      "legacyMs": 25598.03,
       "stagedAction": 13,
       "stagedBestValue": -0.2154484591411242,
       "stagedBestStage": null,
-      "stagedMs": 25847.05,
+      "stagedMs": 25476.77,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 26,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 22,
+        "twoPlyCandidates": 22,
+        "threePlyCandidates": 22,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5272,11 +5425,11 @@
       "legalMovesCount": 18,
       "legacyAction": 1,
       "legacyBestValue": 0.6614917124119987,
-      "legacyMs": 1008.63,
+      "legacyMs": 931.22,
       "stagedAction": 1,
       "stagedBestValue": 0.6642116088767837,
       "stagedBestStage": 3,
-      "stagedMs": 9239.52,
+      "stagedMs": 9156.79,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5285,7 +5438,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 40194,
@@ -5305,11 +5459,11 @@
       "legalMovesCount": 12,
       "legacyAction": 8,
       "legacyBestValue": 0.4437125986745579,
-      "legacyMs": 404.09,
+      "legacyMs": 408.67,
       "stagedAction": 8,
       "stagedBestValue": 0.43264067289495267,
       "stagedBestStage": 3,
-      "stagedMs": 8063.42,
+      "stagedMs": 8023.61,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5318,7 +5472,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 10878,
@@ -5338,11 +5493,11 @@
       "legalMovesCount": 11,
       "legacyAction": 2,
       "legacyBestValue": 0.8221754555900891,
-      "legacyMs": 562.44,
+      "legacyMs": 567.26,
       "stagedAction": 2,
       "stagedBestValue": 0.8330652838253795,
       "stagedBestStage": 3,
-      "stagedMs": 7940.75,
+      "stagedMs": 8020.92,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5351,7 +5506,8 @@
         "onePlyCandidates": 11,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 40173,
@@ -5381,11 +5537,11 @@
       "legalMovesCount": 10,
       "legacyAction": 0,
       "legacyBestValue": 0.3917197948330535,
-      "legacyMs": 268.84,
+      "legacyMs": 253,
       "stagedAction": 0,
       "stagedBestValue": 0.3884417685963073,
       "stagedBestStage": 3,
-      "stagedMs": 10916.4,
+      "stagedMs": 10828.49,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5394,7 +5550,8 @@
         "onePlyCandidates": 10,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5424,11 +5581,11 @@
       "legalMovesCount": 9,
       "legacyAction": 6,
       "legacyBestValue": 0.7089926710678912,
-      "legacyMs": 125.58,
+      "legacyMs": 135.87,
       "stagedAction": 6,
       "stagedBestValue": 0.7141179730880399,
       "stagedBestStage": 3,
-      "stagedMs": 1325.63,
+      "stagedMs": 1342.21,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5437,7 +5594,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 14133,
@@ -5467,11 +5625,11 @@
       "legalMovesCount": 9,
       "legacyAction": 2,
       "legacyBestValue": 0.9030506057232892,
-      "legacyMs": 388.58,
+      "legacyMs": 399.31,
       "stagedAction": 2,
       "stagedBestValue": 0.9590985058569108,
       "stagedBestStage": 3,
-      "stagedMs": 7070.18,
+      "stagedMs": 7092.09,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5480,7 +5638,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 36960,
@@ -5510,11 +5669,11 @@
       "legalMovesCount": 15,
       "legacyAction": 3,
       "legacyBestValue": 0.05011752118561334,
-      "legacyMs": 109.2,
+      "legacyMs": 113.95,
       "stagedAction": 3,
       "stagedBestValue": 0.08923449656508173,
       "stagedBestStage": 1,
-      "stagedMs": 98.77,
+      "stagedMs": 98.36,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5523,7 +5682,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5553,11 +5713,11 @@
       "legalMovesCount": 342,
       "legacyAction": 307,
       "legacyBestValue": -1.3188994988792566,
-      "legacyMs": 855.54,
+      "legacyMs": 878.41,
       "stagedAction": 307,
       "stagedBestValue": -1.3361119208906698,
       "stagedBestStage": 3,
-      "stagedMs": 5185.07,
+      "stagedMs": 5051.16,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5566,7 +5726,8 @@
         "onePlyCandidates": 342,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3024,
@@ -5586,11 +5747,11 @@
       "legalMovesCount": 29,
       "legacyAction": 1,
       "legacyBestValue": -1.8649083205483388,
-      "legacyMs": 13.79,
+      "legacyMs": 14.14,
       "stagedAction": 6,
       "stagedBestValue": -1.8583306804914477,
       "stagedBestStage": 3,
-      "stagedMs": 607.22,
+      "stagedMs": 625.86,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -5599,7 +5760,8 @@
         "onePlyCandidates": 29,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 420,
@@ -5619,20 +5781,19 @@
       "legalMovesCount": 25,
       "legacyAction": 14,
       "legacyBestValue": -1.2009445605526008,
-      "legacyMs": 18933.52,
+      "legacyMs": 18626.39,
       "stagedAction": 14,
       "stagedBestValue": -1.2009445605526008,
       "stagedBestStage": null,
-      "stagedMs": 18773.9,
+      "stagedMs": 18519.61,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 29,
-        "twoPlyCandidates": 8,
-        "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 25,
+        "twoPlyCandidates": 25,
+        "threePlyCandidates": 25,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5652,11 +5813,11 @@
       "legalMovesCount": 21,
       "legacyAction": 20,
       "legacyBestValue": 0.567087371443338,
-      "legacyMs": 20.54,
+      "legacyMs": 21.34,
       "stagedAction": 20,
       "stagedBestValue": 0.567087371443338,
       "stagedBestStage": 2,
-      "stagedMs": 14.57,
+      "stagedMs": 11.47,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5665,7 +5826,8 @@
         "onePlyCandidates": 21,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 84,
@@ -5685,11 +5847,11 @@
       "legalMovesCount": 20,
       "legacyAction": 0,
       "legacyBestValue": 0.33130000000000004,
-      "legacyMs": 82.33,
+      "legacyMs": 74.1,
       "stagedAction": 0,
       "stagedBestValue": 0.3312824625487567,
       "stagedBestStage": 3,
-      "stagedMs": 3273.27,
+      "stagedMs": 3293.38,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5698,7 +5860,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 7518,
@@ -5718,11 +5881,11 @@
       "legalMovesCount": 18,
       "legacyAction": 12,
       "legacyBestValue": 0.9909317509995567,
-      "legacyMs": 189.21,
+      "legacyMs": 178.64,
       "stagedAction": 0,
       "stagedBestValue": 0.9911278103144816,
       "stagedBestStage": 3,
-      "stagedMs": 5103.29,
+      "stagedMs": 4987.81,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -5731,7 +5894,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 32634,
@@ -5751,11 +5915,11 @@
       "legalMovesCount": 17,
       "legacyAction": 4,
       "legacyBestValue": 0.0009146562204807029,
-      "legacyMs": 16.74,
+      "legacyMs": 18.97,
       "stagedAction": 8,
       "stagedBestValue": 0.00007714990566809465,
       "stagedBestStage": 3,
-      "stagedMs": 880.8,
+      "stagedMs": 869.53,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -5764,7 +5928,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5784,11 +5949,11 @@
       "legalMovesCount": 17,
       "legacyAction": 4,
       "legacyBestValue": 0.000008610390277441482,
-      "legacyMs": 14.79,
+      "legacyMs": 15.71,
       "stagedAction": 2,
       "stagedBestValue": 0.0000033837374024958677,
       "stagedBestStage": 3,
-      "stagedMs": 656.52,
+      "stagedMs": 670.42,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -5797,7 +5962,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3591,
@@ -5817,11 +5983,11 @@
       "legalMovesCount": 17,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 13.11,
+      "legacyMs": 13.49,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 149.8,
+      "stagedMs": 157.44,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5830,7 +5996,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 12348,
@@ -5850,11 +6017,11 @@
       "legalMovesCount": 16,
       "legacyAction": 7,
       "legacyBestValue": -1.0048069082039197,
-      "legacyMs": 184.09,
+      "legacyMs": 178.63,
       "stagedAction": 7,
       "stagedBestValue": -1.0003373139087472,
       "stagedBestStage": 3,
-      "stagedMs": 4145.67,
+      "stagedMs": 4000.17,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5863,7 +6030,8 @@
         "onePlyCandidates": 16,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 28287,
@@ -5883,11 +6051,11 @@
       "legalMovesCount": 14,
       "legacyAction": 4,
       "legacyBestValue": 1.0001152868125867,
-      "legacyMs": 116.2,
+      "legacyMs": 125.07,
       "stagedAction": 3,
       "stagedBestValue": 1.000555131241418,
       "stagedBestStage": 3,
-      "stagedMs": 3038.96,
+      "stagedMs": 3069.34,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "equity",
@@ -5896,7 +6064,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 9198,
@@ -5916,11 +6085,11 @@
       "legalMovesCount": 14,
       "legacyAction": 13,
       "legacyBestValue": 0.22382548924845921,
-      "legacyMs": 5.77,
+      "legacyMs": 10.62,
       "stagedAction": 13,
       "stagedBestValue": 0.21246566986350698,
       "stagedBestStage": 3,
-      "stagedMs": 98.29,
+      "stagedMs": 89.25,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -5929,7 +6098,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 1176,
@@ -5949,20 +6119,19 @@
       "legalMovesCount": 12,
       "legacyAction": 4,
       "legacyBestValue": 0.4337235773787087,
-      "legacyMs": 610.17,
+      "legacyMs": 583.07,
       "stagedAction": 4,
       "stagedBestValue": 0.4337235773787087,
       "stagedBestStage": null,
-      "stagedMs": 595.38,
+      "stagedMs": 578.92,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 14,
-        "twoPlyCandidates": 4,
-        "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "onePlyCandidates": 12,
+        "twoPlyCandidates": 12,
+        "threePlyCandidates": 12,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -5982,11 +6151,11 @@
       "legalMovesCount": 12,
       "legacyAction": 0,
       "legacyBestValue": 0.4999999999999999,
-      "legacyMs": 6.58,
+      "legacyMs": 6.95,
       "stagedAction": 0,
       "stagedBestValue": 0.5,
       "stagedBestStage": 3,
-      "stagedMs": 114,
+      "stagedMs": 121.2,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -5995,7 +6164,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 1764,
@@ -6015,11 +6185,11 @@
       "legalMovesCount": 12,
       "legacyAction": 0,
       "legacyBestValue": 0.3312999999999998,
-      "legacyMs": 5.13,
+      "legacyMs": 6.86,
       "stagedAction": 0,
       "stagedBestValue": 0.33129999999999993,
       "stagedBestStage": 3,
-      "stagedMs": 17.12,
+      "stagedMs": 16.44,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6028,7 +6198,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 924,
@@ -6048,11 +6219,11 @@
       "legalMovesCount": 11,
       "legacyAction": 10,
       "legacyBestValue": 0.9936436410417728,
-      "legacyMs": 91.63,
+      "legacyMs": 88.25,
       "stagedAction": 10,
       "stagedBestValue": 0.9937473004853064,
       "stagedBestStage": 3,
-      "stagedMs": 751.32,
+      "stagedMs": 743.05,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6061,7 +6232,8 @@
         "onePlyCandidates": 11,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 11634,
@@ -6081,11 +6253,11 @@
       "legalMovesCount": 11,
       "legacyAction": 10,
       "legacyBestValue": 0.1949784759665859,
-      "legacyMs": 2.42,
+      "legacyMs": 2.39,
       "stagedAction": 10,
       "stagedBestValue": 0.19497014362573628,
       "stagedBestStage": 1,
-      "stagedMs": 0.05,
+      "stagedMs": 0.1,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6094,7 +6266,8 @@
         "onePlyCandidates": 11,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6124,11 +6297,11 @@
       "legalMovesCount": 10,
       "legacyAction": 0,
       "legacyBestValue": 0.51197,
-      "legacyMs": 47.02,
+      "legacyMs": 46.07,
       "stagedAction": 0,
       "stagedBestValue": 0.51197,
       "stagedBestStage": 3,
-      "stagedMs": 1758.43,
+      "stagedMs": 1650.13,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6137,7 +6310,8 @@
         "onePlyCandidates": 10,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18900,
@@ -6157,11 +6331,11 @@
       "legalMovesCount": 10,
       "legacyAction": 0,
       "legacyBestValue": -0.265923082307454,
-      "legacyMs": 25.39,
+      "legacyMs": 24.74,
       "stagedAction": 0,
       "stagedBestValue": -0.26822883824304117,
       "stagedBestStage": 3,
-      "stagedMs": 712.32,
+      "stagedMs": 672.18,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6170,7 +6344,8 @@
         "onePlyCandidates": 10,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 19929,
@@ -6190,11 +6365,11 @@
       "legalMovesCount": 9,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 5.48,
+      "legacyMs": 3.19,
       "stagedAction": 0,
       "stagedBestValue": -1,
       "stagedBestStage": 3,
-      "stagedMs": 49.79,
+      "stagedMs": 42.86,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6203,7 +6378,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 3024,
@@ -6223,11 +6399,11 @@
       "legalMovesCount": 8,
       "legacyAction": 0,
       "legacyBestValue": -1,
-      "legacyMs": 30.32,
+      "legacyMs": 30.38,
       "stagedAction": 0,
       "stagedBestValue": -1.0000000000000002,
       "stagedBestStage": 3,
-      "stagedMs": 493.11,
+      "stagedMs": 499.74,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6236,7 +6412,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 11844,
@@ -6266,11 +6443,11 @@
       "legalMovesCount": 8,
       "legacyAction": 0,
       "legacyBestValue": 0.43266980921292025,
-      "legacyMs": 62.3,
+      "legacyMs": 49.54,
       "stagedAction": 0,
       "stagedBestValue": 0.43266980921292025,
       "stagedBestStage": 2,
-      "stagedMs": 53.46,
+      "stagedMs": 54.94,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6279,7 +6456,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6299,20 +6477,19 @@
       "legalMovesCount": 8,
       "legacyAction": 1,
       "legacyBestValue": -0.14689431008365417,
-      "legacyMs": 88.78,
+      "legacyMs": 78.28,
       "stagedAction": 1,
       "stagedBestValue": -0.14689431008365417,
       "stagedBestStage": null,
-      "stagedMs": 86.81,
+      "stagedMs": 78.81,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
         "onePlyCandidates": 8,
-        "twoPlyCandidates": 4,
-        "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "twoPlyCandidates": 8,
+        "threePlyCandidates": 8,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6332,11 +6509,11 @@
       "legalMovesCount": 7,
       "legacyAction": 2,
       "legacyBestValue": 0.4662039746411184,
-      "legacyMs": 38.54,
+      "legacyMs": 40.76,
       "stagedAction": 2,
       "stagedBestValue": 0.4841233242662256,
       "stagedBestStage": 3,
-      "stagedMs": 471.81,
+      "stagedMs": 480.19,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6345,7 +6522,8 @@
         "onePlyCandidates": 7,
         "twoPlyCandidates": 7,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 15981,
@@ -6375,11 +6553,11 @@
       "legalMovesCount": 6,
       "legacyAction": 0,
       "legacyBestValue": 0.6682466550417167,
-      "legacyMs": 96.47,
+      "legacyMs": 95.38,
       "stagedAction": 0,
       "stagedBestValue": 0.6691775979459504,
       "stagedBestStage": 3,
-      "stagedMs": 4470.76,
+      "stagedMs": 4174.44,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6388,7 +6566,8 @@
         "onePlyCandidates": 6,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 20412,
@@ -6418,11 +6597,11 @@
       "legalMovesCount": 4,
       "legacyAction": 0,
       "legacyBestValue": 0.08390159594515945,
-      "legacyMs": 5.72,
+      "legacyMs": 2.6,
       "stagedAction": 0,
       "stagedBestValue": 0.08390641212463379,
       "stagedBestStage": 1,
-      "stagedMs": 2,
+      "stagedMs": 1,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6431,7 +6610,8 @@
         "onePlyCandidates": 4,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6461,11 +6641,11 @@
       "legalMovesCount": 3,
       "legacyAction": 0,
       "legacyBestValue": 0.5747195371137789,
-      "legacyMs": 1.69,
+      "legacyMs": 0.82,
       "stagedAction": 0,
       "stagedBestValue": 0.5747235027933121,
       "stagedBestStage": 1,
-      "stagedMs": 0.05,
+      "stagedMs": 0.01,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6474,7 +6654,8 @@
         "onePlyCandidates": 3,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6494,11 +6675,11 @@
       "legalMovesCount": 3,
       "legacyAction": 2,
       "legacyBestValue": 0.4966727328030577,
-      "legacyMs": 16.35,
+      "legacyMs": 10.44,
       "stagedAction": 2,
       "stagedBestValue": 0.5041023944834859,
       "stagedBestStage": 3,
-      "stagedMs": 2054.3,
+      "stagedMs": 1324.88,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6507,7 +6688,8 @@
         "onePlyCandidates": 3,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 10521,
@@ -6537,11 +6719,11 @@
       "legalMovesCount": 3,
       "legacyAction": 0,
       "legacyBestValue": 1.0000000000000002,
-      "legacyMs": 8.28,
+      "legacyMs": 4.98,
       "stagedAction": 0,
       "stagedBestValue": 1.0000000000000002,
       "stagedBestStage": 3,
-      "stagedMs": 177.92,
+      "stagedMs": 70.42,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6550,7 +6732,8 @@
         "onePlyCandidates": 3,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 12978,
@@ -6580,11 +6763,11 @@
       "legalMovesCount": 2,
       "legacyAction": 0,
       "legacyBestValue": 1.0012799313334442,
-      "legacyMs": 42.64,
+      "legacyMs": 23.92,
       "stagedAction": 0,
       "stagedBestValue": 1.002254712843886,
       "stagedBestStage": 3,
-      "stagedMs": 237.94,
+      "stagedMs": 129.63,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6593,7 +6776,8 @@
         "onePlyCandidates": 2,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 14763,
@@ -6623,11 +6807,11 @@
       "legalMovesCount": 16,
       "legacyAction": 5,
       "legacyBestValue": 0.371603640295579,
-      "legacyMs": 429.31,
+      "legacyMs": 274.65,
       "stagedAction": 5,
       "stagedBestValue": 0.37165086856652074,
       "stagedBestStage": 1,
-      "stagedMs": 371.86,
+      "stagedMs": 247.93,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6636,7 +6820,8 @@
         "onePlyCandidates": 16,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6666,11 +6851,11 @@
       "legalMovesCount": 10,
       "legacyAction": 4,
       "legacyBestValue": 0.3028618325285758,
-      "legacyMs": 267.86,
+      "legacyMs": 169.72,
       "stagedAction": 4,
       "stagedBestValue": 0.3028618325285758,
       "stagedBestStage": 2,
-      "stagedMs": 261.11,
+      "stagedMs": 167.15,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6679,7 +6864,8 @@
         "onePlyCandidates": 10,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6699,20 +6885,19 @@
       "legalMovesCount": 18,
       "legacyAction": 4,
       "legacyBestValue": 0.12176634999954827,
-      "legacyMs": 14089.05,
+      "legacyMs": 9582.08,
       "stagedAction": 4,
       "stagedBestValue": 0.12176634999954827,
       "stagedBestStage": null,
-      "stagedMs": 13756.05,
+      "stagedMs": 9638.51,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 10,
-        "twoPlyCandidates": 4,
-        "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "onePlyCandidates": 18,
+        "twoPlyCandidates": 18,
+        "threePlyCandidates": 18,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6732,11 +6917,11 @@
       "legalMovesCount": 9,
       "legacyAction": 7,
       "legacyBestValue": 0.571278571783681,
-      "legacyMs": 206.07,
+      "legacyMs": 158.57,
       "stagedAction": 7,
       "stagedBestValue": 0.6014967204981537,
       "stagedBestStage": 3,
-      "stagedMs": 5810.04,
+      "stagedMs": 4388.43,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6745,7 +6930,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 15771,
@@ -6775,11 +6961,11 @@
       "legalMovesCount": 7,
       "legacyAction": 6,
       "legacyBestValue": 0.4788590116497913,
-      "legacyMs": 178.5,
+      "legacyMs": 118.4,
       "stagedAction": 6,
       "stagedBestValue": 0.4788590116497913,
       "stagedBestStage": 2,
-      "stagedMs": 158.39,
+      "stagedMs": 112.39,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6788,7 +6974,8 @@
         "onePlyCandidates": 7,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 42,
@@ -6808,11 +6995,11 @@
       "legalMovesCount": 15,
       "legacyAction": 10,
       "legacyBestValue": 0.500231373641226,
-      "legacyMs": 353.74,
+      "legacyMs": 254.64,
       "stagedAction": 7,
       "stagedBestValue": 0.5013377634049565,
       "stagedBestStage": 3,
-      "stagedMs": 7482.9,
+      "stagedMs": 6115.14,
       "legacyStagedMatch": false,
       "stage": {
         "unit": "mwc",
@@ -6821,7 +7008,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 14721,
@@ -6841,11 +7029,11 @@
       "legalMovesCount": 9,
       "legacyAction": 7,
       "legacyBestValue": 0.7568697489589246,
-      "legacyMs": 166.06,
+      "legacyMs": 149.27,
       "stagedAction": 7,
       "stagedBestValue": 0.7576641239596877,
       "stagedBestStage": 3,
-      "stagedMs": 7585.5,
+      "stagedMs": 6630.95,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6854,7 +7042,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -6884,11 +7073,11 @@
       "legalMovesCount": 14,
       "legacyAction": 2,
       "legacyBestValue": 0.3161188866943122,
-      "legacyMs": 277.53,
+      "legacyMs": 258.53,
       "stagedAction": 2,
       "stagedBestValue": 0.3162826102623646,
       "stagedBestStage": 3,
-      "stagedMs": 8791.97,
+      "stagedMs": 7965,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -6897,7 +7086,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 20937,
@@ -6917,11 +7107,11 @@
       "legalMovesCount": 14,
       "legacyAction": 10,
       "legacyBestValue": 0.0016580495216754632,
-      "legacyMs": 283.98,
+      "legacyMs": 258.33,
       "stagedAction": 10,
       "stagedBestValue": 0.00047737764632538315,
       "stagedBestStage": 3,
-      "stagedMs": 9815.76,
+      "stagedMs": 9095.85,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6930,7 +7120,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 30114,
@@ -6960,11 +7151,11 @@
       "legalMovesCount": 14,
       "legacyAction": 11,
       "legacyBestValue": 0.018506655679980007,
-      "legacyMs": 282.26,
+      "legacyMs": 262.13,
       "stagedAction": 11,
       "stagedBestValue": 0.017824986168848207,
       "stagedBestStage": 3,
-      "stagedMs": 9075.13,
+      "stagedMs": 8770.06,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -6973,7 +7164,8 @@
         "onePlyCandidates": 14,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 30177,
@@ -7003,11 +7195,11 @@
       "legalMovesCount": 8,
       "legacyAction": 6,
       "legacyBestValue": 0.1994754781030121,
-      "legacyMs": 145.51,
+      "legacyMs": 161.73,
       "stagedAction": 6,
       "stagedBestValue": 0.20317328608305021,
       "stagedBestStage": 3,
-      "stagedMs": 6409.94,
+      "stagedMs": 6066.51,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -7016,7 +7208,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 7917,
@@ -7046,11 +7239,11 @@
       "legalMovesCount": 4,
       "legacyAction": 1,
       "legacyBestValue": -0.011825031515267644,
-      "legacyMs": 68.96,
+      "legacyMs": 67.69,
       "stagedAction": 1,
       "stagedBestValue": -0.00014744081387219055,
       "stagedBestStage": 1,
-      "stagedMs": 58.61,
+      "stagedMs": 59.64,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
@@ -7059,7 +7252,8 @@
         "onePlyCandidates": 4,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -7079,20 +7273,19 @@
       "legalMovesCount": 11,
       "legacyAction": 0,
       "legacyBestValue": 0.3896190322452413,
-      "legacyMs": 5714.71,
+      "legacyMs": 5729.33,
       "stagedAction": 0,
       "stagedBestValue": 0.3896190322452413,
       "stagedBestStage": null,
-      "stagedMs": 5781.36,
+      "stagedMs": 5606.76,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "equity",
-        "firstMargin": 0.16,
-        "secondMargin": 0.08,
-        "onePlyCandidates": 4,
-        "twoPlyCandidates": 1,
-        "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "onePlyCandidates": 11,
+        "twoPlyCandidates": 11,
+        "threePlyCandidates": 11,
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": true
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -7112,11 +7305,11 @@
       "legalMovesCount": 10,
       "legacyAction": 2,
       "legacyBestValue": 0.35709920871413203,
-      "legacyMs": 340.79,
+      "legacyMs": 330.61,
       "stagedAction": 2,
       "stagedBestValue": 0.38842753699108945,
       "stagedBestStage": 1,
-      "stagedMs": 298.85,
+      "stagedMs": 289.43,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -7125,7 +7318,8 @@
         "onePlyCandidates": 10,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -7145,11 +7339,11 @@
       "legalMovesCount": 2,
       "legacyAction": 0,
       "legacyBestValue": 0.5137878674676377,
-      "legacyMs": 17.45,
+      "legacyMs": 17.75,
       "stagedAction": 0,
       "stagedBestValue": 0.5173836434627286,
       "stagedBestStage": 1,
-      "stagedMs": 16.08,
+      "stagedMs": 15.93,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -7158,7 +7352,8 @@
         "onePlyCandidates": 2,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -7178,11 +7373,11 @@
       "legalMovesCount": 6,
       "legacyAction": 5,
       "legacyBestValue": 0.6751750500665772,
-      "legacyMs": 32.9,
+      "legacyMs": 34.18,
       "stagedAction": 5,
       "stagedBestValue": 0.6797187328338623,
       "stagedBestStage": 1,
-      "stagedMs": 30.46,
+      "stagedMs": 30.04,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -7191,7 +7386,8 @@
         "onePlyCandidates": 6,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -7211,11 +7407,11 @@
       "legalMovesCount": 5,
       "legacyAction": 4,
       "legacyBestValue": 0.5646986359720859,
-      "legacyMs": 48.83,
+      "legacyMs": 52.43,
       "stagedAction": 4,
       "stagedBestValue": 0.5649212857387667,
       "stagedBestStage": 3,
-      "stagedMs": 904.42,
+      "stagedMs": 906.84,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -7224,7 +7420,8 @@
         "onePlyCandidates": 5,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 0,
@@ -7254,11 +7451,11 @@
       "legalMovesCount": 13,
       "legacyAction": 0,
       "legacyBestValue": 0.4856970568308606,
-      "legacyMs": 93.27,
+      "legacyMs": 94.34,
       "stagedAction": 0,
       "stagedBestValue": 0.4872374969178185,
       "stagedBestStage": 3,
-      "stagedMs": 1968.73,
+      "stagedMs": 1812.68,
       "legacyStagedMatch": true,
       "stage": {
         "unit": "mwc",
@@ -7267,7 +7464,8 @@
         "onePlyCandidates": 13,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       },
       "reuse": {
         "rollExpansionHits": 18270,
@@ -7304,7 +7502,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7332,7 +7531,8 @@
         "onePlyCandidates": 13,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7360,7 +7560,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7388,7 +7589,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 5,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7416,7 +7618,8 @@
         "onePlyCandidates": 6,
         "twoPlyCandidates": 6,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7444,7 +7647,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 4,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7472,7 +7676,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7500,7 +7705,8 @@
         "onePlyCandidates": 9,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7528,7 +7734,8 @@
         "onePlyCandidates": 18,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7556,7 +7763,8 @@
         "onePlyCandidates": 7,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       }
     },
     {
@@ -7584,7 +7792,8 @@
         "onePlyCandidates": 34,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7612,7 +7821,8 @@
         "onePlyCandidates": 17,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7640,7 +7850,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7668,7 +7879,8 @@
         "onePlyCandidates": 31,
         "twoPlyCandidates": 8,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7696,7 +7908,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7724,7 +7937,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       }
     },
     {
@@ -7752,7 +7966,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7780,7 +7995,8 @@
         "onePlyCandidates": 12,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7808,7 +8024,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7836,7 +8053,8 @@
         "onePlyCandidates": 8,
         "twoPlyCandidates": 2,
         "threePlyCandidates": 2,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7864,7 +8082,8 @@
         "onePlyCandidates": 19,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7892,7 +8111,8 @@
         "onePlyCandidates": 6,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 3,
-        "maxAdditionalDepth": 2
+        "maxAdditionalDepth": 2,
+        "bypassedStaged": false
       }
     },
     {
@@ -7920,7 +8140,8 @@
         "onePlyCandidates": 20,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -7948,7 +8169,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 4,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       }
     },
     {
@@ -7976,7 +8198,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 3,
         "threePlyCandidates": 1,
-        "maxAdditionalDepth": 1
+        "maxAdditionalDepth": 1,
+        "bypassedStaged": false
       }
     },
     {
@@ -8004,7 +8227,8 @@
         "onePlyCandidates": 31,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     },
     {
@@ -8032,7 +8256,8 @@
         "onePlyCandidates": 15,
         "twoPlyCandidates": 1,
         "threePlyCandidates": 0,
-        "maxAdditionalDepth": 0
+        "maxAdditionalDepth": 0,
+        "bypassedStaged": false
       }
     }
   ]

@@ -1,7 +1,7 @@
 // Node.js 評価スクリプト: Legacy / staged3ply / Full-root 3-ply の品質・regret・段階統計を計測する（Issue #549）。
 // 実行: node tools/eval-staged3ply.mjs
 import { createHash, webcrypto } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,11 +98,24 @@ if (!isMainThread) {
     scoreCheckerMoves(agentStaged, f0.context, m0, f0.player, 'staged3ply');
   }
 
+  const reuseFullRoot = process.argv.includes('--reuse-full-root');
+  const outPath = resolve(repoRoot, 'tests/backgammon/staged-3ply-eval-raw.json');
+  const prevRaw = reuseFullRoot && existsSync(outPath)
+    ? JSON.parse(readFileSync(outPath, 'utf8'))
+    : null;
+  const prevById = new Map((prevRaw?.results ?? []).map((r) => [r.id, r]));
+
   console.error(`Phase A: Evaluating ${fixtures.positions.length} fixtures (Legacy & staged3ply)...`);
   const results = [];
   for (const pos of fixtures.positions) {
     const board = Board.fromJson(pos.board);
     const moves = generateMoves(board, pos.player, pos.die1, pos.die2);
+
+    // 局面ごとの staged 段階統計・キャッシュ統計が前局面から引き継がれないよう毎回初期化する
+    agentLegacy.checkerLastStagedSearch = null;
+    agentLegacy.checkerSearchStats = null;
+    agentStaged.checkerLastStagedSearch = null;
+    agentStaged.checkerSearchStats = null;
 
     const tL0 = performance.now();
     const legacyScored = scoreCheckerMoves(agentLegacy, pos.context, moves, pos.player, 'legacy');
@@ -113,13 +126,13 @@ if (!isMainThread) {
     const stagedMs = performance.now() - tS0;
 
     const stage = agentStaged.checkerLastStagedSearch
-      ? { ...agentStaged.checkerLastStagedSearch }
+      ? { ...agentStaged.checkerLastStagedSearch, bypassedStaged: false }
       : {
         unit: pos.context.match.mode === 'match' ? 'mwc' : 'equity',
         onePlyCandidates: moves.length,
         twoPlyCandidates: moves.length,
         threePlyCandidates: moves.length,
-        maxAdditionalDepth: pos.context.cube.enabled ? 2 : 2,
+        maxAdditionalDepth: 2,
         bypassedStaged: true,
       };
     const reuse = agentStaged.checkerSearchStats ? { ...agentStaged.checkerSearchStats } : null;
@@ -148,6 +161,7 @@ if (!isMainThread) {
 
   // Select representative subset (60 positions) for Full-root 3-ply reference:
   // Prioritize positions where staged3ply reached Stage 2 or Stage 3, plus Stage-1-only samples,
+  // plus 4 money-cube-off (staged bypassed) controls across tactical-contact/prime/backgame/race,
   // balanced across categories and Money/Match.
   const fullRootSubset = [];
   const subsetIds = new Set();
@@ -156,18 +170,23 @@ if (!isMainThread) {
     if (!byCat.has(r.category)) byCat.set(r.category, []);
     byCat.get(r.category).push(r);
   }
+  const bypassedControlCategories = new Set(['tactical-contact', 'prime', 'backgame', 'race']);
   const perCatTarget = 8;
-  for (const [, list] of byCat) {
+  for (const [cat, list] of byCat) {
     const deep = list.filter((r) => !r.stage.bypassedStaged && r.stage.maxAdditionalDepth >= 1);
-    const shallow = list.filter((r) => r.stage.bypassedStaged || r.stage.maxAdditionalDepth === 0);
-    // Pick up to 6 deep (preferring Stage 3 and diverse Money/Match) + 2 shallow
+    const shallow = list.filter((r) => !r.stage.bypassedStaged && r.stage.maxAdditionalDepth === 0);
+    const bypassed = list.filter((r) => r.stage.bypassedStaged)
+      .sort((a, b) => a.legalMovesCount - b.legalMovesCount);
+    // Pick up to 6 deep (+ 1 money-cube-off control in designated categories) + 2 shallow
     deep.sort((a, b) => (b.stage.maxAdditionalDepth - a.stage.maxAdditionalDepth)
       || (a.legalMovesCount - b.legalMovesCount));
     const deepPicks = [];
     const moneyDeep = deep.filter((r) => r.mode === 'money');
     const matchDeep = deep.filter((r) => r.mode === 'match');
+    const moneyTarget = bypassedControlCategories.has(cat) && bypassed.length > 0 ? 2 : 3;
     for (let i = 0; i < 3; i += 1) {
-      if (moneyDeep[i]) deepPicks.push(moneyDeep[i]);
+      if (i < moneyTarget && moneyDeep[i]) deepPicks.push(moneyDeep[i]);
+      else if (i === 2 && bypassedControlCategories.has(cat) && bypassed[0]) deepPicks.push(bypassed[0]);
       if (matchDeep[i]) deepPicks.push(matchDeep[i]);
     }
     for (const r of deep) {
@@ -197,55 +216,76 @@ if (!isMainThread) {
     }
   }
 
-  console.error(`Phase B: Running Full-root 3-ply on ${fullRootSubset.length} representative fixtures using worker_threads...`);
   const posById = new Map(fixtures.positions.map((p) => [p.id, p]));
   const resById = new Map(results.map((r) => [r.id, r]));
 
-  const workerCount = Math.min(10, Math.max(2, cpus().length - 2), fullRootSubset.length);
-  const queue = [...fullRootSubset];
-  const workers = Array.from({ length: workerCount }, () => new Worker(fileURLToPath(import.meta.url)));
+  const queue = [];
+  let reusedCount = 0;
+  for (const id of fullRootSubset) {
+    const res = resById.get(id);
+    const prev = prevById.get(id);
+    if (
+      reuseFullRoot
+      && prev?.fullRoot
+      && prev.legacyAction === res.legacyAction
+      && prev.stagedAction === res.stagedAction
+    ) {
+      res.fullRoot = { ...prev.fullRoot };
+      reusedCount += 1;
+    } else {
+      queue.push(id);
+    }
+  }
 
-  let completed = 0;
-  const phaseBStart = performance.now();
-  await Promise.all(workers.map((w) => new Promise((resolveWorker, rejectWorker) => {
-    const nextTask = () => {
-      const id = queue.shift();
-      if (!id) {
-        w.terminate().then(resolveWorker, resolveWorker);
-        return;
-      }
-      const pos = posById.get(id);
-      w.postMessage({ id, board: pos.board, player: pos.player, die1: pos.die1, die2: pos.die2, context: pos.context });
-    };
-    w.on('message', (msg) => {
-      if (!msg.ok) {
-        rejectWorker(new Error(`Worker failed on ${msg.id}: ${msg.error}`));
-        return;
-      }
-      const res = resById.get(msg.id);
-      const valMap = new Map(msg.valuesByIndex);
-      const stagedValInFull = valMap.get(res.stagedAction);
-      const legacyValInFull = valMap.get(res.legacyAction);
-      res.fullRoot = {
-        elapsedMs: msg.elapsedMs,
-        action: msg.bestIndex,
-        bestValue: msg.bestValue,
-        stagedActionMatch: res.stagedAction === msg.bestIndex,
-        legacyActionMatch: res.legacyAction === msg.bestIndex,
-        stagedRegret: Number((msg.bestValue - stagedValInFull).toFixed(8)),
-        legacyRegret: Number((msg.bestValue - legacyValInFull).toFixed(8)),
-        stagedValueInFullRoot: stagedValInFull,
-        legacyValueInFullRoot: legacyValInFull,
+  if (queue.length === 0) {
+    console.error(`Phase B: Reused existing Full-root 3-ply results for all ${reusedCount} positions.`);
+  } else {
+    console.error(`Phase B: Running Full-root 3-ply on ${queue.length} fixtures (reused ${reusedCount}) using worker_threads...`);
+    const workerCount = Math.min(10, Math.max(2, cpus().length - 2), queue.length);
+    const workers = Array.from({ length: workerCount }, () => new Worker(fileURLToPath(import.meta.url)));
+
+    let completed = 0;
+    const phaseBStart = performance.now();
+    await Promise.all(workers.map((w) => new Promise((resolveWorker, rejectWorker) => {
+      const nextTask = () => {
+        const id = queue.shift();
+        if (!id) {
+          w.terminate().then(resolveWorker, resolveWorker);
+          return;
+        }
+        const pos = posById.get(id);
+        w.postMessage({ id, board: pos.board, player: pos.player, die1: pos.die1, die2: pos.die2, context: pos.context });
       };
-      completed += 1;
-      if (completed % 10 === 0 || completed === fullRootSubset.length) {
-        console.error(`  Full-root progress: ${completed}/${fullRootSubset.length} (${((performance.now() - phaseBStart) / 1000).toFixed(1)}s)`);
-      }
+      w.on('message', (msg) => {
+        if (!msg.ok) {
+          rejectWorker(new Error(`Worker failed on ${msg.id}: ${msg.error}`));
+          return;
+        }
+        const res = resById.get(msg.id);
+        const valMap = new Map(msg.valuesByIndex);
+        const stagedValInFull = valMap.get(res.stagedAction);
+        const legacyValInFull = valMap.get(res.legacyAction);
+        res.fullRoot = {
+          elapsedMs: msg.elapsedMs,
+          action: msg.bestIndex,
+          bestValue: msg.bestValue,
+          stagedActionMatch: res.stagedAction === msg.bestIndex,
+          legacyActionMatch: res.legacyAction === msg.bestIndex,
+          stagedRegret: Number((msg.bestValue - stagedValInFull).toFixed(8)),
+          legacyRegret: Number((msg.bestValue - legacyValInFull).toFixed(8)),
+          stagedValueInFullRoot: stagedValInFull,
+          legacyValueInFullRoot: legacyValInFull,
+        };
+        completed += 1;
+        if (completed % 10 === 0 || completed === queue.length) {
+          console.error(`  Full-root progress: ${completed}/${queue.length} (${((performance.now() - phaseBStart) / 1000).toFixed(1)}s)`);
+        }
+        nextTask();
+      });
+      w.on('error', rejectWorker);
       nextTask();
-    });
-    w.on('error', rejectWorker);
-    nextTask();
-  })));
+    })));
+  }
 
   // Phase C: Representative Cube Positions
   console.error(`Phase C: Evaluating ${fixtures.cubePositions.length} representative cube positions...`);
@@ -273,8 +313,22 @@ if (!isMainThread) {
     const stagedTake = agentStaged.shouldAcceptDouble(game, matchObj);
 
     const moves = generateMoves(board, cp.player, cp.die1, cp.die2);
+    agentLegacy.checkerLastStagedSearch = null;
+    agentLegacy.checkerSearchStats = null;
+    agentStaged.checkerLastStagedSearch = null;
+    agentStaged.checkerSearchStats = null;
     const legacyChecker = scoreCheckerMoves(agentLegacy, cp.context, moves, cp.player, 'legacy');
     const stagedChecker = scoreCheckerMoves(agentStaged, cp.context, moves, cp.player, 'staged3ply');
+    const stagedStage = agentStaged.checkerLastStagedSearch
+      ? { ...agentStaged.checkerLastStagedSearch, bypassedStaged: false }
+      : {
+        unit: cp.mode === 'match' ? 'mwc' : 'equity',
+        onePlyCandidates: moves.length,
+        twoPlyCandidates: moves.length,
+        threePlyCandidates: moves.length,
+        maxAdditionalDepth: 2,
+        bypassedStaged: true,
+      };
 
     cubeResults.push({
       id: cp.id,
@@ -294,7 +348,7 @@ if (!isMainThread) {
       legacyCheckerValue: Number(legacyChecker[0].value.toFixed(6)),
       stagedCheckerValue: Number(stagedChecker[0].value.toFixed(6)),
       checkerValueDiff: Number((stagedChecker[0].value - legacyChecker[0].value).toFixed(6)),
-      stagedStage: agentStaged.checkerLastStagedSearch,
+      stagedStage,
     });
   }
 
@@ -347,6 +401,8 @@ if (!isMainThread) {
     },
     fullRootEvaluatedCount: fullItems.length,
     moneyFullRoot: summarizeRegret(fullItems.filter((r) => r.mode === 'money')),
+    moneyCubeOnFullRoot: summarizeRegret(fullItems.filter((r) => r.mode === 'money' && r.cubeEnabled)),
+    moneyCubeOffFullRoot: summarizeRegret(fullItems.filter((r) => r.mode === 'money' && !r.cubeEnabled)),
     matchFullRoot: summarizeRegret(fullItems.filter((r) => r.mode === 'match')),
     cubeSummary: {
       total: cubeResults.length,
@@ -370,7 +426,6 @@ if (!isMainThread) {
     cubeResults,
   };
 
-  const outPath = resolve(repoRoot, 'tests/backgammon/staged-3ply-eval-raw.json');
   writeFileSync(outPath, `${JSON.stringify(output, null, 2)}\n`);
   console.log(JSON.stringify(summary, null, 2));
 }

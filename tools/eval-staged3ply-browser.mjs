@@ -180,6 +180,8 @@ try {
     // Cold-start on first position
     const pCold = positions[0];
     const mCold = generateMoves(Board.fromJson(pCold.board), pCold.player, pCold.die1, pCold.die2);
+    agent.checkerLastStagedSearch = null;
+    agent.checkerSearchStats = null;
     const tCold0 = performance.now();
     selectCheckerMove(agent, pCold.context, mCold, pCold.player);
     coldStarts['main:' + mode] = Number((performance.now() - tCold0).toFixed(2));
@@ -188,6 +190,8 @@ try {
     for (let i = 0; i < Math.min(2, positions.length); i += 1) {
       const pw = positions[i];
       const mw = generateMoves(Board.fromJson(pw.board), pw.player, pw.die1, pw.die2);
+      agent.checkerLastStagedSearch = null;
+      agent.checkerSearchStats = null;
       selectCheckerMove(agent, pw.context, mw, pw.player);
     }
 
@@ -195,11 +199,15 @@ try {
       const moves = generateMoves(Board.fromJson(pos.board), pos.player, pos.die1, pos.die2);
       const samples = [];
       let action = 0;
+      let lastStage = null;
       for (let r = 0; r < repeats; r += 1) {
         await new Promise((resolveTick) => setTimeout(resolveTick, 0));
+        agent.checkerLastStagedSearch = null;
+        agent.checkerSearchStats = null;
         const t0 = performance.now();
         action = selectCheckerMove(agent, pos.context, moves, pos.player);
         samples.push(performance.now() - t0);
+        lastStage = agent.checkerLastStagedSearch ? { ...agent.checkerLastStagedSearch } : null;
       }
       records.push({
         path: 'main-thread',
@@ -208,7 +216,8 @@ try {
         category: pos.category,
         searchMode: pos.mode,
         deepTag: pos.deepTag,
-        maxAdditionalDepth: agent.checkerLastStagedSearch?.maxAdditionalDepth ?? null,
+        maxAdditionalDepth: lastStage?.maxAdditionalDepth ?? null,
+        stage: lastStage,
         action,
         samplesMs: samples.map((x) => Number(x.toFixed(2))),
         stats: summary(samples),
@@ -252,6 +261,7 @@ try {
     for (const pos of positions) {
       const samples = [];
       let action = 0;
+      let lastStage = null;
       for (let r = 0; r < repeats; r += 1) {
         const t0 = performance.now();
         const res = await client.ask({
@@ -265,6 +275,7 @@ try {
         });
         samples.push(performance.now() - t0);
         action = res.index;
+        lastStage = res.stage ? { ...res.stage } : null;
       }
       records.push({
         path: 'worker',
@@ -273,7 +284,8 @@ try {
         category: pos.category,
         searchMode: pos.mode,
         deepTag: pos.deepTag,
-        maxAdditionalDepth: null,
+        maxAdditionalDepth: lastStage?.maxAdditionalDepth ?? null,
+        stage: lastStage,
         action,
         samplesMs: samples.map((x) => Number(x.toFixed(2))),
         stats: summary(samples),
@@ -317,10 +329,35 @@ const server = createServer(async (req, res) => {
     return;
   }
   try {
+    if (url.pathname === '/src/worker.js') {
+      // docs/backgammon/src/worker.js 本体を変更せず、ベンチマーク配信時のみ段階統計の初期化・返却を計装する
+      const rawWorker = await readFile(filePath, 'utf8');
+      const selectHook = '      const agent = agentForLevel(level);';
+      const replyHook = '      self.postMessage({\n        id, ok: true, index, key: boardKey(moves[index].resultingBoard),\n      });';
+      if (!rawWorker.includes(selectHook) || !rawWorker.includes(replyHook)) {
+        throw new Error('Unexpected worker.js layout for benchmark stage instrumentation');
+      }
+      const instrumentedWorker = rawWorker
+        .replace(
+          selectHook,
+          `${selectHook}\n      agent.checkerLastStagedSearch = null;\n      agent.checkerSearchStats = null;`,
+        )
+        .replace(
+          replyHook,
+          '      self.postMessage({\n        id, ok: true, index, key: boardKey(moves[index].resultingBoard),\n        stage: agent.checkerLastStagedSearch ? { ...agent.checkerLastStagedSearch } : null,\n      });',
+        );
+      res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8' });
+      res.end(instrumentedWorker);
+      return;
+    }
     const content = await readFile(filePath);
     res.writeHead(200, { 'Content-Type': mimeTypes[extname(filePath)] ?? 'application/octet-stream' });
     res.end(content);
-  } catch {
+  } catch (err) {
+    if (url.pathname === '/src/worker.js') {
+      res.writeHead(500).end(String(err));
+      return;
+    }
     res.writeHead(404).end();
   }
 });
@@ -421,7 +458,52 @@ try {
   }
   if (!result) throw new Error('Browser benchmark timed out');
 
-  // Aggregate summary by path, mode, searchMode, deepTag
+  // Verify main-thread and worker staged3ply agree on actual maxAdditionalDepth and action,
+  // and classify by actual depth recorded during staged3ply rather than pre-probe deepTag.
+  const depthById = new Map();
+  for (const pos of benchPositions) {
+    const mainStaged = result.records.find(
+      (r) => r.path === 'main-thread' && r.mode === 'staged3ply' && r.id === pos.id,
+    );
+    const workerStaged = result.records.find(
+      (r) => r.path === 'worker' && r.mode === 'staged3ply' && r.id === pos.id,
+    );
+    if (!mainStaged || !workerStaged) {
+      throw new Error(`Missing staged3ply record for ${pos.id}`);
+    }
+    if (mainStaged.maxAdditionalDepth === null || workerStaged.maxAdditionalDepth === null) {
+      throw new Error(
+        `Missing maxAdditionalDepth for ${pos.id}: main=${mainStaged.maxAdditionalDepth}, worker=${workerStaged.maxAdditionalDepth}`,
+      );
+    }
+    if (mainStaged.maxAdditionalDepth !== workerStaged.maxAdditionalDepth) {
+      throw new Error(
+        `Depth mismatch on ${pos.id}: main=${mainStaged.maxAdditionalDepth}, worker=${workerStaged.maxAdditionalDepth}`,
+      );
+    }
+    if (mainStaged.action !== workerStaged.action) {
+      throw new Error(
+        `Action mismatch on ${pos.id} (staged3ply): main=${mainStaged.action}, worker=${workerStaged.action}`,
+      );
+    }
+    const mainLegacy = result.records.find(
+      (r) => r.path === 'main-thread' && r.mode === 'legacy' && r.id === pos.id,
+    );
+    const workerLegacy = result.records.find(
+      (r) => r.path === 'worker' && r.mode === 'legacy' && r.id === pos.id,
+    );
+    if (mainLegacy?.action !== workerLegacy?.action) {
+      throw new Error(
+        `Action mismatch on ${pos.id} (legacy): main=${mainLegacy?.action}, worker=${workerLegacy?.action}`,
+      );
+    }
+    depthById.set(pos.id, mainStaged.maxAdditionalDepth);
+  }
+  for (const r of result.records) {
+    r.actualMaxAdditionalDepth = depthById.get(r.id) ?? null;
+  }
+
+  // Aggregate summary by path, mode, searchMode, and actual staged3ply depth
   const allSamples = (filterFn) => result.records.filter(filterFn).flatMap((r) => r.samplesMs);
   const summarizeArr = (arr) => {
     if (!arr.length) return null;
@@ -436,6 +518,9 @@ try {
     };
   };
 
+  const isActualDeep = (r) => depthById.get(r.id) >= 1;
+  const isActualOnePlyUnique = (r) => depthById.get(r.id) === 0;
+
   const summary = {
     overall: {
       mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy')),
@@ -444,23 +529,29 @@ try {
       workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply')),
     },
     byModeAndDepth: {
+      allDeep: {
+        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && isActualDeep(r))),
+        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && isActualDeep(r))),
+        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && isActualDeep(r))),
+        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && isActualDeep(r))),
+      },
       moneyDeep: {
-        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && r.searchMode === 'money' && r.deepTag === 'deep')),
-        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && r.searchMode === 'money' && r.deepTag === 'deep')),
-        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && r.searchMode === 'money' && r.deepTag === 'deep')),
-        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && r.searchMode === 'money' && r.deepTag === 'deep')),
+        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && r.searchMode === 'money' && isActualDeep(r))),
+        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && r.searchMode === 'money' && isActualDeep(r))),
+        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && r.searchMode === 'money' && isActualDeep(r))),
+        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && r.searchMode === 'money' && isActualDeep(r))),
       },
       matchDeep: {
-        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && r.searchMode === 'match' && r.deepTag === 'deep')),
-        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && r.searchMode === 'match' && r.deepTag === 'deep')),
-        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && r.searchMode === 'match' && r.deepTag === 'deep')),
-        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && r.searchMode === 'match' && r.deepTag === 'deep')),
+        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && r.searchMode === 'match' && isActualDeep(r))),
+        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && r.searchMode === 'match' && isActualDeep(r))),
+        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && r.searchMode === 'match' && isActualDeep(r))),
+        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && r.searchMode === 'match' && isActualDeep(r))),
       },
       onePlyUnique: {
-        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && r.deepTag === '1ply-unique')),
-        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && r.deepTag === '1ply-unique')),
-        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && r.deepTag === '1ply-unique')),
-        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && r.deepTag === '1ply-unique')),
+        mainLegacy: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'legacy' && isActualOnePlyUnique(r))),
+        mainStaged: summarizeArr(allSamples((r) => r.path === 'main-thread' && r.mode === 'staged3ply' && isActualOnePlyUnique(r))),
+        workerLegacy: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'legacy' && isActualOnePlyUnique(r))),
+        workerStaged: summarizeArr(allSamples((r) => r.path === 'worker' && r.mode === 'staged3ply' && isActualOnePlyUnique(r))),
       },
     },
   };
@@ -481,5 +572,6 @@ try {
     browser.kill();
   }
   await rm(linuxProfile, { recursive: true, force: true }).catch(() => {});
+  server.closeAllConnections?.();
   await new Promise((r) => server.close(r));
 }
