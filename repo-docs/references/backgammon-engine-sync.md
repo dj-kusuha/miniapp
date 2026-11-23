@@ -72,3 +72,16 @@ node tests/backgammon/run.mjs
 ```
 
 `worker.mjs` は loopback HTTP server を使いモデルを読むため、sandbox が `127.0.0.1` を拒否するときは loopback を許可した環境で単体実行します。新しい worker/API 契約は test runner に登録します。
+
+## Engine 0.2.5 高速化同期・マルチ Worker 並列化（2026-11-23）
+
+`@dj-kusuha/backgammon-engine@0.2.5`（`backgammon_engine` PR #552）の純 JS 推論・キャッシュ高速化とロール分割評価を `miniapp` へ同期し、最大 4 Worker 並列プール（`docs/backgammon/src/thinker-pool.js`）を導入した。
+
+- 参照 engine SHA: `d43553b0e82167f58b475e487c7c36c2557fa0d3`
+- 同期元 miniapp SHA: `33fb4e8e2ee742697fc7ff39f34177b022e806d8`
+- モデル SHA（engine / miniapp 一致）: `9543ecb1deaff716de1355726d3109f1529fe34e0ab68d94284654fd7871dd83`
+- 同期内容:
+  - `nn.js`, `board.js`, `rules.js`: engine `0.2.5` と完全一致同期（連続フラット `Float32Array`＋IEEE 754 逐次加算順 4-way アンロール＋SiLU 同一式、`Float64Array(198)` アンロール `encodeBoard`、ゾロ目中間状態枝刈り）。
+  - `agent.js`: `checkerVectorCache`（250k）/ `checkerRollCache`（65k）上限引き上げ、`rollShortlistBoards` 共有、`mwcSearch` / `cubefulSearch` / `expectedVectorAfterMove` / `expandRollsVector` の任意 `rollIndices` 分割対応（miniapp 固有の `LEVELS` / `blotPenalty` / `doubleMargin` / `takeMargin` は維持）。
+  - `checker.js` / `worker.js` / `thinker-pool.js` / `app.js`: 高速文字列キャッシュキー、`checkerEfficiencies` 再利用、キューブ判断のキャッシュ適用、最大 4 Worker 遅延起動プールによる 2-ply / 3-ply 着手・ヒント・際どいキューブ判断の並列化。
+  - 世界チャンピオン段（`champion`）の既定設定: Worker 利用時のみ `staged3ply` + `cubeFilterLevel: 1` を既定 ON とし、メインスレッド fallback は `legacy` を維持。`?checker-search=legacy|staged3ply|full-root` の明示クエリ指定を尊重する。

@@ -11,7 +11,15 @@ import { Board } from './board.js';
 import { Game, ROLLING } from './game.js';
 import { NeuralNet } from './nn.js';
 import { agentFor, setBearoffDatabase, setMoneyBearoffDatabase } from './agent.js';
-import { rankCheckerMoves, selectCheckerMove } from './checker.js';
+import {
+  evaluateCheckerMoveRollChunk,
+  evaluateCheckerMovesSubset,
+  evaluateCubeDecisionRollChunk,
+  prepareCubeDecisionParallel,
+  rankCheckerMoves,
+  selectCheckerMove,
+  withCheckerSearchCache,
+} from './checker.js';
 import { BearoffDatabase } from './bearoff.js';
 import { MoneyBearoffDatabase } from './money-bearoff.js';
 import { generateMoves, boardKey } from './rules.js';
@@ -20,7 +28,8 @@ let net = null;
 let moneyBearoffUrl = null;
 let moneyBearoffLoadPromise = null;
 let checkerSearchMode = 'legacy';
-const agents = new Map();   // level id -> Agent（作り直さず使い回す）
+let defaultCubeFilterLevel = null;
+const agents = new Map();   // level|mode|cubeFilterLevel -> Agent（作り直さず使い回す）
 
 async function ensureMoneyBearoff(agent, match) {
   if (match !== null || !agent.useMoneyBearoff || moneyBearoffLoadPromise) {
@@ -42,13 +51,41 @@ async function ensureMoneyBearoff(agent, match) {
  * **弱い段が黙って中級のまま**になる。しかも Worker が使える環境でだけ起きるので
  * 気づきにくい。`tests/backgammon/worker.mjs` が全段で照合している。
  */
-function agentForLevel(level) {
-  let agent = agents.get(level);
+function agentForLevel(level, { mode = null, cubeFilterLevel = undefined } = {}) {
+  const effectiveMode = ['legacy', 'full-root', 'staged3ply'].includes(mode)
+    ? mode
+    : checkerSearchMode;
+  const effectiveCubeFilterLevel = cubeFilterLevel !== undefined
+    ? cubeFilterLevel
+    : defaultCubeFilterLevel;
+  const key = `${level}|${effectiveMode}|${effectiveCubeFilterLevel ?? ''}`;
+  let agent = agents.get(key);
   if (!agent) {
-    agent = agentFor(net, level, { checkerSearchMode });
-    agents.set(level, agent);
+    const overrides = { checkerSearchMode: effectiveMode };
+    if (effectiveCubeFilterLevel !== null && effectiveCubeFilterLevel !== undefined) {
+      overrides.cubeFilterLevel = effectiveCubeFilterLevel;
+    }
+    agent = agentFor(net, level, overrides);
+    agents.set(key, agent);
   }
   return agent;
+}
+
+function buildCubeGame({ board, player, cubeValue, cubeOwner, jacoby, crawford, match, ask }) {
+  const game = new Game(Board.fromJson(board), Math.random, {
+    jacoby,
+    crawford: Boolean(crawford),
+    unboundedMoneyCube: match == null,
+  });
+  game.currentPlayer = player;
+  game.state = ROLLING;
+  game.cube.value = cubeValue;
+  game.cube.owner = cubeOwner;
+  if (ask === 'accept') {
+    // **テイク判断は「提案された状態」でしか呼べない。**
+    game.proposeDouble();
+  }
+  return game;
 }
 
 self.onmessage = async (event) => {
@@ -58,6 +95,9 @@ self.onmessage = async (event) => {
       net = await NeuralNet.load(event.data.url);
       checkerSearchMode = ['legacy', 'full-root', 'staged3ply']
         .includes(event.data.checkerSearchMode) ? event.data.checkerSearchMode : 'legacy';
+      defaultCubeFilterLevel = Number.isInteger(event.data.cubeFilterLevel)
+        ? event.data.cubeFilterLevel
+        : null;
       agents.clear();
       moneyBearoffUrl = event.data.moneyBearoffUrl
         || new URL('./money-bg2n-6x6-v4.bin', import.meta.url).href;
@@ -75,9 +115,9 @@ self.onmessage = async (event) => {
     }
 
     if (kind === 'select') {
-      const { board, player, die1, die2, level, context } = event.data;
+      const { board, player, die1, die2, level, context, mode, cubeFilterLevel } = event.data;
       const moves = generateMoves(Board.fromJson(board), player, die1, die2);
-      const agent = agentForLevel(level);
+      const agent = agentForLevel(level, { mode, cubeFilterLevel });
       const index = context
         ? selectCheckerMove(agent, context, moves, player)
         : agent.selectMove(moves, player);
@@ -93,9 +133,9 @@ self.onmessage = async (event) => {
     // ヒント。深い読みでも画面を止めないよう、着手と同じくここへ逃がす。
     // 返すのは index と鍵と数値だけ（Move は盤面を抱えていて重い）。
     if (kind === 'rank') {
-      const { board, player, die1, die2, level, limit, context } = event.data;
+      const { board, player, die1, die2, level, limit, context, mode, cubeFilterLevel } = event.data;
       const moves = generateMoves(Board.fromJson(board), player, die1, die2);
-      const agent = agentForLevel(level);
+      const agent = agentForLevel(level, { mode, cubeFilterLevel });
       const result = context
         ? rankCheckerMoves(agent, context, moves, player, limit ?? 3)
         : { entries: agent.rankMoves(moves, player, limit ?? 3) };
@@ -115,6 +155,36 @@ self.onmessage = async (event) => {
       return;
     }
 
+    if (kind === 'eval-checker-subset') {
+      const {
+        board, player, die1, die2, level, context,
+        moveIndices, depth, efficienciesByIndex, mode, cubeFilterLevel,
+      } = event.data;
+      const moves = generateMoves(Board.fromJson(board), player, die1, die2);
+      const agent = agentForLevel(level, { mode, cubeFilterLevel });
+      const entries = evaluateCheckerMovesSubset(agent, context, moves, player, {
+        moveIndices, depth, efficienciesByIndex, mode,
+      });
+      self.postMessage({ id, ok: true, entries });
+      return;
+    }
+
+    if (kind === 'eval-checker-roll-chunk') {
+      const {
+        board, player, die1, die2, level, context,
+        moveIndex, depth, rollIndices, efficiencies, mode, cubeFilterLevel,
+      } = event.data;
+      const moves = generateMoves(Board.fromJson(board), player, die1, die2);
+      const move = moves[moveIndex];
+      if (!move) throw new Error(`合法手 index が範囲外です: ${moveIndex}`);
+      const agent = agentForLevel(level, { mode, cubeFilterLevel });
+      const chunk = evaluateCheckerMoveRollChunk(agent, context, move, player, {
+        depth, rollIndices, efficiencies,
+      });
+      self.postMessage({ id, ok: true, chunk });
+      return;
+    }
+
     // キューブ判断。**着手と同じくらい重い。**
     // cubePlies=2 だと shouldDouble 1 回で 1〜2 秒かかる（engine の実測で
     // 0-ply の 1 万倍）。しかも**手番のたびに呼ばれる**ので、メインスレッドに
@@ -124,27 +194,36 @@ self.onmessage = async (event) => {
     // キューブの値と所有者・ジャコビーだけなので、それだけ送って
     // こちらで組み立て直す。
     if (kind === 'cube') {
-      const { board, player, cubeValue, cubeOwner, jacoby, crawford, level, match, ask } = event.data;
+      const { level, match, ask } = event.data;
       const agent = agentForLevel(level);
-      if (match == null) await ensureMoneyBearoff(agent, match);
-      const game = new Game(Board.fromJson(board), Math.random, {
-        jacoby,
-        crawford: Boolean(crawford),
-        unboundedMoneyCube: match == null,
-      });
-      game.currentPlayer = player;
-      game.state = ROLLING;
-      game.cube.value = cubeValue;
-      game.cube.owner = cubeOwner;
-      let answer;
-      if (ask === 'accept') {
-        // **テイク判断は「提案された状態」でしか呼べない。**
-        game.proposeDouble();
-        answer = agent.shouldAcceptDouble(game, match ?? null);
-      } else {
-        answer = agent.shouldDouble(game, match ?? null);
-      }
+      if (match == null) await ensureMoneyBearoff(agent, match ?? null);
+      const game = buildCubeGame(event.data);
+      const answer = agent.withCheckerVectorCache(() => withCheckerSearchCache(agent, () => (
+        ask === 'accept'
+          ? agent.shouldAcceptDouble(game, match ?? null)
+          : agent.shouldDouble(game, match ?? null)
+      )));
       self.postMessage({ id, ok: true, answer: Boolean(answer) });
+      return;
+    }
+
+    if (kind === 'prepare-cube-parallel') {
+      const { level, match, ask } = event.data;
+      const agent = agentForLevel(level);
+      if (match == null) await ensureMoneyBearoff(agent, match ?? null);
+      const game = buildCubeGame(event.data);
+      const prepared = prepareCubeDecisionParallel(agent, game, match ?? null, ask);
+      self.postMessage({ id, ok: true, prepared });
+      return;
+    }
+
+    if (kind === 'eval-cube-roll-chunk') {
+      const { level, match, rollIndices, context } = event.data;
+      const agent = agentForLevel(level);
+      if (match == null) await ensureMoneyBearoff(agent, match ?? null);
+      const game = buildCubeGame(event.data);
+      const chunk = evaluateCubeDecisionRollChunk(agent, game, match ?? null, rollIndices, context);
+      self.postMessage({ id, ok: true, chunk });
       return;
     }
 

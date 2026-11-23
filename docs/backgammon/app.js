@@ -12,6 +12,7 @@ import {
   DEFAULT_LEVEL, ADVICE_LEVEL,
 } from './src/agent.js';
 import { checkerContextFor, rankCheckerMoves, selectCheckerMove } from './src/checker.js';
+import { ThinkerPool } from './src/thinker-pool.js';
 import { BearoffDatabase } from './src/bearoff.js';
 import { MoneyBearoffDatabase } from './src/money-bearoff.js';
 import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
@@ -29,9 +30,13 @@ const $ = (id) => document.getElementById(id);
  * なく `state.delay` を都度読むこと。
  */
 const DEFAULT_DELAY = 1000;
-// Issue #544の3-ply段階選別は品質/速度計測用に明示opt-in。通常運用は従来経路。
-const CHECKER_SEARCH_MODE = new URLSearchParams(globalThis.location?.search ?? '')
-  .get('checker-search') === 'staged3ply' ? 'staged3ply' : 'legacy';
+const RAW_CHECKER_SEARCH_MODE = new URLSearchParams(globalThis.location?.search ?? '')
+  .get('checker-search');
+// 明示クエリがあれば尊重。未指定時は Worker の世界チャンピオン段で staged3ply を既定 ON、
+// メインスレッド fallback は UI ブロック防止のため legacy を維持する。
+const EXPLICIT_CHECKER_SEARCH_MODE = ['legacy', 'staged3ply', 'full-root']
+  .includes(RAW_CHECKER_SEARCH_MODE) ? RAW_CHECKER_SEARCH_MODE : null;
+const CHECKER_SEARCH_MODE = EXPLICIT_CHECKER_SEARCH_MODE ?? 'legacy';
 
 const state = {
   net: null,
@@ -90,63 +95,19 @@ const pause = () => sleep(state.delay);
 // Web Worker へ逃がす。Worker が使えない環境（file:// など）では
 // メインスレッドの Agent に落ちる。**そのときは深い読みで固まる。**
 
-const thinker = {
-  worker: null,
-  ready: null,
-  nextId: 1,
-  pending: new Map(),
-};
+const thinker = new ThinkerPool({
+  explicitCheckerSearchMode: EXPLICIT_CHECKER_SEARCH_MODE,
+});
 
 /** ベアオフ DB の置き場（モデルと同じ src/ の下）。 */
 const BEAROFF_URL = './src/bearoff-6x15.bin';
 const MONEY_BEAROFF_URL = './src/money-bg2n-6x6-v4.bin';
 
 function startThinker(modelUrl) {
-  let worker;
-  try {
-    worker = new Worker(new URL('./src/worker.js', import.meta.url), { type: 'module' });
-  } catch (error) {
-    console.warn('Worker を作れませんでした。メインスレッドで思考します', error);
-    return Promise.resolve(false);
-  }
-  worker.onmessage = (event) => {
-    const { id } = event.data;
-    const entry = thinker.pending.get(id);
-    if (!entry) return;
-    thinker.pending.delete(id);
-    if (event.data.ok) entry.resolve(event.data);
-    else entry.reject(new Error(event.data.error));
-  };
-  worker.onerror = (event) => {
-    console.warn('Worker が落ちました。メインスレッドで思考します', event.message);
-    for (const entry of thinker.pending.values()) entry.reject(new Error('worker error'));
-    thinker.pending.clear();
-    thinker.worker = null;
-  };
-  thinker.worker = worker;
-  return ask({
-    kind: 'load',
+  return thinker.start({
     url: new URL(modelUrl, import.meta.url).href,
     bearoffUrl: new URL(BEAROFF_URL, import.meta.url).href,
     moneyBearoffUrl: new URL(MONEY_BEAROFF_URL, import.meta.url).href,
-    checkerSearchMode: CHECKER_SEARCH_MODE,
-  })
-    .then(() => true)
-    .catch((error) => {
-      console.warn('Worker でモデルを読めませんでした', error);
-      thinker.worker = null;
-      return false;
-    });
-}
-
-function ask(payload) {
-  const worker = thinker.worker;
-  if (!worker) return Promise.reject(new Error('worker なし'));
-  const id = thinker.nextId;
-  thinker.nextId += 1;
-  return new Promise((resolve, reject) => {
-    thinker.pending.set(id, { resolve, reject });
-    worker.postMessage({ id, ...payload });
   });
 }
 
@@ -166,7 +127,7 @@ async function ensureMainMoneyBearoff(match) {
 
 
 /**
- * キューブ判断を **Worker に投げる**（駄目ならこのスレッドで）。
+ * キューブ判断を **Worker プールに投げる**（駄目ならこのスレッドで）。
  *
  * **cubePlies=2 だと 1 回 1〜2 秒かかる。** しかも `shouldDouble` は
  * 手番のたびに呼ばれるので、メインスレッドに置くと人が指した直後に必ず
@@ -177,12 +138,11 @@ async function ensureMainMoneyBearoff(match) {
  */
 async function askCube(game, kind) {
   const match = state.match.cubeContext();
-  if (thinker.worker) {
+  if (thinker.available) {
     try {
-      const reply = await ask({
-        kind: 'cube',
+      return await thinker.decideCube({
         ask: kind,
-        board: {
+        boardDto: {
           points: game.board.points,
           bar: [game.board.bar[WHITE], game.board.bar[BLACK]],
           off: [game.board.off[WHITE], game.board.off[BLACK]],
@@ -194,8 +154,8 @@ async function askCube(game, kind) {
         crawford: game.crawford,
         level: state.level,
         match,
+        game,
       });
-      return reply.answer;
     } catch (error) {
       console.warn('Worker でのキューブ判断に失敗しました。こちらで決めます', error);
     }
@@ -207,21 +167,20 @@ async function askCube(game, kind) {
 }
 
 /**
- * AI に着手を選ばせる。**Worker が使えればそちらで、駄目ならこのスレッドで。**
+ * AI に着手を選ばせる。**Worker プールが使えればそちらで、駄目ならこのスレッドで。**
  * 返すのは `moves` の index。
  */
 async function chooseMove(board, player, roll, moves, level) {
   const context = checkerContextFor(state.game, state.match, player);
-  if (thinker.worker && moves.length > 1) {
+  if (thinker.available && moves.length > 1) {
     try {
-      const reply = await ask({
-        kind: 'select',
-        board: {
+      const reply = await thinker.chooseMove({
+        boardDto: {
           points: board.points,
           bar: [board.bar[WHITE], board.bar[BLACK]],
           off: [board.off[WHITE], board.off[BLACK]],
         },
-        player, die1: roll.die1, die2: roll.die2, level, context,
+        player, die1: roll.die1, die2: roll.die2, level, moves, context,
       });
       // 合法手の並びは generateMoves が純関数なので一致するはずだが、
       // 念のため鍵で照合する。ずれていたら鍵で引き直す。
@@ -505,16 +464,22 @@ $('dice').addEventListener('click', flipDice);
  */
 async function rankMoves(board, player, roll, moves, level, limit = 3) {
   const context = checkerContextFor(state.game, state.match, player);
-  if (thinker.worker) {
+  if (thinker.available) {
     try {
-      const reply = await ask({
-        kind: 'rank',
-        board: {
+      const reply = await thinker.rankMoves({
+        boardDto: {
           points: board.points,
           bar: [board.bar[WHITE], board.bar[BLACK]],
           off: [board.off[WHITE], board.off[BLACK]],
         },
-        player, die1: roll.die1, die2: roll.die2, level, limit, context,
+        player,
+        die1: roll.die1,
+        die2: roll.die2,
+        level,
+        moves,
+        limit,
+        context,
+        adviceAgent: state.adviceAgent,
       });
       // 着手のときと同じく、**鍵で照合**してからメイン側の Move に結び直す
       const entries = reply.entries.map((entry) => {

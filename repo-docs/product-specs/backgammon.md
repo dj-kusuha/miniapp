@@ -219,25 +219,24 @@ JSON、2026-09-15 の cycle200 比較選定モデル）。推論は**行列積�
 ワイド化で評価性能が上がった一方、3-ply は末端評価の回数が大きくなる。Money cubefulと
 Match MWCは候補評価を最大2-ply相当（着手後の相手ロール1回）に制限し、深い探索の急増を抑える。
 
-### 段階選別3-ply（Issue #544、既定OFF）
+### 段階選別3-ply（Worker 利用時の世界チャンピオン段で既定 ON）
 
-engine production `b2bedb479876162efb48262d612530d8ffe20ad9` の段階選別を実験可能にする。
-起動URLへ `?checker-search=staged3ply` を付けると、Workerとmain-thread fallbackの両方で有効になる。
-指定しないと従来の最大1ロール探索を維持する。
+engine 0.2.5 の単体高速化とマルチ Worker 並列化（`src/thinker-pool.js`）により、Worker 利用時の**世界チャンピオン段（`champion`）では段階選別 3-ply（`staged3ply`）＋内部応手フィルタ `cubeFilterLevel: 1`（2 手 / 0.040）を既定 ON** とする。
 
-- Match MWC: 1-ply全合法手 → 0.010以内の最大8手を2-ply → 0.005以内の最大4手を3-ply
-- Money cubeful: 1-ply全合法手 → equity差0.160以内の最大8手を2-ply → 0.080以内の最大4手を3-ply
-- 探索中はND/DT間でroll展開を共有する。cube文脈非依存のraw NN葉ベクトルは重複排除・batch評価する
-- owner / cube value / Jacoby / cash action contextに依存する最終equityは共有しない
+- 起動 URL へ `?checker-search=legacy|staged3ply|full-root` を付けると明示指定を優先する
+- Worker 非対応環境（メインスレッド fallback）は UI ブロック防止のため、明示指定がない限り従来の `legacy`（最大 1 ロール探索）を維持する
+- Match MWC: 1-ply 全合法手 → 0.010 以内の最大 8 手を 2-ply → 0.005 以内の最大 4 手を 3-ply
+- Money cubeful: 1-ply 全合法手 → equity 差 0.160 以内の最大 8 手を 2-ply → 0.080 以内の最大 4 手を 3-ply
+- 探索中は ND/DT 間で roll 展開・`checkerEfficiencies` を共有する。cube 文脈非依存の raw NN 葉ベクトルはキャッシュで重複排除する
+- owner / cube value / Jacoby / cash action context に依存する最終 equity は共有しない
 
-full-root 3-plyと段階選別の着手差/regret、応答時間・メモリを計測してから既定値を判断する。
-Moneyの旧閾値0.010/0.005は使わない。
-Matchはcube OFF / Crawford / 64でもMWC計算が重いため同じ上限を使う。Money cube OFFは通常の
-checker探索を続け、設定段の深さを保つ。
-普段の対戦ラダーは**初心者〜上級を 0-ply、エキスパートを2-ply**としつつ、最高峰の
+Money の旧閾値 0.010/0.005 は使わない。
+Match は cube OFF / Crawford / 64 でも MWC 計算が重いため同じ上限を使う。Money cube OFF は通常の
+checker 探索を続け、設定段の深さを保つ。
+普段の対戦ラダーは**初心者〜上級を 0-ply、エキスパートを 2-ply**としつつ、最高峰の
 強さを求める選択肢として **世界チャンピオン（3-ply）** を用意している（Match MWC / Money
-cubefulの深さ上限と代表局面の速度計測は `repo-docs/exec-plans/completed/issue453-cubeful-checker.md`）。
-思考は Web Worker で非同期実行され、間合いで隠しきれないときは思考中表示が出る。
+cubeful の深さ上限と代表局面の速度計測は `repo-docs/exec-plans/completed/issue453-cubeful-checker.md`、`repo-docs/references/issue549-staged-3ply-results.md`、および `repo-docs/exec-plans/completed/backgammon-0.2.5-parallel.md`）。
+思考は Web Worker プールで非同期並列実行され、間合いで隠しきれないときは思考中表示が出る。
 ヒント機能は実用速度を優先しエキスパート（2-ply）に固定する。
 
 ### ベアオフの厳密解（2026-08-28）
@@ -450,11 +449,13 @@ engine 側で 1,500 局面・3-ply で 2 度測り、**どちらも有意差な�
 engine 側の既定も `2/.040` に変更し、miniapp も `filtersFor` とキューブ木の
 既定値を同じ設定に揃えている。
 
-### 思考は Web Worker で走らせる
+### 思考は Web Worker プールで並列に走らせる
 
 深い読みは 1 手が重くなるので、メインスレッドで探索すると画面が固まる
-（再描画もクリックも効かない）。`src/worker.js` へ逃がした。
+（再描画もクリックも効かない）。`src/worker.js` と `src/thinker-pool.js` へ逃がした。
 
+- 起動時は **1 本目だけ**立ち上げ、0-ply 段や 1 手しかない局面・即決できるキューブ判断では追加 Worker を起こさない
+- 2-ply / 3-ply の着手・ヒント・際どい 2-ply キューブ判断では、必要に応じて最大 4 本まで Worker を遅延起動し、候補手分割や 21 ロール分割で並列評価する
 - やり取りは**盤面の JSON と出目だけ**。合法手は Worker 側でも生成する
 - 返すのは index と**盤面の鍵**の両方。メイン側で照合し、ずれていたら
   鍵で引き直す
