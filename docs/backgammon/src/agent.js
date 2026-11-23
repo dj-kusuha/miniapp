@@ -354,7 +354,7 @@ export const LEVELS = [
   },
   {
     id: 'champion', name: '世界チャンピオン', plies: 3, noise: 0, maxLoss: Infinity,
-    note: '3 手先読み・最高峰（Match MWC / Money cubefulは候補評価を2手先まで）',
+    note: '3 手先読み・最高峰（段階選別 3-ply＋並列探索）',
   },
 ];
 
@@ -582,7 +582,7 @@ export class Agent {
       if (exact !== null) result = exact;
     }
     if (result === undefined) result = this.net.predict(encodeBoard(board, WHITE, turn));
-    if (key !== null && cache.size < 50000) cache.set(key, result);
+    if (key !== null && cache.size < 250_000) cache.set(key, result);
     return result;
   }
 
@@ -614,6 +614,7 @@ export class Agent {
     const features = entries.map(([, board]) => encodeBoard(board, WHITE, turn));
     const vectors = this.net.predictBatch(features);
     for (let index = 0; index < entries.length; index += 1) {
+      if (cache.size >= 250_000) break;
       cache.set(entries[index][0], vectors[index]);
     }
     this.checkerSearchStats.batchCalls += 1;
@@ -1025,26 +1026,32 @@ export class Agent {
    * できるが、MWC では 2 点と 4 点で MET の引き当てが変わるので絶対値が要る。
    */
   mwcSearch(board, turn, owner, depth, cube, match, leaf = null,
-            matchCubeEfficiency = null, allowDouble = true) {
+            matchCubeEfficiency = null, allowDouble = true, rollIndices = null) {
+    const weightScale = rollIndices === null
+      ? 1.0
+      : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
     const terminal = this.terminalVector(board);
     if (terminal !== null) {
       const spread = outcomeSpread(terminal, turn === WHITE);
-      return mwcWithCube(spread, cube, match.away[turn],
+      return weightScale * mwcWithCube(spread, cube, match.away[turn],
                          match.away[opponent(turn)], match.crawfordPlayed);
     }
     if (depth <= 0) {
       if (!allowDouble || cube >= 64) {
         const vector = this.searchedVectorFor(board, turn, WHITE, leaf ?? this.cubeLeafPlies);
-        return mwcWithCube(outcomeSpread(vector, turn === WHITE), cube,
+        return weightScale * mwcWithCube(outcomeSpread(vector, turn === WHITE), cube,
           match.away[turn], match.away[opponent(turn)], match.crawfordPlayed);
       }
-      return this.mwcLeaf(board, turn, cube, owner, match, leaf, matchCubeEfficiency);
+      return weightScale * this.mwcLeaf(board, turn, cube, owner, match, leaf, matchCubeEfficiency);
     }
 
     let total = 0.0;
     const flipped = Agent.flipOwner(owner);
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
     const preparedRolls = this.checkerRollCache
-      ? ALL_ROLLS.map((roll) => ({
+      ? activeRolls.map((roll) => ({
         roll,
         selection: this.checkerRollBoards(board, turn, roll, depth),
       }))
@@ -1059,9 +1066,9 @@ export class Agent {
       }
       this.prefetchCheckerVectors(leafBoards, leafTurn);
     }
-    for (let rollIndex = 0; rollIndex < ALL_ROLLS.length; rollIndex += 1) {
-      const roll = ALL_ROLLS[rollIndex];
-      const { die1, die2, weight } = roll;
+    for (let rollIndex = 0; rollIndex < activeRolls.length; rollIndex += 1) {
+      const roll = activeRolls[rollIndex];
+      const { weight } = roll;
       const selection = preparedRolls
         ? preparedRolls[rollIndex].selection
         : this.checkerRollBoards(board, turn, roll, depth);
@@ -1251,22 +1258,26 @@ export class Agent {
     allowDouble = true,
     actionContext = 'post_no_double',
     unboundedMoney = false,
+    rollIndices = null,
   } = {}) {
     const cashPolicy = actionContext === 'post_double_take' ? null : inheritedCashPolicy;
+    const weightScale = rollIndices === null
+      ? 1.0
+      : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
     const terminal = this.terminalVector(board);
     if (terminal !== null) {
       // Jacoby有効・まだ一度もダブルされていない場合、G/BGも1点。
       if (jacoby && owner === 'center') {
-        return turn === WHITE ? 2 * terminal[WIN] - 1 : 1 - 2 * terminal[WIN];
+        return weightScale * (turn === WHITE ? 2 * terminal[WIN] - 1 : 1 - 2 * terminal[WIN]);
       }
-      return this.terminalEquity(board, turn);
+      return weightScale * this.terminalEquity(board, turn);
     }
     if (depth <= 0) {
       if (cubeValue >= 64 && !unboundedMoney) {
         const vector = this.searchedVectorFor(board, turn, turn, leaf ?? this.cubeLeafPlies);
-        return equity(vector);
+        return weightScale * equity(vector);
       }
-      return this.cubeLeaf(board, turn, owner, jacoby, leaf, cubeEfficiency);
+      return weightScale * this.cubeLeaf(board, turn, owner, jacoby, leaf, cubeEfficiency);
     }
 
     let total = 0;
@@ -1277,8 +1288,11 @@ export class Agent {
     // V_rollなどの既存直接呼び出しはroot depth=1の契約を保つ。
     const legacyCash = cashOption && depth === 1;
     const alpha = cashAlpha ?? this.cubeCashAlpha;
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
     const preparedRolls = this.checkerRollCache
-      ? ALL_ROLLS.map((roll) => ({
+      ? activeRolls.map((roll) => ({
         roll,
         selection: this.checkerRollBoards(board, turn, roll, depth),
       }))
@@ -1294,8 +1308,8 @@ export class Agent {
       this.prefetchCheckerVectors(leafBoards, leafTurn);
     }
 
-    for (let rollIndex = 0; rollIndex < ALL_ROLLS.length; rollIndex += 1) {
-      const roll = ALL_ROLLS[rollIndex];
+    for (let rollIndex = 0; rollIndex < activeRolls.length; rollIndex += 1) {
+      const roll = activeRolls[rollIndex];
       const { weight } = roll;
       const selection = preparedRolls
         ? preparedRolls[rollIndex].selection
@@ -1707,17 +1721,11 @@ export class Agent {
     return order;
   }
 
-  /**
-   * 1 rollの合法手展開とshortlistをchecker root内で共有する。選ばれた盤面は
-   * cube文脈に依存しないが、その先のcubeful/MWC値は個別に評価する。
-   */
-  checkerRollBoards(board, turn, roll, depth, filters = this.cubeFilters) {
-    const level = this.cubeFilterLevelFor(depth);
+  rollShortlistBoards(board, turn, roll, level, filters = this.cubeFilters) {
     const filter = this.filterFor(level, filters);
-    const key = this.checkerRollCache ? JSON.stringify([
-      boardKey(board), turn, roll.die1, roll.die2,
-      level, filter.candidates, filter.tolerance,
-    ]) : null;
+    const key = this.checkerRollCache
+      ? `${boardKey(board)}|${turn}|${roll.die1},${roll.die2}|${level}|${filter.candidates}|${filter.tolerance}`
+      : null;
     if (key !== null && this.checkerRollCache.has(key)) {
       this.checkerSearchStats.rollExpansionHits += 1;
       return this.checkerRollCache.get(key);
@@ -1732,10 +1740,19 @@ export class Agent {
       const indices = this.shortlist(boards, turn, level, filters);
       selection = { hasMoves: true, boards: indices.map((index) => boards[index]) };
     }
-    if (key !== null && this.checkerRollCache.size < 16_384) {
+    if (key !== null && this.checkerRollCache.size < 65_536) {
       this.checkerRollCache.set(key, selection);
     }
     return selection;
+  }
+
+  /**
+   * 1 rollの合法手展開とshortlistをchecker root内で共有する。選ばれた盤面は
+   * cube文脈に依存しないが、その先のcubeful/MWC値は個別に評価する。
+   */
+  checkerRollBoards(board, turn, roll, depth, filters = this.cubeFilters) {
+    const level = this.cubeFilterLevelFor(depth);
+    return this.rollShortlistBoards(board, turn, roll, level, filters);
   }
 
   /**
@@ -1837,9 +1854,12 @@ export class Agent {
    * 出目 21 通りを展開し、最善を尽くしたときの White 視点ベクトル。
    * 最深段（残り 1 段）専用。応手は 0-ply で選ぶ。
    */
-  expectedVectorAfterMove(board, toMove) {
+  expectedVectorAfterMove(board, toMove, rollIndices = null) {
     const total = [0, 0, 0, 0, 0];
-    for (const { die1, die2, weight } of ALL_ROLLS) {
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    for (const { die1, die2, weight } of activeRolls) {
       const moves = generateMoves(board, toMove, die1, die2);
       let boards;
       if (moves.length === 0) {
@@ -1865,18 +1885,34 @@ export class Agent {
    * `board`（`toMove` の手番）を depth 段ぶん展開し、White 視点の確率ベクトルを返す。
    * 絞り込みはスカラー側と同じ `shortlist` を使う。
    */
-  expandRollsVector(board, toMove, depth, level) {
+  expandRollsVector(board, toMove, depth, level, rollIndices = null) {
+    const weightScale = rollIndices === null
+      ? 1.0
+      : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
     const terminal = this.terminalVector(board);
-    if (terminal !== null) return terminal;
+    if (terminal !== null) return weightScale === 1.0 ? terminal : terminal.map((v) => v * weightScale);
     if (depth <= 0) {
-      return this.vectorFor(board, toMove);
+      const vec = this.vectorFor(board, toMove);
+      return weightScale === 1.0 ? vec : Array.from(vec, (v) => v * weightScale);
     }
-    if (depth === 1) return this.expectedVectorAfterMove(board, toMove);
+    if (depth === 1) return this.expectedVectorAfterMove(board, toMove, rollIndices);
 
     const total = [0, 0, 0, 0, 0];
-    for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = generateMoves(board, toMove, die1, die2);
-      if (moves.length === 0) {
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    for (const roll of activeRolls) {
+      const { weight } = roll;
+      const selection = this.checkerRollCache
+        ? this.rollShortlistBoards(board, toMove, roll, level, this.filters)
+        : (() => {
+            const moves = generateMoves(board, toMove, roll.die1, roll.die2);
+            if (moves.length === 0) return { hasMoves: false, boards: [] };
+            const boards = moves.map((m) => m.resultingBoard);
+            const picks = this.shortlist(boards, toMove, level);
+            return { hasMoves: true, boards: picks.map((i) => boards[i]) };
+          })();
+      if (!selection.hasMoves) {
         // 合法手が無ければ手番が相手に移るだけ（1段は消費する）
         const next = this.expandRollsVector(board, opponent(toMove), depth - 1, level + 1);
         for (let k = 0; k < 5; k += 1) {
@@ -1884,10 +1920,8 @@ export class Agent {
         }
         continue;
       }
-      const boards = moves.map((m) => m.resultingBoard);
-      const picks = this.shortlist(boards, toMove, level);
-      const vectors = picks.map((i) =>
-        this.expandRollsVector(boards[i], opponent(toMove), depth - 1, level + 1));
+      const vectors = selection.boards.map((nextBoard) =>
+        this.expandRollsVector(nextBoard, opponent(toMove), depth - 1, level + 1));
       const bestIdx = this.pickOwnBest(vectors, toMove);
       const bestVec = vectors[bestIdx];
       for (let k = 0; k < 5; k += 1) {

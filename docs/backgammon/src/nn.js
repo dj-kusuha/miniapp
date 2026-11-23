@@ -107,17 +107,29 @@ export class NeuralNet {
     // 第 1 層: W1[i] = 「入力ユニット i が全隠れユニットへ寄与する重み」。
     // JSON がもともと行優先なので、そのまま Float32Array にするだけでよい。
     this.rowsFirst = [];
+    this.flatFirst = new Float32Array(dims[0] * dims[1]);
     for (let i = 0; i < dims[0]; i += 1) {
-      this.rowsFirst.push(Float32Array.from(data.W1[i]));
+      const row = Float32Array.from(data.W1[i]);
+      this.rowsFirst.push(row);
+      this.flatFirst.set(row, i * dims[1]);
     }
     this.biasFirst = Float32Array.from(data.b1);
+    this.isSilu = this.activation === 'silu';
 
-    // 第 2 層以降: 入力（前段のシグモイド出力）が密なので内積のほうが素直。
-    // 転置して「出力ユニットごとに連続した Float32Array」にしておく。
+    // 第 2 層以降: 入力（前段の活性化出力）が密なので内積のほうが素直。
+    // 転置して「出力ユニットごとに連続した Float32Array」とフラット配列を持つ。
     this.layers = [];
     for (let index = 2; index < dims.length; index += 1) {
+      const inDim = dims[index - 1];
+      const outDim = dims[index];
+      const columns = toColumns(data[`W${index}`], inDim, outDim);
+      const flat = new Float32Array(outDim * inDim);
+      for (let j = 0; j < outDim; j += 1) flat.set(columns[j], j * inDim);
       this.layers.push({
-        columns: toColumns(data[`W${index}`], dims[index - 1], dims[index]),
+        columns,
+        flat,
+        inDim,
+        outDim,
         bias: Float32Array.from(data[`b${index}`]),
       });
     }
@@ -143,23 +155,19 @@ export class NeuralNet {
    * **第 1 層は疎に回す。** 盤面の符号化 198 次元のうち非ゼロは平均 16.6 個
    * （8.4%）しかない。ゼロを掛けて足しても和は変わらないので、
    * **飛ばしても結果はビット単位で変わらない**（近似ではない）。
-   * そのために W1 だけ行優先で持ち、非ゼロの入力ごとに「その行を全体へ
-   * 足し込む」形にしている。第 2 層以降は入力が密なので普通の内積。
-   *
-   * 累算を Float64Array で持つのは**丸めの回数を現行と揃えるため**。
-   * Float32Array に直接足し込むと 1 項ごとに丸められて答えが動く。
-   *
-   * 実測: 1 回 36.3 µs → 7.8 µs（4.6 倍）。400 局面すべてで出力が完全一致。
+   * 第 2 層以降はフラット化した連続 Float32Array を使い、IEEE 754 の
+   * 逐次加算順を保ったまま 4-way アンロールで高速化する。
    *
    * @param {ArrayLike<number>} x 入力（`inputDim` 要素）
    * @returns {Float32Array} 出力（`outputDim` 要素）
    */
   predict(x) {
-    const { rowsFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue } = this;
+    const { flatFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue, isSilu } = this;
     const hidden = biasFirst.length;
+    const xLen = x.length;
 
     let count = 0;
-    for (let i = 0; i < x.length; i += 1) {
+    for (let i = 0; i < xLen; i += 1) {
       const value = x[i];
       if (value !== 0) {
         nonzeroIndex[count] = i;
@@ -169,30 +177,57 @@ export class NeuralNet {
     }
 
     for (let j = 0; j < hidden; j += 1) accumulator[j] = biasFirst[j];
+    const hidden4 = hidden & ~3;
     for (let k = 0; k < count; k += 1) {
       const value = nonzeroValue[k];
-      const row = rowsFirst[nonzeroIndex[k]];
-      for (let j = 0; j < hidden; j += 1) accumulator[j] += value * row[j];
+      const base = nonzeroIndex[k] * hidden;
+      let j = 0;
+      for (; j < hidden4; j += 4) {
+        accumulator[j] += value * flatFirst[base + j];
+        accumulator[j + 1] += value * flatFirst[base + j + 1];
+        accumulator[j + 2] += value * flatFirst[base + j + 2];
+        accumulator[j + 3] += value * flatFirst[base + j + 3];
+      }
+      for (; j < hidden; j += 1) accumulator[j] += value * flatFirst[base + j];
     }
-    // 隠れ層の活性化（activation 設定に応じて sigmoid または silu）。
-    const activate = this.activation === 'silu' ? silu : sigmoid;
+
     let activation = this.hiddenBuffers[0];
-    for (let j = 0; j < hidden; j += 1) activation[j] = activate(accumulator[j]);
+    if (isSilu) {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = v * (1 / (1 + Math.exp(-z)));
+      }
+    } else {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = 1 / (1 + Math.exp(-z));
+      }
+    }
 
     const last = this.layers.length - 1;
     for (let l = 0; l < this.layers.length; l += 1) {
-      const { columns, bias } = this.layers[l];
+      const { flat, bias, inDim, outDim } = this.layers[l];
       const isLast = l === last;
       const next = isLast
-        ? new Float32Array(bias.length)
+        ? new Float32Array(outDim)
         : this.hiddenBuffers[l + 1];
-      // 最終層は条件確率の sigmoid、隠れ層は activation 設定に従う。
-      const act = isLast ? sigmoid : activate;
-      for (let j = 0; j < next.length; j += 1) {
-        const column = columns[j];
+      const inDim4 = inDim & ~3;
+      const useSilu = !isLast && isSilu;
+      for (let j = 0; j < outDim; j += 1) {
+        const base = j * inDim;
         let sum = bias[j];
-        for (let i = 0; i < activation.length; i += 1) sum += activation[i] * column[i];
-        next[j] = act(sum);
+        let i = 0;
+        for (; i < inDim4; i += 4) {
+          sum += activation[i] * flat[base + i];
+          sum += activation[i + 1] * flat[base + i + 1];
+          sum += activation[i + 2] * flat[base + i + 2];
+          sum += activation[i + 3] * flat[base + i + 3];
+        }
+        for (; i < inDim; i += 1) sum += activation[i] * flat[base + i];
+        const z = sum < -15 ? -15 : sum > 15 ? 15 : sum;
+        next[j] = useSilu ? sum * (1 / (1 + Math.exp(-z))) : 1 / (1 + Math.exp(-z));
       }
       activation = next;
     }
@@ -200,75 +235,22 @@ export class NeuralNet {
   }
 
   /**
-   * 複数局面を1回の呼び出しで推論する。各局面の加算順・float32境界は
-   * predict() と同じにして、既存engine値を保ちながら重複葉をまとめる。
+   * 複数局面を1回の呼び出しで推論する。各局面で predict() と全く同じ
+   * 計算経路を使い、ビット同一出力と再利用バッファによる高速推論を両立する。
    * @param {ArrayLike<ArrayLike<number>>} inputs
    * @returns {Float32Array[]}
    */
   predictBatch(inputs) {
     const batchSize = inputs?.length ?? 0;
     if (batchSize === 0) return [];
+    const expectedDim = this.inputDim;
+    const outputs = new Array(batchSize);
     for (let sample = 0; sample < batchSize; sample += 1) {
-      if (!inputs[sample] || inputs[sample].length !== this.inputDim) {
-        throw new Error(`predictBatch input ${sample} must have ${this.inputDim} values`);
+      const input = inputs[sample];
+      if (!input || input.length !== expectedDim) {
+        throw new Error(`predictBatch input ${sample} must have ${expectedDim} values`);
       }
-    }
-
-    const { rowsFirst, biasFirst, layers } = this;
-    const activate = this.activation === 'silu' ? silu : sigmoid;
-    const firstWidth = biasFirst.length;
-    const firstAcc = new Float64Array(batchSize * firstWidth);
-    for (let sample = 0; sample < batchSize; sample += 1) {
-      firstAcc.set(biasFirst, sample * firstWidth);
-    }
-
-    // Feature iを外側にしても、各サンプルの加算は入力index昇順のまま。
-    for (let i = 0; i < this.inputDim; i += 1) {
-      const row = rowsFirst[i];
-      for (let sample = 0; sample < batchSize; sample += 1) {
-        const value = inputs[sample][i];
-        if (value === 0) continue;
-        const offset = sample * firstWidth;
-        for (let j = 0; j < firstWidth; j += 1) {
-          firstAcc[offset + j] += value * row[j];
-        }
-      }
-    }
-
-    let activation = new Float32Array(batchSize * firstWidth);
-    for (let sample = 0; sample < batchSize; sample += 1) {
-      const offset = sample * firstWidth;
-      for (let j = 0; j < firstWidth; j += 1) {
-        activation[offset + j] = activate(firstAcc[offset + j]);
-      }
-    }
-
-    for (let layerIndex = 0; layerIndex < layers.length; layerIndex += 1) {
-      const { columns, bias } = layers[layerIndex];
-      const isLast = layerIndex === layers.length - 1;
-      const outputWidth = bias.length;
-      const next = new Float32Array(batchSize * outputWidth);
-      const act = isLast ? sigmoid : activate;
-      for (let j = 0; j < outputWidth; j += 1) {
-        const column = columns[j];
-        for (let sample = 0; sample < batchSize; sample += 1) {
-          const inputOffset = sample * (column.length);
-          let sum = bias[j];
-          for (let i = 0; i < column.length; i += 1) {
-            sum += activation[inputOffset + i] * column[i];
-          }
-          next[sample * outputWidth + j] = act(sum);
-        }
-      }
-      activation = next;
-    }
-
-    const outputs = [];
-    for (let sample = 0; sample < batchSize; sample += 1) {
-      const offset = sample * this.outputDim;
-      outputs.push(transformOutput(
-        activation.slice(offset, offset + this.outputDim), this.outputTransform,
-      ));
+      outputs[sample] = this.predict(input);
     }
     return outputs;
   }
@@ -279,11 +261,12 @@ export class NeuralNet {
    * @returns {Float32Array}
    */
   lastHidden(x) {
-    const { rowsFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue } = this;
+    const { flatFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue, isSilu } = this;
     const hidden = biasFirst.length;
+    const xLen = x.length;
 
     let count = 0;
-    for (let i = 0; i < x.length; i += 1) {
+    for (let i = 0; i < xLen; i += 1) {
       const value = x[i];
       if (value !== 0) {
         nonzeroIndex[count] = i;
@@ -293,23 +276,52 @@ export class NeuralNet {
     }
 
     for (let j = 0; j < hidden; j += 1) accumulator[j] = biasFirst[j];
+    const hidden4 = hidden & ~3;
     for (let k = 0; k < count; k += 1) {
       const value = nonzeroValue[k];
-      const row = rowsFirst[nonzeroIndex[k]];
-      for (let j = 0; j < hidden; j += 1) accumulator[j] += value * row[j];
+      const base = nonzeroIndex[k] * hidden;
+      let j = 0;
+      for (; j < hidden4; j += 4) {
+        accumulator[j] += value * flatFirst[base + j];
+        accumulator[j + 1] += value * flatFirst[base + j + 1];
+        accumulator[j + 2] += value * flatFirst[base + j + 2];
+        accumulator[j + 3] += value * flatFirst[base + j + 3];
+      }
+      for (; j < hidden; j += 1) accumulator[j] += value * flatFirst[base + j];
     }
-    const activate = this.activation === 'silu' ? silu : sigmoid;
+
     let activation = this.hiddenBuffers[0];
-    for (let j = 0; j < hidden; j += 1) activation[j] = activate(accumulator[j]);
+    if (isSilu) {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = v * (1 / (1 + Math.exp(-z)));
+      }
+    } else {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = 1 / (1 + Math.exp(-z));
+      }
+    }
 
     for (let l = 0; l < this.layers.length - 1; l += 1) {
-      const { columns, bias } = this.layers[l];
+      const { flat, bias, inDim, outDim } = this.layers[l];
       const next = this.hiddenBuffers[l + 1];
-      for (let j = 0; j < next.length; j += 1) {
-        const column = columns[j];
+      const inDim4 = inDim & ~3;
+      for (let j = 0; j < outDim; j += 1) {
+        const base = j * inDim;
         let sum = bias[j];
-        for (let i = 0; i < activation.length; i += 1) sum += activation[i] * column[i];
-        next[j] = activate(sum);
+        let i = 0;
+        for (; i < inDim4; i += 4) {
+          sum += activation[i] * flat[base + i];
+          sum += activation[i + 1] * flat[base + i + 1];
+          sum += activation[i + 2] * flat[base + i + 2];
+          sum += activation[i + 3] * flat[base + i + 3];
+        }
+        for (; i < inDim; i += 1) sum += activation[i] * flat[base + i];
+        const z = sum < -15 ? -15 : sum > 15 ? 15 : sum;
+        next[j] = isSilu ? sum * (1 / (1 + Math.exp(-z))) : 1 / (1 + Math.exp(-z));
       }
       activation = next;
     }

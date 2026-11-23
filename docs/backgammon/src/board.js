@@ -68,17 +68,29 @@ export class Board {
 
   allInHome(player) {
     if (this.bar[player] > 0) return false;
+    const points = this.points;
     let total = this.off[player];
-    for (const p of homeRange(player)) total += this.count(p, player);
+    if (player === WHITE) {
+      for (let p = 0; p < 6; p += 1) {
+        const v = points[p];
+        if (v > 0) total += v;
+      }
+    } else {
+      for (let p = 18; p < 24; p += 1) {
+        const v = points[p];
+        if (v < 0) total -= v;
+      }
+    }
     return total === TOTAL_CHECKERS;
   }
 
   /** 最も遠い（ベアオフから遠い）駒の index。無ければ -1。 */
   farthestChecker(player) {
+    const points = this.points;
     if (player === WHITE) {
-      for (let p = 23; p >= 0; p -= 1) if (this.count(p, player) > 0) return p;
+      for (let p = 23; p >= 0; p -= 1) if (points[p] > 0) return p;
     } else {
-      for (let p = 0; p < 24; p += 1) if (this.count(p, player) > 0) return p;
+      for (let p = 0; p < 24; p += 1) if (points[p] < 0) return p;
     }
     return -1;
   }
@@ -95,8 +107,11 @@ export class Board {
     if (this.off[loser] > 0) return 1;
     // 1 枚も上げていない。相手陣かバーに残っていればバックギャモン。
     if (this.bar[loser] > 0) return 3;
-    for (const p of homeRange(opponent(loser))) {
-      if (this.count(p, loser) > 0) return 3;
+    const points = this.points;
+    if (loser === WHITE) {
+      for (let p = 18; p < 24; p += 1) if (points[p] > 0) return 3;
+    } else {
+      for (let p = 0; p < 6; p += 1) if (points[p] < 0) return 3;
     }
     return 2;
   }
@@ -122,13 +137,14 @@ export class Board {
  * 累積（n>=1, n>=2, ...）ではないので注意。
  */
 export function encodeBoard(board, viewer, turn) {
-  const features = new Array(198).fill(0);
+  const features = new Float64Array(198);
   const isWhite = viewer === WHITE;
+  const points = board.points;
   let k = 0;
 
   for (let i = 0; i < 24; i += 1) {
     // viewer の 24 番ポイントから 1 番ポイントへ
-    const value = isWhite ? board.points[23 - i] : board.points[i];
+    const value = isWhite ? points[23 - i] : points[i];
     let own;
     let other;
     if (isWhite) {
@@ -139,17 +155,25 @@ export function encodeBoard(board, viewer, turn) {
       other = value < 0 ? 0 : value;
     }
 
-    for (const count of [own, other]) {
-      if (count === 1) {
-        features[k] = 1;
-      } else if (count === 2) {
-        features[k + 1] = 1;
-      } else if (count >= 3) {
-        features[k + 2] = 1;
-        if (count > 3) features[k + 3] = (count - 3) / 2;
-      }
-      k += 4;
+    if (own === 1) {
+      features[k] = 1;
+    } else if (own === 2) {
+      features[k + 1] = 1;
+    } else if (own >= 3) {
+      features[k + 2] = 1;
+      if (own > 3) features[k + 3] = (own - 3) / 2;
     }
+    k += 4;
+
+    if (other === 1) {
+      features[k] = 1;
+    } else if (other === 2) {
+      features[k + 1] = 1;
+    } else if (other >= 3) {
+      features[k + 2] = 1;
+      if (other > 3) features[k + 3] = (other - 3) / 2;
+    }
+    k += 4;
   }
 
   const opp = opponent(viewer);

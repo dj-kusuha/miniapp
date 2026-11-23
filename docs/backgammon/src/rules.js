@@ -126,10 +126,16 @@ function undoSingle(board, player, single) {
   else board.points[single.from] += sign;
 }
 
-function generateRecursive(board, player, remaining, current, out) {
+function generateRecursive(board, player, remaining, current, out, visited) {
   if (remaining.length === 0) {
     out.push({ singles: [...current], board: board.clone() });
     return;
+  }
+
+  if (visited !== null && current.length > 0) {
+    const stateKey = `${remaining.length}:${boardKey(board)}`;
+    if (visited.has(stateKey)) return;
+    visited.add(stateKey);
   }
 
   let found = false;
@@ -144,7 +150,7 @@ function generateRecursive(board, player, remaining, current, out) {
       found = true;
       applySingle(board, player, single);
       current.push(single);
-      generateRecursive(board, player, rest, current, out);
+      generateRecursive(board, player, rest, current, out, visited);
       current.pop();
       undoSingle(board, player, single);
     }
@@ -168,10 +174,15 @@ export function boardKey(board) {
  */
 export function generateMoves(board, player, die1, die2) {
   const sequences = [];
-  generateRecursive(board.clone(), player, diceValues(die1, die2), [], sequences);
+  const visited = die1 === die2 ? new Set() : null;
+  generateRecursive(board.clone(), player, diceValues(die1, die2), [], sequences, visited);
   if (sequences.length === 0) return [];
 
-  const maxUsed = Math.max(...sequences.map((s) => s.singles.length));
+  let maxUsed = 0;
+  for (let i = 0; i < sequences.length; i += 1) {
+    const len = sequences[i].singles.length;
+    if (len > maxUsed) maxUsed = len;
+  }
   if (maxUsed === 0) return [];
 
   let filtered = sequences.filter((s) => s.singles.length === maxUsed);
