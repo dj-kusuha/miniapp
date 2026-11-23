@@ -108,11 +108,12 @@ export class ThinkerPool {
     return this.slots.some((slot) => slot.alive);
   }
 
-  async _spawnSlot() {
+  _createSlot() {
     let rawWorker;
     try {
       rawWorker = this.createWorker();
-    } catch {
+    } catch (error) {
+      console.warn('Worker の起動に失敗しました', error);
       return null;
     }
     const slot = new WorkerSlot(rawWorker);
@@ -124,7 +125,7 @@ export class ThinkerPool {
         return null;
       });
     this.slots.push(slot);
-    return slot.readyPromise;
+    return slot;
   }
 
   /** 初回起動。まずは 1 本目だけ立ち上げて起動負荷を抑える。 */
@@ -134,7 +135,10 @@ export class ThinkerPool {
       ...loadPayload,
       checkerSearchMode: this.explicitCheckerSearchMode ?? 'legacy',
     };
-    const primary = await this._spawnSlot();
+    const slot = this._createSlot();
+    if (!slot) return false;
+    const primary = await slot.readyPromise;
+    this.slots = this.slots.filter((entry) => entry.alive);
     return Boolean(primary && primary.alive);
   }
 
@@ -142,8 +146,11 @@ export class ThinkerPool {
   async _acquireWorkers(desiredCount) {
     const target = Math.max(1, Math.min(this.maxWorkers, desiredCount));
     this.slots = this.slots.filter((slot) => slot.alive);
-    while (this.slots.length < target && this.loadPayload) {
-      this._spawnSlot();
+    if (this.loadPayload) {
+      const missing = target - this.slots.length;
+      for (let i = 0; i < missing; i += 1) {
+        if (!this._createSlot()) break;
+      }
     }
     await Promise.all(this.slots.map((slot) => slot.readyPromise));
     this.slots = this.slots.filter((slot) => slot.alive);
@@ -220,6 +227,7 @@ export class ThinkerPool {
   async _scoreMovesParallel({ boardDto, player, die1, die2, level, moves, context, mode, cubeFilterLevel }) {
     const levelInfo = levelById(level);
     const workers = await this._acquireWorkers(Math.min(this.maxWorkers, Math.max(2, moves.length)));
+    if (!workers.length) throw new Error('worker なし');
     const allIndices = moves.map((_, index) => index);
 
     const canStage = mode === 'staged3ply'
@@ -389,6 +397,7 @@ export class ThinkerPool {
     }
 
     const workers = await this._acquireWorkers(this.maxWorkers);
+    if (!workers.length) throw new Error('worker なし');
     const rollGroups = partitionRoundRobin(ALL_ROLL_INDICES, workers.length);
     const chunkReplies = await Promise.all(
       rollGroups.map((rollIndices, workerIdx) => workers[workerIdx].ask({

@@ -404,4 +404,175 @@ assert.equal(spawnedCount, 4, '2-ply scales up pool to 4 workers');
 }
 
 pool.terminate();
-console.log('OK: parallel-pool (0.2.5 sync, sequential NN, 4-worker checker/hint/cube parity)');
+
+// 5. Worker 追加起動失敗・初期化失敗・全滅時に無限ループせず安全に縮退 / reject すること
+{
+  const moves = generateMoves(startBoard, WHITE, 3, 1);
+  const refExpert = agentFor(net, 'expert');
+  const expectedMove = selectCheckerMove(refExpert, moneyCtx, moves, WHITE);
+  const expectedRank = rankCheckerMoves(refExpert, moneyCtx, moves, WHITE, 3);
+  const closeBoard = new Board(
+    [-2, 0, 0, 0, 0, 4, 0, 3, 0, 0, 0, -4, 4, 0, 0, 0, -3, 0, -4, 0, 0, 0, 0, 2],
+    { [WHITE]: 0, [BLACK]: 0 },
+    { [WHITE]: 2, [BLACK]: 2 },
+  );
+  const makeCloseAcceptGame = () => {
+    const game = new Game(closeBoard.clone(), Math.random, { jacoby: true, unboundedMoneyCube: true });
+    game.currentPlayer = WHITE;
+    game.state = ROLLING;
+    game.cube.value = 1;
+    game.cube.owner = null;
+    game.proposeDouble();
+    return game;
+  };
+  const expectedAccept = refExpert.shouldAcceptDouble(makeCloseAcceptGame(), null);
+
+  // 5a. 1 本目は起動成功、2 本目以降の createWorker() が例外を投げるケース
+  let attempts = 0;
+  const degradedPool = new ThinkerPool({
+    maxWorkers: 4,
+    createWorker: () => {
+      attempts += 1;
+      if (attempts > 1) throw new Error('CSP / resource limit');
+      return createInMemoryWorker();
+    },
+  });
+  assert.equal(await degradedPool.start({ url: 'memory://model.json' }), true);
+  assert.equal(attempts, 1);
+
+  const degradedChoice = await degradedPool.chooseMove({
+    boardDto: boardDto(startBoard),
+    player: WHITE,
+    die1: 3,
+    die2: 1,
+    level: 'expert',
+    moves,
+    context: moneyCtx,
+  });
+  assert.equal(degradedChoice.index, expectedMove, 'degraded 1-worker chooseMove matches reference');
+  assert.equal(attempts, 2, 'scale-up stops immediately after first createWorker failure');
+
+  const degradedRank = await degradedPool.rankMoves({
+    boardDto: boardDto(startBoard),
+    player: WHITE,
+    die1: 3,
+    die2: 1,
+    level: 'expert',
+    moves,
+    context: moneyCtx,
+    limit: 3,
+    adviceAgent: refExpert,
+  });
+  assert.deepEqual(
+    degradedRank.entries.map((entry) => entry.index),
+    expectedRank.entries.map((entry) => entry.index),
+    'degraded 1-worker rankMoves matches reference',
+  );
+  assert.equal(attempts, 3, 'rankMoves scale-up also stops immediately on failure');
+
+  const acceptGame = makeCloseAcceptGame();
+  const degradedCube = await degradedPool.decideCube({
+    boardDto: boardDto(closeBoard),
+    player: WHITE,
+    cubeValue: acceptGame.cube.value,
+    cubeOwner: acceptGame.cube.owner,
+    jacoby: acceptGame.jacoby,
+    crawford: acceptGame.crawford,
+    level: 'expert',
+    match: null,
+    ask: 'accept',
+    game: acceptGame,
+  });
+  assert.equal(degradedCube, expectedAccept, 'degraded 1-worker decideCube matches reference');
+  assert.equal(attempts, 4, 'decideCube scale-up also stops immediately on failure');
+  degradedPool.terminate();
+
+  // 5b. 2 本目以降の load 初期化が非同期失敗（ok:false）するケース
+  let asyncCreated = 0;
+  const loadFailPool = new ThinkerPool({
+    maxWorkers: 4,
+    createWorker: () => {
+      asyncCreated += 1;
+      if (asyncCreated === 1) return createInMemoryWorker();
+      const broken = {
+        onmessage: null,
+        onerror: null,
+        terminate() {},
+        postMessage(data) {
+          queueMicrotask(() => {
+            broken.onmessage?.({ data: { id: data.id, ok: false, error: 'load failed' } });
+          });
+        },
+      };
+      return broken;
+    },
+  });
+  assert.equal(await loadFailPool.start({ url: 'memory://model.json' }), true);
+  const loadFailChoice = await loadFailPool.chooseMove({
+    boardDto: boardDto(startBoard),
+    player: WHITE,
+    die1: 3,
+    die2: 1,
+    level: 'expert',
+    moves,
+    context: moneyCtx,
+  });
+  assert.equal(loadFailChoice.index, expectedMove, 'async load failure on extra workers degrades safely');
+  loadFailPool.terminate();
+
+  // 5c. 初回起動失敗および全 Worker 死亡＋再起動不可で明示的に reject（fallback 到達可能）
+  const deadPool = new ThinkerPool({
+    maxWorkers: 4,
+    createWorker: () => { throw new Error('workers blocked'); },
+  });
+  assert.equal(await deadPool.start({ url: 'memory://model.json' }), false);
+  assert.equal(deadPool.available, false);
+  await assert.rejects(
+    () => deadPool.chooseMove({
+      boardDto: boardDto(startBoard),
+      player: WHITE,
+      die1: 3,
+      die2: 1,
+      level: 'expert',
+      moves,
+      context: moneyCtx,
+    }),
+    /worker なし/,
+    'chooseMove rejects explicitly when no workers can spawn',
+  );
+  await assert.rejects(
+    () => deadPool.rankMoves({
+      boardDto: boardDto(startBoard),
+      player: WHITE,
+      die1: 3,
+      die2: 1,
+      level: 'expert',
+      moves,
+      context: moneyCtx,
+      limit: 3,
+      adviceAgent: refExpert,
+    }),
+    /worker なし/,
+    'rankMoves rejects explicitly when no workers can spawn',
+  );
+  const deadCubeGame = makeCloseAcceptGame();
+  await assert.rejects(
+    () => deadPool.decideCube({
+      boardDto: boardDto(closeBoard),
+      player: WHITE,
+      cubeValue: deadCubeGame.cube.value,
+      cubeOwner: deadCubeGame.cube.owner,
+      jacoby: deadCubeGame.jacoby,
+      crawford: deadCubeGame.crawford,
+      level: 'expert',
+      match: null,
+      ask: 'accept',
+      game: deadCubeGame,
+    }),
+    /worker なし/,
+    'decideCube rejects explicitly when no workers can spawn',
+  );
+  deadPool.terminate();
+}
+
+console.log('OK: parallel-pool (0.2.5 sync, sequential NN, 4-worker checker/hint/cube parity, spawn failure handling)');
