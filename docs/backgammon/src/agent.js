@@ -179,6 +179,11 @@ export const DEFAULT_MATCH_CUBE_SCREEN_MARGIN = 0.02;
 export const DEFAULT_CUBE_CASH_OPTION = true;
 export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
 
+/** 2 段葉プルーニング（Pruning Net 有効時）の既定値（ADR-0172 / ADR-0178、Rust bg-core と同一）。 */
+export const DEFAULT_LEAF_PRUNE_CANDIDATES = 7;
+export const DEFAULT_LEAF_PRUNE_TOLERANCE = 0.200;
+const LEAF_PRUNE_MIN_UNIQUE_BOARDS = 16;
+
 // ── 弱い相手の作り方 ──────────────────────────────
 
 //
@@ -402,6 +407,41 @@ export function setMoneyBearoffDatabase(database) {
   sharedMoneyBearoff = database;
 }
 
+let sharedPruneNet = null;
+
+/**
+ * 2 段葉プルーニング用ネットの互換契約（198 入力・5 出力・features="none"・white/mover 視点）を検証する。
+ * `Agent` コンストラクタ・`setPruneNet`・`worker.js` で共通使用する。
+ */
+export function validatePruneNet(pruneNet) {
+  if (pruneNet === null || pruneNet === undefined) return null;
+  if (typeof pruneNet !== 'object' || typeof pruneNet.predict !== 'function') {
+    throw new Error('pruneNet は predict() を持つ NeuralNet インスタンスである必要があります');
+  }
+  const prunePerspective = pruneNet.perspective ?? 'white';
+  if (
+    pruneNet.inputDim !== 198
+    || pruneNet.outputDim !== 5
+    || (pruneNet.features ?? 'none') !== 'none'
+  ) {
+    throw new Error('pruneNet は 198入力・5出力・features="none" の単独 MLP 専用です');
+  }
+  if (prunePerspective !== 'white' && prunePerspective !== 'mover') {
+    throw new Error(`pruneNet の未対応 perspective です: ${prunePerspective}`);
+  }
+  return pruneNet;
+}
+
+/** 2 段葉プルーニング用ネットを全 Agent で共有設定する（既定 null = 無効）。 */
+export function setPruneNet(net) {
+  sharedPruneNet = validatePruneNet(net ?? null);
+}
+
+/** 共有 Pruning Net を取得する。 */
+export function getPruneNet() {
+  return sharedPruneNet;
+}
+
 export function agentFor(net, levelId, overrides = {}) {
   const level = levelById(levelId);
   return new Agent(net, level.plies, filtersFor(level.plies), {
@@ -476,8 +516,20 @@ export class Agent {
     // ここを null 既定にすると、`new Agent(...)` を直接呼んだ場所だけ
     // 厳密解を失う——実際にパリティのテストがそれで engine と食い違った。
     bearoff = sharedBearoff,
+    pruneNet = sharedPruneNet,
+    leafPruneCandidates = DEFAULT_LEAF_PRUNE_CANDIDATES,
+    leafPruneTolerance = DEFAULT_LEAF_PRUNE_TOLERANCE,
   } = {}) {
     this.net = net;
+    if (!Number.isInteger(leafPruneCandidates) || leafPruneCandidates < 0) {
+      throw new Error(`leafPruneCandidates は 0 以上の整数を指定してください: ${leafPruneCandidates}`);
+    }
+    if (!Number.isFinite(leafPruneTolerance) || leafPruneTolerance < 0) {
+      throw new Error(`leafPruneTolerance は 0 以上の有限値を指定してください: ${leafPruneTolerance}`);
+    }
+    this.pruneNet = validatePruneNet(pruneNet ?? null);
+    this.leafPruneCandidates = leafPruneCandidates;
+    this.leafPruneTolerance = leafPruneTolerance;
     this.cubeHeadMoney = cubeHeadMoney ?? this.net?.cubeHeadMoney ?? null;
     this.cubeHeadMatch = cubeHeadMatch ?? this.net?.cubeHeadMatch ?? null;
     this.useCubeHead = useCubeHead ?? (this.cubeHeadMoney !== null || this.cubeHeadMatch !== null);
@@ -1755,11 +1807,240 @@ export class Agent {
     return this.rollShortlistBoards(board, turn, roll, level, filters);
   }
 
+  /** 2 段葉プルーニングが有効か（Rust `active_leaf_prune` と同条件）。 */
+  get activeLeafPrune() {
+    return this.pruneNet !== null && this.leafPruneCandidates > 0;
+  }
+
+  /**
+   * 指定ネット `evalNet`（+ Bearoff + 終局確定値）で `boards` の **turn 視点** equity を一括計算する。
+   * `evalNet.perspective`（`'white'` / `'mover'`）を吸収し、engine 0.2.6 / C# と同一契約を保つ。
+   */
+  equitiesWithNet(evalNet, boards, turn) {
+    const count = boards.length;
+    const results = new Float64Array(count);
+    const bearoffSign = turn === WHITE ? 1 : -1;
+    const isMoverPerspective = (evalNet.perspective ?? 'white') === 'mover';
+    const viewer = isMoverPerspective ? turn : WHITE;
+    const nnSign = isMoverPerspective ? 1 : bearoffSign;
+    const pendingIdx = [];
+    const pendingFeatures = [];
+    for (let i = 0; i < count; i += 1) {
+      const b = boards[i];
+      const terminal = this.terminalEquity(b, turn);
+      if (terminal !== null) {
+        results[i] = terminal;
+        continue;
+      }
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(b, turn);
+        if (exact !== null) {
+          results[i] = bearoffSign * equity(exact);
+          continue;
+        }
+      }
+      pendingIdx.push(i);
+      pendingFeatures.push(encodeBoard(b, viewer, turn));
+    }
+    if (pendingIdx.length > 0) {
+      const vectors = typeof evalNet.predictBatch === 'function'
+        ? evalNet.predictBatch(pendingFeatures)
+        : pendingFeatures.map((feat) => evalNet.predict(feat));
+      for (let j = 0; j < pendingIdx.length; j += 1) {
+        results[pendingIdx[j]] = nnSign * equity(vectors[j]);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * 主ネット `this.net`（+ Bearoff + 終局確定値 + checkerVectorCache）で `boards` の White 視点 5-vector を一括計算する。
+   */
+  vectorsForBoards(boards, turn) {
+    const count = boards.length;
+    const results = new Array(count);
+    const cache = this.checkerVectorCache;
+    const pendingIdx = [];
+    const pendingKeys = [];
+    const pendingFeatures = [];
+    for (let i = 0; i < count; i += 1) {
+      const b = boards[i];
+      const terminal = this.terminalVector(b);
+      if (terminal !== null) {
+        results[i] = terminal;
+        continue;
+      }
+      const key = cache && Array.isArray(b?.points) ? `${turn}:${boardKey(b)}` : null;
+      if (key !== null && cache.has(key)) {
+        results[i] = cache.get(key);
+        continue;
+      }
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(b, turn);
+        if (exact !== null) {
+          results[i] = exact;
+          if (key !== null && cache.size < 250_000) cache.set(key, exact);
+          continue;
+        }
+      }
+      pendingIdx.push(i);
+      pendingKeys.push(key);
+      pendingFeatures.push(encodeBoard(b, WHITE, turn));
+    }
+    if (pendingIdx.length > 0) {
+      const vectors = typeof this.net.predictBatch === 'function'
+        ? this.net.predictBatch(pendingFeatures)
+        : pendingFeatures.map((feat) => this.net.predict(feat));
+      for (let j = 0; j < pendingIdx.length; j += 1) {
+        const vec = vectors[j];
+        results[pendingIdx[j]] = vec;
+        const key = pendingKeys[j];
+        if (key !== null && cache.size < 250_000) cache.set(key, vec);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * `activeRolls` 分の合法手を盤面キーで重複排除して展開する（Rust `expand_all_rolls_dedup` と同一構造）。
+   */
+  expandRollsDedup(board, toMove, activeRolls) {
+    const uniqueBoards = [];
+    const uidByKey = new Map();
+    const rollUids = [];
+    const starts = new Int32Array(activeRolls.length + 1);
+    for (let r = 0; r < activeRolls.length; r += 1) {
+      starts[r] = rollUids.length;
+      const { die1, die2 } = activeRolls[r];
+      const moves = generateMoves(board, toMove, die1, die2);
+      if (moves.length === 0) {
+        const key = boardKey(board);
+        let uid = uidByKey.get(key);
+        if (uid === undefined) {
+          uid = uniqueBoards.length;
+          uidByKey.set(key, uid);
+          uniqueBoards.push(board);
+        }
+        rollUids.push(uid);
+      } else {
+        for (let m = 0; m < moves.length; m += 1) {
+          const next = moves[m].resultingBoard;
+          const key = boardKey(next);
+          let uid = uidByKey.get(key);
+          if (uid === undefined) {
+            uid = uniqueBoards.length;
+            uidByKey.set(key, uid);
+            uniqueBoards.push(next);
+          }
+          rollUids.push(uid);
+        }
+      }
+    }
+    starts[activeRolls.length] = rollUids.length;
+    return { uniqueBoards, rollUids, starts };
+  }
+
+  /**
+   * `pruneNet` の opponent 視点スコア（小さいほど `toMove` に有利）から
+   * 各ロールの上位候補を抽出し、本物 `this.net` で再評価するユニーク盤面リストを構築する。
+   * Rust `select_leaf_re_eval_candidates` / engine `0.2.6` と完全同一規則。
+   */
+  selectLeafReEvalCandidates(uniqueBoards, rollUids, starts, oppEquities, rollCount) {
+    const marked = new Uint8Array(uniqueBoards.length);
+    const slUids = [];
+    const slStarts = new Int32Array(rollCount + 1);
+    const reUids = [];
+    const reBoards = [];
+    for (let r = 0; r < rollCount; r += 1) {
+      slStarts[r] = slUids.length;
+      const s = starts[r];
+      const e = starts[r + 1];
+      const count = e - s;
+      if (count === 0) continue;
+      if (count === 1) {
+        const uid = rollUids[s];
+        slUids.push(uid);
+        if (!marked[uid]) {
+          marked[uid] = 1;
+          reUids.push(uid);
+          reBoards.push(uniqueBoards[uid]);
+        }
+        continue;
+      }
+      let bestLocal = 0;
+      let bestOpp = oppEquities[rollUids[s]];
+      for (let localI = 1; localI < count; localI += 1) {
+        const val = oppEquities[rollUids[s + localI]];
+        if (val < bestOpp) {
+          bestOpp = val;
+          bestLocal = localI;
+        }
+      }
+      const limit = Math.min(Math.max(this.leafPruneCandidates, 1), count);
+      const cutoff = this.leafPruneTolerance > 0 ? bestOpp + this.leafPruneTolerance : Infinity;
+      const tmpOrder = [];
+      for (let localI = 0; localI < count; localI += 1) {
+        const val = oppEquities[rollUids[s + localI]];
+        if (val <= cutoff) tmpOrder.push([localI, val]);
+      }
+      if (tmpOrder.length === 0) tmpOrder.push([bestLocal, bestOpp]);
+      if (tmpOrder.length > limit) {
+        tmpOrder.sort((a, b) => (a[1] !== b[1] ? a[1] - b[1] : a[0] - b[0]));
+        tmpOrder.length = limit;
+      }
+      for (let i = 0; i < tmpOrder.length; i += 1) {
+        const uid = rollUids[s + tmpOrder[i][0]];
+        slUids.push(uid);
+        if (!marked[uid]) {
+          marked[uid] = 1;
+          reUids.push(uid);
+          reBoards.push(uniqueBoards[uid]);
+        }
+      }
+    }
+    slStarts[rollCount] = slUids.length;
+    return { slUids, slStarts, reUids, reBoards };
+  }
+
   /**
    * 出目 21 通りを展開し、最善を尽くしたときの viewer 視点 equity。
-   * 最深段（残り 1 段）専用。応手は 0-ply で選ぶ。
+   * 最深段（残り 1 段）専用。応手は 0-ply で選ぶ。`pruneNet` 指定時は 2 段葉プルーニングを行う。
    */
   expectedEquityAfterMove(board, toMove, viewer) {
+    if (this.activeLeafPrune) {
+      const opp = opponent(toMove);
+      const { uniqueBoards, rollUids, starts } = this.expandRollsDedup(board, toMove, ALL_ROLLS);
+      let oppEquities;
+      let evalUids;
+      let evalStarts;
+      if (uniqueBoards.length > LEAF_PRUNE_MIN_UNIQUE_BOARDS) {
+        oppEquities = this.equitiesWithNet(this.pruneNet, uniqueBoards, opp);
+        const { slUids, slStarts, reUids, reBoards } = this.selectLeafReEvalCandidates(
+          uniqueBoards, rollUids, starts, oppEquities, ALL_ROLLS.length,
+        );
+        const reEquities = this.equitiesWithNet(this.net, reBoards, opp);
+        for (let i = 0; i < reUids.length; i += 1) oppEquities[reUids[i]] = reEquities[i];
+        evalUids = slUids;
+        evalStarts = slStarts;
+      } else {
+        oppEquities = this.equitiesWithNet(this.net, uniqueBoards, opp);
+        evalUids = rollUids;
+        evalStarts = starts;
+      }
+      let totalToMove = 0;
+      for (let r = 0; r < ALL_ROLLS.length; r += 1) {
+        const s = evalStarts[r];
+        const e = evalStarts[r + 1];
+        let bestOpp = Infinity;
+        for (let i = s; i < e; i += 1) {
+          const vOpp = oppEquities[evalUids[i]];
+          if (vOpp < bestOpp) bestOpp = vOpp;
+        }
+        totalToMove += ALL_ROLLS[r].weight * (-bestOpp);
+      }
+      return toMove === viewer ? totalToMove : -totalToMove;
+    }
+
     let total = 0;
     for (const { die1, die2, weight } of ALL_ROLLS) {
       const moves = generateMoves(board, toMove, die1, die2);
@@ -1859,6 +2140,55 @@ export class Agent {
     const activeRolls = rollIndices === null
       ? ALL_ROLLS
       : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    if (this.activeLeafPrune) {
+      const opp = opponent(toMove);
+      const { uniqueBoards, rollUids, starts } = this.expandRollsDedup(board, toMove, activeRolls);
+      const uniqueVectors = new Array(uniqueBoards.length);
+      const whiteEquities = new Float64Array(uniqueBoards.length);
+      let evalUids;
+      let evalStarts;
+      if (uniqueBoards.length > LEAF_PRUNE_MIN_UNIQUE_BOARDS) {
+        const oppEquities = this.equitiesWithNet(this.pruneNet, uniqueBoards, opp);
+        const { slUids, slStarts, reUids, reBoards } = this.selectLeafReEvalCandidates(
+          uniqueBoards, rollUids, starts, oppEquities, activeRolls.length,
+        );
+        const reVectors = this.vectorsForBoards(reBoards, opp);
+        for (let i = 0; i < reUids.length; i += 1) {
+          const uid = reUids[i];
+          uniqueVectors[uid] = reVectors[i];
+          whiteEquities[uid] = equity(reVectors[i]);
+        }
+        evalUids = slUids;
+        evalStarts = slStarts;
+      } else {
+        const allVectors = this.vectorsForBoards(uniqueBoards, opp);
+        for (let i = 0; i < uniqueBoards.length; i += 1) {
+          uniqueVectors[i] = allVectors[i];
+          whiteEquities[i] = equity(allVectors[i]);
+        }
+        evalUids = rollUids;
+        evalStarts = starts;
+      }
+      const maximizeWhite = toMove === WHITE;
+      for (let r = 0; r < activeRolls.length; r += 1) {
+        const s = evalStarts[r];
+        const e = evalStarts[r + 1];
+        let bestUid = evalUids[s];
+        let bestEq = whiteEquities[bestUid];
+        for (let i = s + 1; i < e; i += 1) {
+          const uid = evalUids[i];
+          const eq = whiteEquities[uid];
+          if (maximizeWhite ? eq > bestEq : eq < bestEq) {
+            bestEq = eq;
+            bestUid = uid;
+          }
+        }
+        const bestVec = uniqueVectors[bestUid];
+        const { weight } = activeRolls[r];
+        for (let k = 0; k < 5; k += 1) total[k] += weight * bestVec[k];
+      }
+      return total;
+    }
     for (const { die1, die2, weight } of activeRolls) {
       const moves = generateMoves(board, toMove, die1, die2);
       let boards;

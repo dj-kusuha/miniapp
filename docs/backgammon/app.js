@@ -8,7 +8,7 @@
 import { WHITE, BLACK, opponent } from './src/board.js';
 import { NeuralNet } from './src/nn.js';
 import {
-  agentFor, levelById, setBearoffDatabase, setMoneyBearoffDatabase,
+  agentFor, levelById, setBearoffDatabase, setMoneyBearoffDatabase, setPruneNet,
   DEFAULT_LEVEL, ADVICE_LEVEL,
 } from './src/agent.js';
 import { checkerContextFor, rankCheckerMoves, selectCheckerMove } from './src/checker.js';
@@ -99,15 +99,17 @@ const thinker = new ThinkerPool({
   explicitCheckerSearchMode: EXPLICIT_CHECKER_SEARCH_MODE,
 });
 
-/** ベアオフ DB の置き場（モデルと同じ src/ の下）。 */
+/** ベアオフ DB / Pruning Net の置き場（モデルと同じ src/ の下）。 */
 const BEAROFF_URL = './src/bearoff-6x15.bin';
 const MONEY_BEAROFF_URL = './src/money-bg2n-6x6-v4.bin';
+const PRUNE_NET_URL = './src/prune_net.json';
 
 function startThinker(modelUrl) {
   return thinker.start({
     url: new URL(modelUrl, import.meta.url).href,
     bearoffUrl: new URL(BEAROFF_URL, import.meta.url).href,
     moneyBearoffUrl: new URL(MONEY_BEAROFF_URL, import.meta.url).href,
+    pruneNetUrl: new URL(PRUNE_NET_URL, import.meta.url).href,
   });
 }
 
@@ -227,6 +229,14 @@ NeuralNet.load('./src/model.json')
       setBearoffDatabase(await BearoffDatabase.load(BEAROFF_URL));
     } catch (error) {
       console.warn('ベアオフ DB を読めませんでした', error);
+    }
+    // **Pruning Net（2 段葉プルーニング、317 KB）も併せて読む。**
+    // 読めなくても通常の本体ネット評価へフォールバックして動作する。
+    try {
+      setPruneNet(await NeuralNet.load(PRUNE_NET_URL));
+    } catch (error) {
+      setPruneNet(null);
+      console.warn('Pruning Net を読めませんでした', error);
     }
     state.threaded = await startThinker('./src/model.json');
     $('loading').textContent = state.threaded
