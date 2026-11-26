@@ -212,6 +212,8 @@ setBearoffDatabase(bearoff);
     await asked.promise;
     await workerScope.onmessage({ data: { id: 'ov-B', kind: 'load', url: 'https://test.invalid/modelB.json' } });
     assert.equal(byId('ov-B')?.ok, true);
+    assert.equal(byId('ov-B')?.pruneNetLoaded, false);
+    assert.equal(byId('ov-B')?.pruneNetStatus, 'disabled');
     assert.equal(getPruneNet(), null);
     slowPrune.resolve(new Response(rawPrune, { status: 200 }));
     await pA;
@@ -229,6 +231,8 @@ setBearoffDatabase(bearoff);
       data: { id: 'bad-200', kind: 'load', url: 'https://test.invalid/modelA.json', pruneNetUrl: 'https://test.invalid/bad-prune.json' },
     });
     assert.equal(byId('bad-200')?.ok, true);
+    assert.equal(byId('bad-200')?.pruneNetLoaded, false);
+    assert.equal(byId('bad-200')?.pruneNetStatus, 'fallback');
     assert.equal(getPruneNet(), null);
     assert.ok(warnings.length > 0);
 
@@ -242,7 +246,7 @@ setBearoffDatabase(bearoff);
     });
     assert.equal(byId('sel-after-bad')?.ok, true);
 
-    // 5c. 正常ロードで pruneNet が有効になり、select が Rust 参照手と一致
+    // 5c. 正常ロードで pruneNet が有効になり、pruneNetLoaded / pruneNetStatus も正しく返る
     fetchImpl = async (url) => {
       if (url.endsWith('/modelA.json')) return new Response(rawModel, { status: 200 });
       if (url.endsWith('/prune.json')) return new Response(rawPrune, { status: 200 });
@@ -252,6 +256,8 @@ setBearoffDatabase(bearoff);
       data: { id: 'ok-prune', kind: 'load', url: 'https://test.invalid/modelA.json', pruneNetUrl: 'https://test.invalid/prune.json' },
     });
     assert.equal(byId('ok-prune')?.ok, true);
+    assert.equal(byId('ok-prune')?.pruneNetLoaded, true);
+    assert.equal(byId('ok-prune')?.pruneNetStatus, 'loaded');
     assert.notEqual(getPruneNet(), null);
   } finally {
     setPruneNet(null);

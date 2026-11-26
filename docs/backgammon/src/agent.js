@@ -1937,7 +1937,33 @@ export class Agent {
       }
     }
     starts[activeRolls.length] = rollUids.length;
-    return { uniqueBoards, rollUids, starts };
+    return { uniqueBoards, rollUids, starts, uidByKey };
+  }
+
+  /**
+   * ロールチャンク評価（`rollIndices !== null`）でも全 21 出目と同一のプルーニング適用判定を
+   * 維持するため、未処理ロールを含めたユニーク盤面数が `LEAF_PRUNE_MIN_UNIQUE_BOARDS` を超えるか
+   * 早期打ち切り付きで判定する。
+   */
+  exceedsLeafPruneThreshold(board, toMove, coveredRollIndices, existingUidByKey) {
+    if (existingUidByKey.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
+    const covered = new Set(coveredRollIndices);
+    const seen = new Set(existingUidByKey.keys());
+    for (let idx = 0; idx < ALL_ROLLS.length; idx += 1) {
+      if (covered.has(idx)) continue;
+      const { die1, die2 } = ALL_ROLLS[idx];
+      const moves = generateMoves(board, toMove, die1, die2);
+      if (moves.length === 0) {
+        seen.add(boardKey(board));
+        if (seen.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
+      } else {
+        for (let m = 0; m < moves.length; m += 1) {
+          seen.add(boardKey(moves[m].resultingBoard));
+          if (seen.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
@@ -2142,12 +2168,15 @@ export class Agent {
       : rollIndices.map((idx) => ALL_ROLLS[idx]);
     if (this.activeLeafPrune) {
       const opp = opponent(toMove);
-      const { uniqueBoards, rollUids, starts } = this.expandRollsDedup(board, toMove, activeRolls);
+      const { uniqueBoards, rollUids, starts, uidByKey } = this.expandRollsDedup(board, toMove, activeRolls);
       const uniqueVectors = new Array(uniqueBoards.length);
       const whiteEquities = new Float64Array(uniqueBoards.length);
       let evalUids;
       let evalStarts;
-      if (uniqueBoards.length > LEAF_PRUNE_MIN_UNIQUE_BOARDS) {
+      const shouldPrune = uniqueBoards.length > LEAF_PRUNE_MIN_UNIQUE_BOARDS
+        || (rollIndices !== null
+          && this.exceedsLeafPruneThreshold(board, toMove, rollIndices, uidByKey));
+      if (shouldPrune) {
         const oppEquities = this.equitiesWithNet(this.pruneNet, uniqueBoards, opp);
         const { slUids, slStarts, reUids, reBoards } = this.selectLeafReEvalCandidates(
           uniqueBoards, rollUids, starts, oppEquities, activeRolls.length,

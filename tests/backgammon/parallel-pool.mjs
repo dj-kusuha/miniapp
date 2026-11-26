@@ -5,9 +5,11 @@ import { Board, WHITE, BLACK } from '../../docs/backgammon/src/board.js';
 import { NeuralNet } from '../../docs/backgammon/src/nn.js';
 import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
 import {
+  ALL_ROLLS,
   agentFor,
   setBearoffDatabase,
   setMoneyBearoffDatabase,
+  validatePruneNet,
 } from '../../docs/backgammon/src/agent.js';
 import {
   combineCheckerMoveRollChunks,
@@ -26,6 +28,9 @@ import { loadBearoffForTests } from './bearoff-setup.mjs';
 const model = JSON.parse(readFileSync(
   new URL('../../docs/backgammon/src/model.json', import.meta.url), 'utf8'));
 const net = new NeuralNet(model);
+const pruneModel = JSON.parse(readFileSync(
+  new URL('../../docs/backgammon/src/prune_net.json', import.meta.url), 'utf8'));
+const pruneNet = new NeuralNet(pruneModel);
 const bearoff = loadBearoffForTests();
 setBearoffDatabase(bearoff);
 setMoneyBearoffDatabase(null);
@@ -95,16 +100,17 @@ let spawnedCount = 0;
 let rollChunkCalls = 0;
 let cubeChunkCalls = 0;
 
-function createInMemoryWorker() {
+function createInMemoryWorker({ pruneNetLoader = null } = {}) {
   spawnedCount += 1;
   const agents = new Map();
   let defaultMode = 'legacy';
+  let workerPruneNet = null;
   const getAgent = (level, { mode = null, cubeFilterLevel = undefined } = {}) => {
     const effectiveMode = ['legacy', 'full-root', 'staged3ply'].includes(mode) ? mode : defaultMode;
     const key = `${level}|${effectiveMode}|${cubeFilterLevel ?? ''}`;
     let agent = agents.get(key);
     if (!agent) {
-      const overrides = { checkerSearchMode: effectiveMode };
+      const overrides = { checkerSearchMode: effectiveMode, pruneNet: workerPruneNet };
       if (cubeFilterLevel !== null && cubeFilterLevel !== undefined) {
         overrides.cubeFilterLevel = cubeFilterLevel;
       }
@@ -137,8 +143,30 @@ function createInMemoryWorker() {
         try {
           if (kind === 'load') {
             defaultMode = data.checkerSearchMode ?? 'legacy';
+            let nextPruneNet = null;
+            let pruneNetStatus = 'disabled';
+            if (data.pruneNetUrl) {
+              try {
+                const candidate = pruneNetLoader
+                  ? pruneNetLoader(data.pruneNetUrl)
+                  : pruneNet;
+                nextPruneNet = validatePruneNet(candidate);
+                pruneNetStatus = nextPruneNet ? 'loaded' : 'disabled';
+              } catch {
+                nextPruneNet = null;
+                pruneNetStatus = 'fallback';
+              }
+            }
+            workerPruneNet = nextPruneNet;
             agents.clear();
-            worker.onmessage?.({ data: { id, ok: true } });
+            worker.onmessage?.({
+              data: {
+                id,
+                ok: true,
+                pruneNetLoaded: workerPruneNet !== null,
+                pruneNetStatus,
+              },
+            });
             return;
           }
           if (kind === 'select') {
@@ -191,6 +219,17 @@ function createInMemoryWorker() {
               efficiencies: data.efficiencies,
             });
             worker.onmessage?.({ data: { id, ok: true, chunk } });
+            return;
+          }
+          if (kind === 'cube') {
+            const agent = getAgent(data.level);
+            const game = buildGame(data);
+            const answer = agent.withCheckerVectorCache(() => (
+              data.ask === 'accept'
+                ? agent.shouldAcceptDouble(game, data.match ?? null)
+                : agent.shouldDouble(game, data.match ?? null)
+            ));
+            worker.onmessage?.({ data: { id, ok: true, answer: Boolean(answer) } });
             return;
           }
           if (kind === 'prepare-cube-parallel') {
@@ -575,4 +614,366 @@ pool.terminate();
   deadPool.terminate();
 }
 
-console.log('OK: parallel-pool (0.2.5 sync, sequential NN, 4-worker checker/hint/cube parity, spawn failure handling)');
+// 6. [P1] Pruning Net 有効時の並列 parity（全21出目 / 1・2・4 worker / roll-chunk）と閾値16またぎ局面
+{
+  const partitionRR = (items, buckets) => {
+    const groups = Array.from({ length: buckets }, () => []);
+    for (let i = 0; i < items.length; i += 1) groups[i % buckets].push(items[i]);
+    return groups;
+  };
+  const allRollIndices = Array.from({ length: ALL_ROLLS.length }, (_, i) => i);
+
+  // バー復帰の閾値16またぎ局面（全21出目ではユニーク盤面 > 16、4分割の一部チャンクでは <= 16）
+  const crossingPts = Array(24).fill(0);
+  for (let p = 18; p <= 22; p += 1) crossingPts[p] = -2;
+  crossingPts[12] = 2;
+  crossingPts[9] = 2;
+  crossingPts[7] = 2;
+  crossingPts[5] = 2;
+  crossingPts[3] = 2;
+  crossingPts[1] = 2;
+  crossingPts[10] = -1;
+  crossingPts[8] = -1;
+  crossingPts[6] = -1;
+  crossingPts[4] = -1;
+  crossingPts[2] = -1;
+  const whiteCrossing = new Board(crossingPts, { [WHITE]: 1, [BLACK]: 0 }, { [WHITE]: 2, [BLACK]: 0 });
+  const blackCrossing = mirrorBoard(whiteCrossing);
+
+  // もし分割で pruning ON/OFF が切り替われば確実に差が出る反転 pruneNet も併用して検証する。
+  const invertedPruneNet = {
+    perspective: 'white',
+    inputDim: 198,
+    outputDim: 5,
+    features: 'none',
+    predict(x) {
+      const v = net.predict(x);
+      return Float32Array.from([1 - v[0], v[3], v[4], v[1], v[2]]);
+    },
+    predictBatch(xs) {
+      return xs.map((x) => this.predict(x));
+    },
+  };
+
+  // 6a. expectedVectorAfterMove 直接検証（実 prune_net.json & 反転 pruneNet × White/Black × 1/2/4分割）
+  for (const [pruneLabel, activePrune] of [['real-prune', pruneNet], ['inverted-prune', invertedPruneNet]]) {
+    for (const [sideLabel, board, toMove] of [['white', whiteCrossing, WHITE], ['black', blackCrossing, BLACK]]) {
+      const refAgent = agentFor(net, 'expert', { pruneNet: activePrune });
+      const fullDedup = refAgent.expandRollsDedup(board, toMove, ALL_ROLLS);
+      assert.ok(fullDedup.uniqueBoards.length > 16, `${sideLabel}: full 21 rolls > 16`);
+      const fullVec = refAgent.expectedVectorAfterMove(board, toMove, null);
+      for (const buckets of [1, 2, 4]) {
+        const chunks = partitionRR(allRollIndices, buckets);
+        if (buckets === 4) {
+          const sizes = chunks.map(
+            (idxs) => refAgent.expandRollsDedup(board, toMove, idxs.map((i) => ALL_ROLLS[i])).uniqueBoards.length,
+          );
+          assert.ok(sizes.some((n) => n <= 16), `${sideLabel}: 4-way split crosses <= 16 threshold (${sizes})`);
+        }
+        const sum = [0, 0, 0, 0, 0];
+        for (const idxs of chunks) {
+          const part = refAgent.expectedVectorAfterMove(board, toMove, idxs);
+          for (let k = 0; k < 5; k += 1) sum[k] += part[k];
+        }
+        for (let k = 0; k < 5; k += 1) {
+          assertClose(sum[k], fullVec[k], 1e-12, `${pruneLabel} ${sideLabel} ${buckets}-way vec[${k}]`);
+        }
+      }
+    }
+  }
+
+  // 6b. ThinkerPool 1 / 2 / 4 worker × Pruning Net 有効時の checker / hint / cube parity
+  // （White/Black、Money cubeful / Money cube-OFF / Match、閾値またぎ局面含む）
+  const moneyCubeOffCtx = {
+    cube: { value: 1, owner: 'center', enabled: false, available: false, unboundedMoney: false },
+    match: { mode: 'money', jacoby: false },
+  };
+  const matchCubeCtx = { length: 5, away: { [WHITE]: 3, [BLACK]: 2 }, crawfordPlayed: false };
+  const makeCubeGame = (board, player, isMoney, ask) => {
+    const game = new Game(board.clone(), Math.random, { jacoby: isMoney, unboundedMoneyCube: isMoney });
+    game.currentPlayer = player;
+    game.state = ROLLING;
+    game.cube.value = 1;
+    game.cube.owner = null;
+    if (ask === 'accept') game.proposeDouble();
+    return game;
+  };
+
+  for (const maxWorkers of [1, 2, 4]) {
+    const prunedPool = new ThinkerPool({
+      maxWorkers,
+      createWorker: () => createInMemoryWorker(),
+    });
+    assert.equal(await prunedPool.start({ url: 'memory://model.json', pruneNetUrl: 'memory://prune_net.json' }), true);
+    assert.deepEqual(prunedPool.pruneNetStatus, {
+      state: 'loaded',
+      loadedWorkers: 1,
+      totalWorkers: 1,
+      consistent: true,
+    });
+
+    const refExpertPruned = agentFor(net, 'expert', { pruneNet });
+
+    for (const [sideLabel, board, player] of [
+      ['white-start', startBoard, WHITE],
+      ['black-start', mirrorBoard(startBoard), BLACK],
+      ['white-crossing', whiteCrossing, WHITE],
+      ['black-crossing', blackCrossing, BLACK],
+    ]) {
+      // 1w / 2w / 4w 共通: 実運用と同じ全合法手リスト（allMoves）で chooseMove / rankMoves 一致を検証
+      const allMoves = generateMoves(board, player, 1, 2);
+      if (allMoves.length >= 2) {
+        for (const [ctxLabel, ctx] of [
+          ['money', moneyCtx],
+          ['money-cube-off', moneyCubeOffCtx],
+          ['match', matchCtx],
+        ]) {
+          const choice = await prunedPool.chooseMove({
+            boardDto: boardDto(board),
+            player,
+            die1: 1,
+            die2: 2,
+            level: 'expert',
+            moves: allMoves,
+            context: ctx,
+          });
+          const refIndex = selectCheckerMove(refExpertPruned, ctx, allMoves, player);
+          assert.equal(choice.index, refIndex, `prune ON ${maxWorkers}w ${sideLabel} ${ctxLabel} chooseMove`);
+
+          const ranked = await prunedPool.rankMoves({
+            boardDto: boardDto(board),
+            player,
+            die1: 1,
+            die2: 2,
+            level: 'expert',
+            moves: allMoves,
+            context: ctx,
+            limit: 3,
+            adviceAgent: refExpertPruned,
+          });
+          const refRank = rankCheckerMoves(refExpertPruned, ctx, allMoves, player, 3);
+          assert.deepEqual(
+            ranked.entries.map((e) => e.index),
+            refRank.entries.map((e) => e.index),
+            `prune ON ${maxWorkers}w ${sideLabel} ${ctxLabel} rank order`,
+          );
+          for (let i = 0; i < refRank.entries.length; i += 1) {
+            assertClose(
+              ranked.entries[i].equity,
+              refRank.entries[i].equity,
+              1e-12,
+              `prune ON ${maxWorkers}w ${sideLabel} ${ctxLabel} rank equity ${i}`,
+            );
+            assertClose(
+              ranked.entries[i].loss,
+              refRank.entries[i].loss,
+              1e-12,
+              `prune ON ${maxWorkers}w ${sideLabel} ${ctxLabel} rank loss ${i}`,
+            );
+          }
+
+          // 2w / 4w では 2 手スライスで eval-checker-roll-chunk 経路も必ず踏んで単一参照と照合
+          if (maxWorkers >= 2) {
+            const twoMoves = allMoves.slice(0, 2);
+            const beforeRollChunks = rollChunkCalls;
+            const chunkChoice = await prunedPool.chooseMove({
+              boardDto: boardDto(board),
+              player,
+              die1: 1,
+              die2: 2,
+              level: 'expert',
+              moves: twoMoves,
+              context: ctx,
+            });
+            if (maxWorkers > twoMoves.length) {
+              assert.ok(rollChunkCalls > beforeRollChunks, `${maxWorkers}w ${sideLabel} ${ctxLabel} hits roll-chunk`);
+            }
+            assert.equal(
+              chunkChoice.index,
+              selectCheckerMove(refExpertPruned, ctx, twoMoves, player),
+              `prune ON ${maxWorkers}w ${sideLabel} ${ctxLabel} roll-chunk chooseMove`,
+            );
+          }
+        }
+      }
+
+      // Cube double / accept（Money & Match）
+      for (const [cubeLabel, matchObj, ask] of [
+        ['money-double', null, 'double'],
+        ['money-accept', null, 'accept'],
+        ['match-double', matchCubeCtx, 'double'],
+        ['match-accept', matchCubeCtx, 'accept'],
+      ]) {
+        const game = makeCubeGame(board, player, matchObj === null, ask);
+        const refAnswer = ask === 'accept'
+          ? refExpertPruned.shouldAcceptDouble(game, matchObj)
+          : refExpertPruned.shouldDouble(game, matchObj);
+        const parAnswer = await prunedPool.decideCube({
+          boardDto: boardDto(board),
+          player,
+          cubeValue: game.cube.value,
+          cubeOwner: game.cube.owner,
+          jacoby: game.jacoby,
+          crawford: game.crawford,
+          level: 'expert',
+          match: matchObj,
+          ask,
+          game,
+        });
+        assert.equal(parAnswer, refAnswer, `prune ON ${maxWorkers}w ${sideLabel} ${cubeLabel}`);
+      }
+    }
+
+    assert.equal(prunedPool.pruneNetStatus.state, 'loaded');
+    assert.equal(prunedPool.pruneNetStatus.consistent, true);
+    assert.equal(prunedPool.pruneNetStatus.loadedWorkers, maxWorkers);
+    prunedPool.terminate();
+  }
+
+  // 6c. 反転 pruneNet でも Money cube-OFF depth=1 roll-chunk 並列（ThinkerPool 4w）が全21出目と一致すること
+  {
+    const advPool = new ThinkerPool({
+      maxWorkers: 4,
+      createWorker: () => createInMemoryWorker({ pruneNetLoader: () => invertedPruneNet }),
+    });
+    assert.equal(await advPool.start({ url: 'memory://model.json', pruneNetUrl: 'memory://inverted' }), true);
+    const refAdv = agentFor(net, 'expert', { pruneNet: invertedPruneNet });
+    for (const [sideLabel, board, player] of [['white', whiteCrossing, WHITE], ['black', blackCrossing, BLACK]]) {
+      const moves = generateMoves(board, player, 1, 2).slice(0, 2);
+      const ranked = await advPool.rankMoves({
+        boardDto: boardDto(board),
+        player,
+        die1: 1,
+        die2: 2,
+        level: 'expert',
+        moves,
+        context: moneyCubeOffCtx,
+        limit: 2,
+        adviceAgent: refAdv,
+      });
+      const refRank = rankCheckerMoves(refAdv, moneyCubeOffCtx, moves, player, 2);
+      assert.deepEqual(ranked.entries.map((e) => e.index), refRank.entries.map((e) => e.index));
+      for (let i = 0; i < refRank.entries.length; i += 1) {
+        assertClose(ranked.entries[i].equity, refRank.entries[i].equity, 1e-12, `adv ${sideLabel} rank eq ${i}`);
+      }
+    }
+    advPool.terminate();
+  }
+
+  // 7. [P2] Worker 間での部分的な Pruning Net 読込失敗（404 / 互換不適合）の検出と解析単位の統一
+  {
+    const moves = generateMoves(startBoard, WHITE, 3, 1);
+    const twoMoves = moves.slice(0, 2);
+    const closeBoard = new Board(
+      [-2, 0, 0, 0, 0, 4, 0, 3, 0, 0, 0, -4, 4, 0, 0, 0, -3, 0, -4, 0, 0, 0, 0, 2],
+      { [WHITE]: 0, [BLACK]: 0 },
+      { [WHITE]: 2, [BLACK]: 2 },
+    );
+    const makeCloseAccept = () => makeCubeGame(closeBoard, WHITE, true, 'accept');
+
+    const healthyPool = new ThinkerPool({
+      maxWorkers: 4,
+      createWorker: () => createInMemoryWorker({ pruneNetLoader: () => invertedPruneNet }),
+    });
+    assert.equal(await healthyPool.start({ url: 'memory://model.json', pruneNetUrl: 'memory://prune' }), true);
+    const refPruned = agentFor(net, 'expert', { pruneNet: invertedPruneNet });
+    const healthyChoice = await healthyPool.chooseMove({
+      boardDto: boardDto(startBoard), player: WHITE, die1: 3, die2: 1,
+      level: 'expert', moves: twoMoves, context: moneyCubeOffCtx,
+    });
+    const healthyRank = await healthyPool.rankMoves({
+      boardDto: boardDto(startBoard), player: WHITE, die1: 3, die2: 1,
+      level: 'expert', moves: twoMoves, context: moneyCubeOffCtx, limit: 2, adviceAgent: refPruned,
+    });
+    const healthyCube = await healthyPool.decideCube({
+      boardDto: boardDto(closeBoard), player: WHITE, cubeValue: 1, cubeOwner: null,
+      jacoby: true, crawford: false, level: 'expert', match: null, ask: 'accept', game: makeCloseAccept(),
+    });
+    assert.deepEqual(healthyPool.pruneNetStatus, {
+      state: 'loaded', loadedWorkers: 4, totalWorkers: 4, consistent: true,
+    });
+    healthyPool.terminate();
+
+    // 7a. 4本中1本だけ404 / 互換不適合（perspective: 'black'）になるケース → partial を識別しつつ
+    // 健全な 3 Worker で解析単位を揃え、健全4本と選択・順位・equity・cube判断が完全一致すること
+    for (const [failureKind, failingLoader] of [
+      ['404', () => { throw new Error('HTTP 404'); }],
+      ['incompatible', () => ({ inputDim: 198, outputDim: 5, features: 'none', perspective: 'black', predict: () => [0.5, 0, 0, 0, 0] })],
+    ]) {
+      let workerOrdinal = 0;
+      const partialPool = new ThinkerPool({
+        maxWorkers: 4,
+        createWorker: () => {
+          workerOrdinal += 1;
+          const idx = workerOrdinal;
+          return createInMemoryWorker({
+            pruneNetLoader: (url) => (idx === 3 ? failingLoader(url) : invertedPruneNet),
+          });
+        },
+      });
+      assert.equal(await partialPool.start({ url: 'memory://model.json', pruneNetUrl: 'memory://prune' }), true);
+
+      const partialChoice = await partialPool.chooseMove({
+        boardDto: boardDto(startBoard), player: WHITE, die1: 3, die2: 1,
+        level: 'expert', moves: twoMoves, context: moneyCubeOffCtx,
+      });
+      const partialRank = await partialPool.rankMoves({
+        boardDto: boardDto(startBoard), player: WHITE, die1: 3, die2: 1,
+        level: 'expert', moves: twoMoves, context: moneyCubeOffCtx, limit: 2, adviceAgent: refPruned,
+      });
+      const partialCube = await partialPool.decideCube({
+        boardDto: boardDto(closeBoard), player: WHITE, cubeValue: 1, cubeOwner: null,
+        jacoby: true, crawford: false, level: 'expert', match: null, ask: 'accept', game: makeCloseAccept(),
+      });
+
+      assert.deepEqual(partialPool.pruneNetStatus, {
+        state: 'partial', loadedWorkers: 3, totalWorkers: 4, consistent: false,
+      }, `${failureKind}: pool exposes partial pruneNet status`);
+      assert.equal(partialChoice.index, healthyChoice.index, `${failureKind}: choice matches healthy 4w`);
+      assert.deepEqual(
+        partialRank.entries.map((e) => e.index),
+        healthyRank.entries.map((e) => e.index),
+        `${failureKind}: rank order matches healthy 4w`,
+      );
+      for (let i = 0; i < healthyRank.entries.length; i += 1) {
+        assertClose(partialRank.entries[i].equity, healthyRank.entries[i].equity, 1e-12, `${failureKind}: rank equity ${i}`);
+      }
+      assert.equal(partialCube, healthyCube, `${failureKind}: cube decision matches healthy 4w`);
+      partialPool.terminate();
+    }
+
+    // 7b. primary Worker(1本目)のみ失敗、追加 Worker が成功したケース → partial を識別しつつ
+    // primary と同じ pruning OFF に揃えて非剪定参照と一致すること（ON/OFF混在なし）
+    {
+      let workerOrdinal = 0;
+      const primaryFailPool = new ThinkerPool({
+        maxWorkers: 4,
+        createWorker: () => {
+          workerOrdinal += 1;
+          const idx = workerOrdinal;
+          return createInMemoryWorker({
+            pruneNetLoader: () => {
+              if (idx === 1) throw new Error('primary 404');
+              return invertedPruneNet;
+            },
+          });
+        },
+      });
+      assert.equal(await primaryFailPool.start({ url: 'memory://model.json', pruneNetUrl: 'memory://prune' }), true);
+      const refUnpruned = agentFor(net, 'expert', { pruneNet: null });
+      const rankRes = await primaryFailPool.rankMoves({
+        boardDto: boardDto(startBoard), player: WHITE, die1: 3, die2: 1,
+        level: 'expert', moves: twoMoves, context: moneyCubeOffCtx, limit: 2, adviceAgent: refUnpruned,
+      });
+      const refRankUnpruned = rankCheckerMoves(refUnpruned, moneyCubeOffCtx, twoMoves, WHITE, 2);
+      assert.equal(primaryFailPool.pruneNetStatus.state, 'partial');
+      assert.equal(primaryFailPool.pruneNetStatus.consistent, false);
+      for (let i = 0; i < refRankUnpruned.entries.length; i += 1) {
+        assertClose(rankRes.entries[i].equity, refRankUnpruned.entries[i].equity, 1e-12, `primary-fail unpruned eq ${i}`);
+      }
+      primaryFailPool.terminate();
+    }
+  }
+}
+
+console.log('OK: parallel-pool (0.2.5/0.2.6 sync, sequential NN, 4-worker checker/hint/cube parity, prune ON & partial failure handling)');

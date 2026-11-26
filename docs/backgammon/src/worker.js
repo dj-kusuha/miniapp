@@ -111,13 +111,14 @@ self.onmessage = async (event) => {
       const nextMoneyBearoffUrl = event.data.moneyBearoffUrl
         || new URL('./money-bg2n-6x6-v4.bin', import.meta.url).href;
 
-      let nextBearoff;
+      let nextBearoff = null;
       // **ベアオフ DB もここで読む。** 無くても動く（ネットの推定に落ちる）ので、
-      // 読めなかったら警告だけ出して先へ進む。
+      // 読めなかったら警告だけ出して先へ進む。再ロード時は旧 DB を引きずらない。
       if (event.data.bearoffUrl) {
         try {
           nextBearoff = await BearoffDatabase.load(event.data.bearoffUrl);
         } catch (error) {
+          nextBearoff = null;
           console.warn('ベアオフ DB を読めませんでした', error);
         }
       }
@@ -125,12 +126,15 @@ self.onmessage = async (event) => {
       // 毎回の load で Pruning Net の組を確定する。
       // pruneNetUrl 省略 / null / 読込失敗 / 構成不適合はいずれも null へフォールバックする。
       let nextPruneNet = null;
+      let pruneNetStatus = 'disabled';
       if (event.data.pruneNetUrl) {
         try {
           const candidate = await NeuralNet.load(event.data.pruneNetUrl);
           nextPruneNet = validatePruneNet(candidate);
+          pruneNetStatus = nextPruneNet ? 'loaded' : 'disabled';
         } catch (error) {
           nextPruneNet = null;
+          pruneNetStatus = 'fallback';
           console.warn('Pruning Net を読めませんでした', error);
         }
       }
@@ -143,11 +147,20 @@ self.onmessage = async (event) => {
       net = loadedNet;
       checkerSearchMode = nextCheckerSearchMode;
       defaultCubeFilterLevel = nextCubeFilterLevel;
-      moneyBearoffUrl = nextMoneyBearoffUrl;
-      if (nextBearoff !== undefined) setBearoffDatabase(nextBearoff);
+      if (nextMoneyBearoffUrl !== moneyBearoffUrl) {
+        moneyBearoffUrl = nextMoneyBearoffUrl;
+        moneyBearoffLoadPromise = null;
+        setMoneyBearoffDatabase(null);
+      }
+      setBearoffDatabase(nextBearoff);
       setPruneNet(nextPruneNet);
       agents.clear();
-      self.postMessage({ id, ok: true });
+      self.postMessage({
+        id,
+        ok: true,
+        pruneNetLoaded: nextPruneNet !== null,
+        pruneNetStatus,
+      });
       return;
     }
 
