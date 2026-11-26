@@ -54,6 +54,8 @@ class WorkerSlot {
     this.pending = new Map();
     this.alive = true;
     this.readyPromise = null;
+    this.pruneNetLoaded = false;
+    this.pruneNetStatus = 'disabled';
 
     worker.onmessage = (event) => {
       const { id } = event.data;
@@ -108,6 +110,22 @@ export class ThinkerPool {
     return this.slots.some((slot) => slot.alive);
   }
 
+  /**
+   * プール内 Worker の Pruning Net 読込状態を返す。
+   * 一部 Worker のみ読込失敗（404 / 互換不適合）した場合は `state: 'partial'` を返し、
+   * 並列タスクでは primary Worker と同一状態の Worker のみを使用して解析単位で揃える。
+   */
+  get pruneNetStatus() {
+    const alive = this.slots.filter((slot) => slot.alive);
+    const totalWorkers = alive.length;
+    const loadedWorkers = alive.filter((slot) => slot.pruneNetLoaded).length;
+    const consistent = loadedWorkers === 0 || loadedWorkers === totalWorkers;
+    const state = loadedWorkers === 0
+      ? 'disabled'
+      : loadedWorkers === totalWorkers ? 'loaded' : 'partial';
+    return { state, loadedWorkers, totalWorkers, consistent };
+  }
+
   _createSlot() {
     let rawWorker;
     try {
@@ -118,7 +136,11 @@ export class ThinkerPool {
     }
     const slot = new WorkerSlot(rawWorker);
     slot.readyPromise = slot.ask({ kind: 'load', ...this.loadPayload })
-      .then(() => slot)
+      .then((reply) => {
+        slot.pruneNetLoaded = Boolean(reply?.pruneNetLoaded);
+        slot.pruneNetStatus = reply?.pruneNetStatus ?? (slot.pruneNetLoaded ? 'loaded' : 'disabled');
+        return slot;
+      })
       .catch((error) => {
         slot.terminate();
         console.warn('Worker の初期化に失敗しました', error);
@@ -161,6 +183,16 @@ export class ThinkerPool {
     const workers = await this._acquireWorkers(1);
     if (!workers.length) throw new Error('worker なし');
     return workers[0];
+  }
+
+  /**
+   * 同一解析内のチャンク / サブセット間で Pruning Net の ON / OFF が混在しないよう、
+   * primary Worker と同一 `pruneNetLoaded` 状態の Worker 群のみに揃える。
+   */
+  _consistentWorkers(workers) {
+    if (workers.length <= 1) return workers;
+    const expected = workers[0].pruneNetLoaded;
+    return workers.filter((slot) => slot.pruneNetLoaded === expected);
   }
 
   async _evaluateDepthParallel({
@@ -226,7 +258,9 @@ export class ThinkerPool {
 
   async _scoreMovesParallel({ boardDto, player, die1, die2, level, moves, context, mode, cubeFilterLevel }) {
     const levelInfo = levelById(level);
-    const workers = await this._acquireWorkers(Math.min(this.maxWorkers, Math.max(2, moves.length)));
+    const workers = this._consistentWorkers(
+      await this._acquireWorkers(Math.min(this.maxWorkers, Math.max(2, moves.length))),
+    );
     if (!workers.length) throw new Error('worker なし');
     const allIndices = moves.map((_, index) => index);
 
@@ -396,7 +430,7 @@ export class ThinkerPool {
       return Boolean(prepared.answer);
     }
 
-    const workers = await this._acquireWorkers(this.maxWorkers);
+    const workers = this._consistentWorkers(await this._acquireWorkers(this.maxWorkers));
     if (!workers.length) throw new Error('worker なし');
     const rollGroups = partitionRoundRobin(ALL_ROLL_INDICES, workers.length);
     const chunkReplies = await Promise.all(

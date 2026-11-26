@@ -10,7 +10,13 @@
 import { Board } from './board.js';
 import { Game, ROLLING } from './game.js';
 import { NeuralNet } from './nn.js';
-import { agentFor, setBearoffDatabase, setMoneyBearoffDatabase } from './agent.js';
+import {
+  agentFor,
+  setBearoffDatabase,
+  setMoneyBearoffDatabase,
+  setPruneNet,
+  validatePruneNet,
+} from './agent.js';
 import {
   evaluateCheckerMoveRollChunk,
   evaluateCheckerMovesSubset,
@@ -25,7 +31,9 @@ import { MoneyBearoffDatabase } from './money-bearoff.js';
 import { generateMoves, boardKey } from './rules.js';
 
 let net = null;
+let loadGeneration = 0;
 let moneyBearoffUrl = null;
+let moneyBearoffGeneration = 0;
 let moneyBearoffLoadPromise = null;
 let checkerSearchMode = 'legacy';
 let defaultCubeFilterLevel = null;
@@ -35,13 +43,20 @@ async function ensureMoneyBearoff(agent, match) {
   if (match !== null || !agent.useMoneyBearoff || moneyBearoffLoadPromise) {
     return moneyBearoffLoadPromise;
   }
-  moneyBearoffLoadPromise = MoneyBearoffDatabase.load(moneyBearoffUrl)
-    .then((database) => setMoneyBearoffDatabase(database))
+  const loadGen = moneyBearoffGeneration;
+  const loadUrl = moneyBearoffUrl;
+  const promise = MoneyBearoffDatabase.load(loadUrl)
+    .then((database) => {
+      if (loadGen !== moneyBearoffGeneration || promise !== moneyBearoffLoadPromise) return;
+      setMoneyBearoffDatabase(database);
+    })
     .catch((error) => {
+      if (loadGen !== moneyBearoffGeneration || promise !== moneyBearoffLoadPromise) return;
       setMoneyBearoffDatabase(null);
       console.warn('Money BG2N DB を読めませんでした。従来評価へ戻します', error);
     });
-  return moneyBearoffLoadPromise;
+  moneyBearoffLoadPromise = promise;
+  return promise;
 }
 
 /**
@@ -92,25 +107,74 @@ self.onmessage = async (event) => {
   const { id, kind } = event.data;
   try {
     if (kind === 'load') {
-      net = await NeuralNet.load(event.data.url);
-      checkerSearchMode = ['legacy', 'full-root', 'staged3ply']
+      // 非同期 load の重複・追い越しや load 中の割り込みで半端な状態が混入しないよう、
+      // 世代トークン採番 + ローカル変数への全資産読込＋互換検証 + 最新世代のみ同期一括反映を行う。
+      const generation = ++loadGeneration;
+      const loadedNet = await NeuralNet.load(event.data.url);
+      const nextCheckerSearchMode = ['legacy', 'full-root', 'staged3ply']
         .includes(event.data.checkerSearchMode) ? event.data.checkerSearchMode : 'legacy';
-      defaultCubeFilterLevel = Number.isInteger(event.data.cubeFilterLevel)
+      const nextCubeFilterLevel = Number.isInteger(event.data.cubeFilterLevel)
         ? event.data.cubeFilterLevel
         : null;
-      agents.clear();
-      moneyBearoffUrl = event.data.moneyBearoffUrl
+      const nextMoneyBearoffUrl = event.data.moneyBearoffUrl
         || new URL('./money-bg2n-6x6-v4.bin', import.meta.url).href;
+
+      let nextBearoff = null;
       // **ベアオフ DB もここで読む。** 無くても動く（ネットの推定に落ちる）ので、
-      // 読めなかったら警告だけ出して先へ進む。
+      // 読めなかったら警告だけ出して先へ進む。再ロード時は旧 DB を引きずらない。
       if (event.data.bearoffUrl) {
         try {
-          setBearoffDatabase(await BearoffDatabase.load(event.data.bearoffUrl));
+          nextBearoff = await BearoffDatabase.load(event.data.bearoffUrl);
         } catch (error) {
+          nextBearoff = null;
           console.warn('ベアオフ DB を読めませんでした', error);
         }
       }
-      self.postMessage({ id, ok: true });
+
+      // 毎回の load で Pruning Net の組を確定する。
+      // pruneNetUrl 省略 / null / 読込失敗 / 構成不適合はいずれも null へフォールバックする。
+      let nextPruneNet = null;
+      let pruneNetStatus = 'disabled';
+      if (event.data.pruneNetUrl) {
+        try {
+          const candidate = await NeuralNet.load(event.data.pruneNetUrl);
+          nextPruneNet = validatePruneNet(candidate);
+          pruneNetStatus = nextPruneNet ? 'loaded' : 'disabled';
+        } catch (error) {
+          nextPruneNet = null;
+          pruneNetStatus = 'fallback';
+          console.warn('Pruning Net を読めませんでした', error);
+        }
+      }
+
+      if (generation !== loadGeneration) {
+        self.postMessage({
+          id,
+          ok: false,
+          superseded: true,
+          error: '新しい load 要求に追い越されたため、このロードを破棄しました',
+        });
+        return;
+      }
+
+      net = loadedNet;
+      checkerSearchMode = nextCheckerSearchMode;
+      defaultCubeFilterLevel = nextCubeFilterLevel;
+      if (nextMoneyBearoffUrl !== moneyBearoffUrl) {
+        moneyBearoffGeneration += 1;
+        moneyBearoffUrl = nextMoneyBearoffUrl;
+        moneyBearoffLoadPromise = null;
+        setMoneyBearoffDatabase(null);
+      }
+      setBearoffDatabase(nextBearoff);
+      setPruneNet(nextPruneNet);
+      agents.clear();
+      self.postMessage({
+        id,
+        ok: true,
+        pruneNetLoaded: nextPruneNet !== null,
+        pruneNetStatus,
+      });
       return;
     }
 
