@@ -11,10 +11,12 @@ import {
   DEFAULT_LEAF_PRUNE_TOLERANCE,
   getPruneNet,
   setBearoffDatabase,
+  setMoneyBearoffDatabase,
   setPruneNet,
   validatePruneNet,
 } from '../../docs/backgammon/src/agent.js';
 import { BearoffDatabase } from '../../docs/backgammon/src/bearoff.js';
+import { MoneyBearoffDatabase } from '../../docs/backgammon/src/money-bearoff.js';
 import { BLACK, Board, WHITE } from '../../docs/backgammon/src/board.js';
 import { Game, ROLLING } from '../../docs/backgammon/src/game.js';
 import { NeuralNet, flipPerspective } from '../../docs/backgammon/src/nn.js';
@@ -189,8 +191,9 @@ setBearoffDatabase(bearoff);
 
   function deferred() {
     let resolve;
-    const promise = new Promise((res) => { resolve = res; });
-    return { promise, resolve };
+    let reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
   }
 
   let fetchImpl = async () => new Response('unexpected', { status: 500 });
@@ -217,6 +220,7 @@ setBearoffDatabase(bearoff);
     assert.equal(getPruneNet(), null);
     slowPrune.resolve(new Response(rawPrune, { status: 200 }));
     await pA;
+    assert.equal(byId('ov-A')?.ok, false, '追い越された load は明示的に ok:false を返す');
     assert.equal(byId('ov-A')?.superseded, true);
     assert.equal(getPruneNet(), null, '古い loadA の pruneNet が modelB へ混入しました');
 
@@ -259,6 +263,104 @@ setBearoffDatabase(bearoff);
     assert.equal(byId('ok-prune')?.pruneNetLoaded, true);
     assert.equal(byId('ok-prune')?.pruneNetStatus, 'loaded');
     assert.notEqual(getPruneNet(), null);
+
+    // 5d. Money BG2N DB 再ロード時の stale promise 競合ガード:
+    // 旧 URL A の遅延ロード中に load B が新 URL を確定・DB B をロード完了した後で、
+    // A の遅延完了（成功 / 失敗の両ケース）が後着しても B の DB を上書き / null 化しないこと。
+    const origMoneyLoad = MoneyBearoffDatabase.load;
+    const rawMoneyDb = readFileSync(new URL('../../docs/backgammon/src/money-bg2n-6x6-v4.bin', import.meta.url));
+    const realMoneyDb = new MoneyBearoffDatabase(
+      rawMoneyDb.buffer.slice(rawMoneyDb.byteOffset, rawMoneyDb.byteOffset + rawMoneyDb.byteLength),
+    );
+    const makeTrackedMoneyDb = (tag) => {
+      let lookups = 0;
+      const wrapped = Object.create(realMoneyDb);
+      wrapped.tag = tag;
+      wrapped.lookupNormalized = (...args) => {
+        lookups += 1;
+        return realMoneyDb.lookupNormalized(...args);
+      };
+      wrapped.getLookups = () => lookups;
+      return wrapped;
+    };
+    const bg2nPoints = Array(24).fill(0);
+    bg2nPoints[0] = 2; bg2nPoints[1] = 2; bg2nPoints[2] = 1;
+    bg2nPoints[23] = -2; bg2nPoints[22] = -2; bg2nPoints[21] = -1;
+    const bg2nCubePayload = {
+      kind: 'cube',
+      board: { points: bg2nPoints, bar: [0, 0], off: [10, 10] },
+      player: WHITE,
+      cubeValue: 1,
+      cubeOwner: null,
+      jacoby: true,
+      crawford: false,
+      level: 'advanced',
+      match: null,
+      ask: 'double',
+    };
+
+    try {
+      for (const outcome of ['resolve', 'reject']) {
+        const dbA = makeTrackedMoneyDb(`A-${outcome}`);
+        const dbB = makeTrackedMoneyDb(`B-${outcome}`);
+        const slowMoneyA = deferred();
+        const moneyAStarted = deferred();
+        const urlA = `https://test.invalid/money-A-${outcome}.bin`;
+        const urlB = `https://test.invalid/money-B-${outcome}.bin`;
+
+        MoneyBearoffDatabase.load = async (url) => {
+          if (url === urlA) {
+            moneyAStarted.resolve();
+            return slowMoneyA.promise;
+          }
+          if (url === urlB) return dbB;
+          throw new Error(`unexpected moneyBearoffUrl: ${url}`);
+        };
+        fetchImpl = async (url) => {
+          if (url.endsWith('/modelA.json')) return new Response(rawModel, { status: 200 });
+          return new Response('not found', { status: 404 });
+        };
+
+        // 1) load A（URL A）を確定し、cube 要求で遅延ロード A を開始
+        await workerScope.onmessage({
+          data: { id: `m-loadA-${outcome}`, kind: 'load', url: 'https://test.invalid/modelA.json', moneyBearoffUrl: urlA },
+        });
+        assert.equal(byId(`m-loadA-${outcome}`)?.ok, true);
+        const cubeA = workerScope.onmessage({ data: { id: `m-cubeA-${outcome}`, ...bg2nCubePayload } });
+        await moneyAStarted.promise;
+
+        // 2) A のロード完了前に load B（URL B）を確定し、cube B で DB B をロード完了させる
+        await workerScope.onmessage({
+          data: { id: `m-loadB-${outcome}`, kind: 'load', url: 'https://test.invalid/modelA.json', moneyBearoffUrl: urlB },
+        });
+        assert.equal(byId(`m-loadB-${outcome}`)?.ok, true);
+        await workerScope.onmessage({ data: { id: `m-cubeB1-${outcome}`, ...bg2nCubePayload } });
+        assert.equal(byId(`m-cubeB1-${outcome}`)?.ok, true);
+        const lookupsBeforeLateA = dbB.getLookups();
+        assert.ok(lookupsBeforeLateA > 0, `${outcome}: B's Money DB must be active`);
+
+        // 3) 遅延していた A の Promise を成功 or 失敗で後着完了させる
+        if (outcome === 'resolve') {
+          slowMoneyA.resolve(dbA);
+        } else {
+          slowMoneyA.reject(new Error('stale A 404'));
+        }
+        await cubeA;
+        await Promise.resolve();
+
+        // 4) 後着完了の後も B の DB がそのまま使われ、A の DB や null に上書きされていないこと
+        await workerScope.onmessage({ data: { id: `m-cubeB2-${outcome}`, ...bg2nCubePayload } });
+        assert.equal(byId(`m-cubeB2-${outcome}`)?.ok, true);
+        assert.ok(
+          dbB.getLookups() > lookupsBeforeLateA,
+          `${outcome}: late stale Money DB ${outcome} must not overwrite or clear B's DB`,
+        );
+        assert.equal(dbA.getLookups(), 0, `${outcome}: stale DB A must never be installed`);
+      }
+    } finally {
+      MoneyBearoffDatabase.load = origMoneyLoad;
+      setMoneyBearoffDatabase(null);
+    }
   } finally {
     setPruneNet(null);
     globalThis.fetch = prevFetch;

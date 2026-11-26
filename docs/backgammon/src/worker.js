@@ -33,6 +33,7 @@ import { generateMoves, boardKey } from './rules.js';
 let net = null;
 let loadGeneration = 0;
 let moneyBearoffUrl = null;
+let moneyBearoffGeneration = 0;
 let moneyBearoffLoadPromise = null;
 let checkerSearchMode = 'legacy';
 let defaultCubeFilterLevel = null;
@@ -42,13 +43,20 @@ async function ensureMoneyBearoff(agent, match) {
   if (match !== null || !agent.useMoneyBearoff || moneyBearoffLoadPromise) {
     return moneyBearoffLoadPromise;
   }
-  moneyBearoffLoadPromise = MoneyBearoffDatabase.load(moneyBearoffUrl)
-    .then((database) => setMoneyBearoffDatabase(database))
+  const loadGen = moneyBearoffGeneration;
+  const loadUrl = moneyBearoffUrl;
+  const promise = MoneyBearoffDatabase.load(loadUrl)
+    .then((database) => {
+      if (loadGen !== moneyBearoffGeneration || promise !== moneyBearoffLoadPromise) return;
+      setMoneyBearoffDatabase(database);
+    })
     .catch((error) => {
+      if (loadGen !== moneyBearoffGeneration || promise !== moneyBearoffLoadPromise) return;
       setMoneyBearoffDatabase(null);
       console.warn('Money BG2N DB を読めませんでした。従来評価へ戻します', error);
     });
-  return moneyBearoffLoadPromise;
+  moneyBearoffLoadPromise = promise;
+  return promise;
 }
 
 /**
@@ -140,7 +148,12 @@ self.onmessage = async (event) => {
       }
 
       if (generation !== loadGeneration) {
-        self.postMessage({ id, ok: true, superseded: true });
+        self.postMessage({
+          id,
+          ok: false,
+          superseded: true,
+          error: '新しい load 要求に追い越されたため、このロードを破棄しました',
+        });
         return;
       }
 
@@ -148,6 +161,7 @@ self.onmessage = async (event) => {
       checkerSearchMode = nextCheckerSearchMode;
       defaultCubeFilterLevel = nextCubeFilterLevel;
       if (nextMoneyBearoffUrl !== moneyBearoffUrl) {
+        moneyBearoffGeneration += 1;
         moneyBearoffUrl = nextMoneyBearoffUrl;
         moneyBearoffLoadPromise = null;
         setMoneyBearoffDatabase(null);

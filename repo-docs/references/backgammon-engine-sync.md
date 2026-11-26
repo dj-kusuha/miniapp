@@ -86,17 +86,17 @@ node tests/backgammon/run.mjs
   - `checker.js` / `worker.js` / `thinker-pool.js` / `app.js`: 高速文字列キャッシュキー、`checkerEfficiencies` 再利用、キューブ判断のキャッシュ適用、最大 4 Worker 遅延起動プールによる 2-ply / 3-ply 着手・ヒント・際どいキューブ判断の並列化。
   - 世界チャンピオン段（`champion`）の既定設定: Worker 利用時のみ `staged3ply` + `cubeFilterLevel: 1` を既定 ON とし、メインスレッド fallback は `legacy` を維持。`?checker-search=legacy|staged3ply|full-root` の明示クエリ指定を尊重する。
 
-## Engine 0.2.6 Pruning Net（2 段葉プルーニング）同期（2026-11-26）
+## Engine 0.2.6 / 0.2.7 Pruning Net（2 段葉プルーニング＋分割非依存閾値）同期（2026-11-26）
 
-`@dj-kusuha/backgammon-engine@0.2.6`（`backgammon_engine` PR #568 / ADR-0178）の同梱蒸留 Pruning Net（`models/prune_net.json`, `198-64-32-5`, `317,382` bytes）と 2 段葉プルーニングを `miniapp` へ同期した。
+`@dj-kusuha/backgammon-engine@0.2.6`（`backgammon_engine` PR #568 / ADR-0178）の同梱蒸留 Pruning Net（`models/prune_net.json`, `198-64-32-5`, `317,382` bytes）と 2 段葉プルーニング、および `@dj-kusuha/backgammon-engine@0.2.7`（`backgammon_engine` PR #569）のロールチャンク分割非依存な閾値判定修正を `miniapp` へ同期した。
 
-- 参照 engine SHA: `0a7f7abf54de47e1681269997bfb7ed5568d0332`
+- 参照 engine SHA: `0a7f7abf54de47e1681269997bfb7ed5568d0332`（PR #568 / 0.2.6）、`ead1e278`（PR #569 / 0.2.7）
 - 同期元 miniapp SHA: `6ba51f84a10c9cddef24ffcc212fd9141a711721`
 - 本体モデル SHA（engine / miniapp 一致）: `9543ecb1deaff716de1355726d3109f1529fe34e0ab68d94284654fd7871dd83`
 - Pruning Net SHA（engine / miniapp 一致）: `2c75561140f7532f452c2c83a8e557467d366e1591df1328f087432436dc3dff`
 - 同期内容:
   - `docs/backgammon/src/prune_net.json`: 正本 `models/prune_net.json` と byte-identical 配置。
-  - `docs/backgammon/src/agent.js`: `DEFAULT_LEAF_PRUNE_CANDIDATES = 7` / `DEFAULT_LEAF_PRUNE_TOLERANCE = 0.200`、`validatePruneNet()`、`setPruneNet()` / `getPruneNet()`、`equitiesWithNet()`（`white` / `mover` 視点吸収）、`vectorsForBoards()`、`expandRollsDedup()`、`selectLeafReEvalCandidates()`、および `expectedEquityAfterMove()` / `expectedVectorAfterMove()` の 2 段葉プルーニングを同期（`pruneNet === null` 既定経路および `miniapp` 固有の `LEVELS` / `blotPenalty` / マージン設定は維持）。
-  - `docs/backgammon/src/worker.js`: `loadGeneration` による非同期 `load` アトミック確定と `pruneNetUrl` 読込＋`validatePruneNet()` 検証（省略 / `null` / 失敗 / 構成不適合時は `null` へ安全フォールバック）。
+  - `docs/backgammon/src/agent.js`: `DEFAULT_LEAF_PRUNE_CANDIDATES = 7` / `DEFAULT_LEAF_PRUNE_TOLERANCE = 0.200`、`validatePruneNet()`、`setPruneNet()` / `getPruneNet()`、`equitiesWithNet()`（`white` / `mover` 視点吸収）、`vectorsForBoards()`、`expandRollsDedup()`、`exceedsLeafPruneThreshold()`（PR #569 / 0.2.7 全 21 出目基準の分割非依存閾値判定）、`selectLeafReEvalCandidates()`、および `expectedEquityAfterMove()` / `expectedVectorAfterMove()` の 2 段葉プルーニングを同期（`pruneNet === null` 既定経路および `miniapp` 固有の `LEVELS` / `blotPenalty` / マージン設定は維持）。
+  - `docs/backgammon/src/worker.js` / `thinker-pool.js`: `loadGeneration` / `moneyBearoffGeneration` による非同期 `load`・Money DB ロードの stale 完了抑止、`pruneNetUrl` 読込＋`validatePruneNet()` 検証（省略 / `null` / 失敗 / 構成不適合時は `null` へ安全フォールバック）、`pruneNetStatus` 公開、および同一解析内で pruning ON/OFF を混在させない `_consistentWorkers()` 揃え。
   - `docs/backgammon/app.js`: 起動時に `src/prune_net.json` を読み込み、全 4 Worker（`ThinkerPool`）およびメインスレッドフォールバックへ適用。
-  - `tests/backgammon/prune-net.mjs` / `tests/backgammon/prune-parity.json`: SHA-256・`pruneNet === net` 不変条件・Rust 24 局面（White 12 / Black 12）パリティ・`mover` 視点・Worker 非同期 `load` アトミック性を検証。
+  - `tests/backgammon/prune-net.mjs` / `tests/backgammon/prune-parity.json` / `tests/backgammon/parallel-pool.mjs`: SHA-256・`pruneNet === net` 不変条件・Rust 24 局面（White 12 / Black 12）パリティ・`mover` 視点・1/2/4 worker & roll-chunk 閾値またぎ parity・部分的読込失敗時の統一・Worker 非同期 `load` / Money DB 世代競合を検証。
