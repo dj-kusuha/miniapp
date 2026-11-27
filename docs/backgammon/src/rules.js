@@ -12,6 +12,7 @@
 //   6. ちょうどの目、または「その目より遠い駒が無ければ最も遠い駒」から上がれる
 
 import { Board, WHITE, BLACK, opponent, direction } from './board.js';
+import { resolveEngineBackend, wasmGenerateMovesRaw } from './wasm-backend.js';
 
 /** 出目 1 つぶんの着手。`from`/`to` が null ならバー復帰／ベアオフ。 */
 export class SingleMove {
@@ -169,10 +170,11 @@ export function boardKey(board) {
 }
 
 /**
- * 合法手をすべて生成する。
+ * 純 JS 実装による合法手生成（比較・切り戻し用の非推奨経路）。
+ * @deprecated Issue #578 Phase 4b: 既定バックエンドは `'auto'`（WASM 優先）です。通常利用では `generateMoves()` を使用してください（純 JS 実装は Phase 4d で廃止予定）。
  * @returns {Move[]} 動かせなければ空配列（手番が飛ぶ）
  */
-export function generateMoves(board, player, die1, die2) {
+export function generateMovesJs(board, player, die1, die2) {
   const sequences = [];
   const visited = die1 === die2 ? new Set() : null;
   generateRecursive(board.clone(), player, diceValues(die1, die2), [], sequences, visited);
@@ -204,6 +206,23 @@ export function generateMoves(board, player, die1, die2) {
     moves.push(new Move(seq.singles, seq.board, player));
   }
   return moves;
+}
+
+/**
+ * 合法手をすべて生成する。
+ * @returns {Move[]} 動かせなければ空配列（手番が飛ぶ）
+ */
+export function generateMoves(board, player, die1, die2, backend = null) {
+  const resolved = resolveEngineBackend({ backend, requireBoardObject: board });
+  if (resolved === 'wasm') {
+    const raw = wasmGenerateMovesRaw(board, player, die1, die2);
+    return raw.map(({ singles, resultingBoard }) => new Move(
+      singles.map((s) => new SingleMove(s.from, s.to, s.die, s.hit)),
+      resultingBoard,
+      player,
+    ));
+  }
+  return generateMovesJs(board, player, die1, die2);
 }
 
 /**

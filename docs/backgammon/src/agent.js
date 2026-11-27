@@ -20,8 +20,28 @@ import {
   LOSE_BACKGAMMON,
 } from './nn.js';
 import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
-import { generateMoves, diceValues, boardKey } from './rules.js';
-import { evaluateMoneyBg2nRoot, MONEY_BG2N_FILE_SHA256 } from './money-bearoff.js';
+import { generateMovesJs, diceValues, boardKey } from './rules.js';
+import {
+  Bg2nRootUnavailable,
+  evaluateMoneyBg2nRoot,
+  MONEY_BG2N_FILE_SHA256,
+} from './money-bearoff.js';
+import {
+  resolveEngineBackend,
+  wasmCubeHeadMatchEfficiencies,
+  wasmCubeHeadMoneyEfficiencies,
+  wasmEvalBoardsEquities,
+  wasmEvalBoardsVectors,
+  wasmEvaluateMoneyBg2nRootRaw,
+  wasmMatchCubeActionValues,
+  wasmMatchMwcSearch,
+  wasmMoneyCubeActionValues,
+  wasmMoneyCubefulSearch,
+  wasmRollVolatility,
+  wasmSearchCubelessEquity,
+  wasmSearchVectorRolls,
+  wasmSelectMoveCubeless,
+} from './wasm-backend.js';
 
 /** マネー用 CubeHead のフロア（ADR-0057 Phase 11）。大規模2-ply学習により自律的に抑制されるため既定0.0。 */
 export const DEFAULT_CUBE_EFFICIENCY_FLOOR = 0.0;
@@ -179,13 +199,12 @@ export const DEFAULT_MATCH_CUBE_SCREEN_MARGIN = 0.02;
 export const DEFAULT_CUBE_CASH_OPTION = true;
 export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
 
-/** 2 段葉プルーニング（Pruning Net 有効時）の既定値（ADR-0172 / ADR-0178、Rust bg-core と同一）。 */
+/** 2 段葉プルーニング（Pruning Net 有効時）の既定設定（ADR-0172 / ADR-0178）。 */
 export const DEFAULT_LEAF_PRUNE_CANDIDATES = 7;
 export const DEFAULT_LEAF_PRUNE_TOLERANCE = 0.200;
 const LEAF_PRUNE_MIN_UNIQUE_BOARDS = 16;
 
 // ── 弱い相手の作り方 ──────────────────────────────
-
 //
 // **先読み 0 が床なので、それより弱くするには別の軸が要る。**
 // 採ったのは gnubg が Beginner / Casual を作るのと同じ「評価値にノイズを乗せる」
@@ -402,9 +421,19 @@ export function setBearoffDatabase(database) {
   sharedBearoff = database;
 }
 
-/** BG2N v4 reader. Unlike the checker BGBO reader, it is loaded on first Money cube use. */
+/** 読み込んだベアオフ DB を取得する。 */
+export function getBearoffDatabase() {
+  return sharedBearoff;
+}
+
+/** Money BG2N v4 DB を全 Agent で共有設定する。 */
 export function setMoneyBearoffDatabase(database) {
   sharedMoneyBearoff = database;
+}
+
+/** Money BG2N v4 DB を取得する。 */
+export function getMoneyBearoffDatabase() {
+  return sharedMoneyBearoff;
 }
 
 let sharedPruneNet = null;
@@ -484,23 +513,10 @@ export class Agent {
     matchCubeScreenMargin = DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
     cubeCashOption = DEFAULT_CUBE_CASH_OPTION,
     cubeCashAlpha = DEFAULT_CUBE_CASH_ALPHA,
-    // **ダブルを慎重にする段だけの上乗せマージン（既定 0 = 従来どおり）。**
-    // `doublePoint` は閾値フォールバック経路でしか効かないため、実戦の
-    // search / cubeful 判断へ効く専用のつまみとして持つ。マネーは
-    // cubeful equity（点）、マッチは MWC で桁が違うので分ける。
     doubleMargin = 0,
     matchDoubleMargin = 0,
-    // **テイク判断をずらす段だけのマージン（既定 0 = 従来どおり）。**
-    // 正なら慎重（際どいテイクを降りる）、負なら「テイクしすぎ」（際どくても
-    // 受ける）。初心者の特徴は後者なので、初心者だけ負の値を付ける。
-    // マネーは search 経路の equity（点）、マッチは MWC。マネーの非 search
-    // 経路には効かない（実戦の既定は search）。
     takeMargin = 0,
     matchTakeMargin = 0,
-    // **ブロット回避バイアス（既定 0 = 従来どおり）。** 着手後の局面の
-    // 自分のブロット 1 個につき、この点数を着手スコアから引く（接触局面
-    // のみ、ヒットされやすさは不問）。初心者だけに付け、「ブロットを
-    // 残すのを極端に嫌う」性格を表す。ノイズとは独立に効く。
     blotPenalty = 0,
     jacoby = true,
     noise = 0,
@@ -519,8 +535,10 @@ export class Agent {
     pruneNet = sharedPruneNet,
     leafPruneCandidates = DEFAULT_LEAF_PRUNE_CANDIDATES,
     leafPruneTolerance = DEFAULT_LEAF_PRUNE_TOLERANCE,
+    backend = null,
   } = {}) {
     this.net = net;
+    this.backend = backend;
     if (!Number.isInteger(leafPruneCandidates) || leafPruneCandidates < 0) {
       throw new Error(`leafPruneCandidates は 0 以上の整数を指定してください: ${leafPruneCandidates}`);
     }
@@ -609,12 +627,32 @@ export class Agent {
     // checker候補を同時に評価する間だけ、重複するafterstateの5-vectorを再利用する。
     this.checkerVectorCache = null;
     this.checkerRollCache = null;
+    this.checkerLastStagedSearch = null;
     this.checkerSearchStats = {
       rollExpansionHits: 0,
       rollExpansionMisses: 0,
       batchCalls: 0,
       batchVectors: 0,
     };
+  }
+
+  /** この Agent の設定と入力オブジェクトから実行バックエンド (`'js' | 'wasm'`) を解決する。 */
+  resolveBackend({
+    board = null,
+    moneyBearoff = null,
+    cubeHeadMoney = undefined,
+    cubeHeadMatch = undefined,
+  } = {}) {
+    return resolveEngineBackend({
+      backend: this.backend,
+      net: this.net,
+      pruneNet: this.pruneNet,
+      bearoff: this.bearoff,
+      moneyBearoff,
+      cubeHeadMoney: cubeHeadMoney !== undefined ? cubeHeadMoney : (this.useCubeHead ? this.cubeHeadMoney : null),
+      cubeHeadMatch: cubeHeadMatch !== undefined ? cubeHeadMatch : (this.useCubeHead ? this.cubeHeadMatch : null),
+      requireBoardObject: board,
+    });
   }
 
   /**
@@ -629,11 +667,15 @@ export class Agent {
     if (key !== null && cache.has(key)) return cache.get(key);
 
     let result;
-    if (this.bearoff !== null) {
-      const exact = this.bearoff.boardProbabilities(board, turn);
-      if (exact !== null) result = exact;
+    if (this.resolveBackend({ board }) === 'wasm') {
+      result = wasmEvalBoardsVectors(this.net, this.bearoff, [board], turn)[0];
+    } else {
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(board, turn);
+        if (exact !== null) result = exact;
+      }
+      if (result === undefined) result = this.net.predict(encodeBoard(board, WHITE, turn));
     }
-    if (result === undefined) result = this.net.predict(encodeBoard(board, WHITE, turn));
     if (key !== null && cache.size < 250_000) cache.set(key, result);
     return result;
   }
@@ -790,12 +832,15 @@ export class Agent {
    * @returns {number}
    */
   rollVolatility(board, toMove) {
+    if (this.resolveBackend({ board }) === 'wasm') {
+      return wasmRollVolatility(this, board, toMove);
+    }
     const opp = opponent(toMove);
     const weights = [];
     const probabilities = [];
 
     for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = generateMoves(board, toMove, die1, die2);
+      const moves = generateMovesJs(board, toMove, die1, die2);
       let boards;
       if (moves.length === 0) {
         boards = [board];
@@ -834,6 +879,9 @@ export class Agent {
     if (!head) {
       return [this.cubeEfficiency, this.cubeEfficiencyDtFor(board, proposer)];
     }
+    if (this.resolveBackend({ board, cubeHeadMoney: head }) === 'wasm') {
+      return wasmCubeHeadMoneyEfficiencies(this, board, proposer, cubeValue, currentOwner);
+    }
     const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
     const feat = encodeBoard(board, viewer, proposer, this.net.features);
     const vol = head.contextDim >= 5 ? this.rollVolatility(board, proposer) : null;
@@ -845,12 +893,17 @@ export class Agent {
     let xNd = head.predict(h, cNd);
     let xDt = head.predict(h, cDt);
 
-    const floorNd = this.cubeEfficiencyFloor;
-    const floorDt = this.cubeEfficiencyFloorDt > 0 ? this.cubeEfficiencyFloorDt : this.cubeEfficiencyFloor;
-    if (floorNd > 0) xNd = Math.max(xNd, floorNd);
-    if (floorDt > 0) xDt = Math.max(xDt, floorDt);
+    xNd = this.applyCubeEfficiencyFloor(xNd, 'nd');
+    xDt = this.applyCubeEfficiencyFloor(xDt, 'dt');
 
     return [xNd, xDt];
+  }
+
+  applyCubeEfficiencyFloor(efficiency, action) {
+    const floor = action === 'dt'
+      ? (this.cubeEfficiencyFloorDt > 0 ? this.cubeEfficiencyFloorDt : this.cubeEfficiencyFloor)
+      : this.cubeEfficiencyFloor;
+    return Math.max(efficiency, floor);
   }
 
   /**
@@ -870,6 +923,9 @@ export class Agent {
     const head = this.cubeHeadMatch;
     if (!head) {
       return [this.matchCubeEfficiency, this.matchCubeEfficiency];
+    }
+    if (this.resolveBackend({ board, cubeHeadMatch: head }) === 'wasm') {
+      return wasmCubeHeadMatchEfficiencies(this, board, proposer, cubeValue, currentOwner, match);
     }
     const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
     const feat = encodeBoard(board, viewer, proposer, this.net.features);
@@ -894,9 +950,18 @@ export class Agent {
   /**
    * 単一の局面・キューブ状態に対する x を CubeHead から取得。
    */
-  cubeHeadFor(board, proposer, cubeValue, owner) {
+  cubeHeadFor(board, proposer, cubeValue, owner, action = 'nd') {
     const head = this.cubeHeadMoney;
     if (!head) return this.cubeEfficiency;
+    if (this.resolveBackend({ board, cubeHeadMoney: head }) === 'wasm') {
+      const floor = action === 'dt'
+        ? (this.cubeEfficiencyFloorDt > 0 ? this.cubeEfficiencyFloorDt : this.cubeEfficiencyFloor)
+        : this.cubeEfficiencyFloor;
+      return wasmCubeHeadMoneyEfficiencies(this, board, proposer, cubeValue, owner, {
+        floorNd: floor,
+        floorDt: floor,
+      })[0];
+    }
 
     const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
     const feat = encodeBoard(board, viewer, proposer, this.net.features);
@@ -905,11 +970,8 @@ export class Agent {
     const h = this.net.lastHidden(feat);
     const c = encodeCubeContext(cubeValue, owner, 'me', vol, head.contextDim);
 
-    let x = head.predict(h, c);
-    if (this.cubeEfficiencyFloor > 0) {
-      x = Math.max(x, this.cubeEfficiencyFloor);
-    }
-    return x;
+    const x = head.predict(h, c);
+    return this.applyCubeEfficiencyFloor(x, action);
   }
 
   /**
@@ -961,7 +1023,7 @@ export class Agent {
    */
   wouldTakeSearch(board, proposer, cubeValue = 1, takeMargin = 0, unboundedMoney = false) {
     let eff = (this.useCubeHead && this.cubeHeadMoney)
-      ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent')
+      ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent', 'dt')
       : this.cubeEfficiencyDtFor(board, proposer);
     const take = 2.0 * this.cubefulSearch(
       board, proposer, 'opponent', this.cubeSearchDepth, false, null, eff, {
@@ -980,7 +1042,7 @@ export class Agent {
     const taker = opponent(proposer);
     if (this.cubeModel === 'janowski') {
       let eff = (this.useCubeHead && this.cubeHeadMoney)
-        ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent')
+        ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent', 'dt')
         : this.cubeEfficiencyDtFor(board, proposer);
       return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker), eff);
     }
@@ -988,8 +1050,8 @@ export class Agent {
   }
 
   /** 提案された側がテイクするか（too good to double の判定用）。 */
-  opponentWouldTake(board, proposer, cubeValue = 1) {
-    return this.wouldTakeFor(board, proposer, cubeValue);
+  opponentWouldTake(board, proposer, cubeValue = 1, unboundedMoney = false) {
+    return this.wouldTakeFor(board, proposer, cubeValue, 0, unboundedMoney);
   }
 
   /**
@@ -1079,6 +1141,12 @@ export class Agent {
    */
   mwcSearch(board, turn, owner, depth, cube, match, leaf = null,
             matchCubeEfficiency = null, allowDouble = true, rollIndices = null) {
+    const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+    if (!(this.noise > 0 && resolvedLeaf === 0) && this.resolveBackend({ board }) === 'wasm') {
+      return wasmMatchMwcSearch(
+        this, board, turn, owner, depth, cube, match, leaf, matchCubeEfficiency, allowDouble, rollIndices, true,
+      );
+    }
     const weightScale = rollIndices === null
       ? 1.0
       : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
@@ -1153,6 +1221,14 @@ export class Agent {
     let xDt = this.matchCubeEfficiency;
     if (this.useCubeHead && this.cubeHeadMatch) {
       [xNd, xDt] = this.matchCubeHeadActionEfficiencies(game.board, proposer, cube, owner, match);
+    }
+
+    const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+    if (!(this.noise > 0 && resolvedLeaf === 0) && this.resolveBackend({ board: game.board }) === 'wasm') {
+      const { noDouble, doubleTake, doublePass } = wasmMatchCubeActionValues(
+        this, game.board, proposer, owner, depth, cube, match, leaf, xNd, xDt, true, allowDouble, null, true,
+      );
+      return { noDouble, take: doubleTake, drop: doublePass };
     }
 
     const noDouble = this.mwcSearch(
@@ -1312,6 +1388,30 @@ export class Agent {
     unboundedMoney = false,
     rollIndices = null,
   } = {}) {
+    const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+    if (!(this.noise > 0 && resolvedLeaf === 0) && this.resolveBackend({ board }) === 'wasm') {
+      return wasmMoneyCubefulSearch(
+        this,
+        board,
+        turn,
+        owner,
+        depth,
+        jacoby,
+        leaf,
+        cubeEfficiency,
+        {
+          cashOption,
+          cashAlpha,
+          cashPolicy: inheritedCashPolicy,
+          cubeValue,
+          allowDouble,
+          actionContext,
+          unboundedMoney,
+          rollIndices,
+        },
+        true,
+      );
+    }
     const cashPolicy = actionContext === 'post_double_take' ? null : inheritedCashPolicy;
     const weightScale = rollIndices === null
       ? 1.0
@@ -1459,7 +1559,31 @@ export class Agent {
       [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
     }
 
+    const useWasm = this.resolveBackend({ board: game.board }) === 'wasm';
     const decide = (leaf) => {
+      const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+      if (useWasm && !(this.noise > 0 && resolvedLeaf === 0)) {
+        const { noDouble, doubleTake } = wasmMoneyCubeActionValues(
+          this,
+          game.board,
+          proposer,
+          owner,
+          depth,
+          jacoby,
+          leaf,
+          xNd,
+          xDt,
+          true,
+          {
+            cubeValue: game.cube.value,
+            cashOption: this.cubeCashOption,
+            cashAlpha: this.cubeCashAlpha,
+            unboundedMoney: game.cube.unboundedMoney === true,
+          },
+          true,
+        );
+        return [noDouble, Math.min(doubleTake, 1.0)];
+      }
       const ndOptions = {
         cubeValue: game.cube.value,
         actionContext: 'post_no_double',
@@ -1537,9 +1661,20 @@ export class Agent {
     const proposer = game.doublingProposer ?? game.currentPlayer;
     const owner = this.cubeOwnerKind(game, proposer);
     try {
-      const result = evaluateMoneyBg2nRoot(
-        game.board, proposer, game.cube.value, owner, database,
-      );
+      let result;
+      if (this.resolveBackend({ board: game.board, moneyBearoff: database }) === 'wasm') {
+        const raw = wasmEvaluateMoneyBg2nRootRaw(
+          game.board, proposer, game.cube.value, owner, database, true,
+        );
+        if (!raw.ok) {
+          throw new Bg2nRootUnavailable(raw.message, raw.category);
+        }
+        result = raw.result;
+      } else {
+        result = evaluateMoneyBg2nRoot(
+          game.board, proposer, game.cube.value, owner, database,
+        );
+      }
       this.moneyBg2nStats.exactRoots += 1;
       this.moneyBg2nLastRoot = {
         status: 'exact',
@@ -1636,7 +1771,7 @@ export class Agent {
     // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
     // 数えられないので「ダブルせずギャモンを狙う」に意味が無い）。
     if (!jacobyNow && value > 1
-        && !this.wouldTakeFor(game.board, proposer, game.cube.value, 0,
+        && !this.opponentWouldTake(game.board, proposer, game.cube.value,
           game.cube.unboundedMoney === true)) return false;
 
     return true;
@@ -1711,6 +1846,9 @@ export class Agent {
 
   /** 各盤面の **turn（手番側）から見た** equity。 */
   equitiesFor(boards, turn) {
+    if (boards.length > 0 && this.resolveBackend({ board: boards[0] }) === 'wasm') {
+      return Array.from(wasmEvalBoardsEquities(this.net, this.bearoff, boards, turn));
+    }
     // perspective='white' のモデルなので White 視点で評価して符号を合わせる
     const sign = turn === WHITE ? 1 : -1;
     return boards.map((b) => {
@@ -1784,7 +1922,7 @@ export class Agent {
     }
     if (key !== null) this.checkerSearchStats.rollExpansionMisses += 1;
 
-    const moves = generateMoves(board, turn, roll.die1, roll.die2);
+    const moves = generateMovesJs(board, turn, roll.die1, roll.die2);
     let selection;
     if (moves.length === 0) selection = { hasMoves: false, boards: [] };
     else {
@@ -1814,7 +1952,7 @@ export class Agent {
 
   /**
    * 指定ネット `evalNet`（+ Bearoff + 終局確定値）で `boards` の **turn 視点** equity を一括計算する。
-   * `evalNet.perspective`（`'white'` / `'mover'`）を吸収し、engine 0.2.6 / C# と同一契約を保つ。
+   * `evalNet.perspective`（`'white'` / `'mover'`）を吸収し、C# `EquitiesWithNet` と同一契約を保つ。
    */
   equitiesWithNet(evalNet, boards, turn) {
     const count = boards.length;
@@ -1912,7 +2050,7 @@ export class Agent {
     for (let r = 0; r < activeRolls.length; r += 1) {
       starts[r] = rollUids.length;
       const { die1, die2 } = activeRolls[r];
-      const moves = generateMoves(board, toMove, die1, die2);
+      const moves = generateMovesJs(board, toMove, die1, die2);
       if (moves.length === 0) {
         const key = boardKey(board);
         let uid = uidByKey.get(key);
@@ -1952,7 +2090,7 @@ export class Agent {
     for (let idx = 0; idx < ALL_ROLLS.length; idx += 1) {
       if (covered.has(idx)) continue;
       const { die1, die2 } = ALL_ROLLS[idx];
-      const moves = generateMoves(board, toMove, die1, die2);
+      const moves = generateMovesJs(board, toMove, die1, die2);
       if (moves.length === 0) {
         seen.add(boardKey(board));
         if (seen.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
@@ -1969,7 +2107,7 @@ export class Agent {
   /**
    * `pruneNet` の opponent 視点スコア（小さいほど `toMove` に有利）から
    * 各ロールの上位候補を抽出し、本物 `this.net` で再評価するユニーク盤面リストを構築する。
-   * Rust `select_leaf_re_eval_candidates` / engine `0.2.6` と完全同一規則。
+   * Rust `select_leaf_re_eval_candidates` / C# `SelectLeafReEvalCandidates` と完全同一規則。
    */
   selectLeafReEvalCandidates(uniqueBoards, rollUids, starts, oppEquities, rollCount) {
     const marked = new Uint8Array(uniqueBoards.length);
@@ -2069,7 +2207,7 @@ export class Agent {
 
     let total = 0;
     for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = generateMoves(board, toMove, die1, die2);
+      const moves = generateMovesJs(board, toMove, die1, die2);
       let boards;
       if (moves.length === 0) {
         boards = [board];                       // 動かせなければ手番が移るだけ
@@ -2089,6 +2227,9 @@ export class Agent {
 
   /** `board`（`toMove` の手番）を depth 段ぶん展開し、viewer 視点の equity を返す。 */
   expandRolls(board, toMove, viewer, depth, level) {
+    if (this.resolveBackend({ board }) === 'wasm') {
+      return wasmSearchCubelessEquity(this, board, toMove, viewer, depth, level, depth >= 2);
+    }
     const terminal = this.terminalEquity(board, viewer);
     if (terminal !== null) return terminal;
     if (depth <= 0) {
@@ -2099,7 +2240,7 @@ export class Agent {
 
     let total = 0;
     for (const { die1, die2, weight } of ALL_ROLLS) {
-      const moves = generateMoves(board, toMove, die1, die2);
+      const moves = generateMovesJs(board, toMove, die1, die2);
       if (moves.length === 0) {
         total += weight * this.expandRolls(board, opponent(toMove), viewer, depth - 1, level + 1);
         continue;
@@ -2219,7 +2360,7 @@ export class Agent {
       return total;
     }
     for (const { die1, die2, weight } of activeRolls) {
-      const moves = generateMoves(board, toMove, die1, die2);
+      const moves = generateMovesJs(board, toMove, die1, die2);
       let boards;
       if (moves.length === 0) {
         boards = [board];                       // 動かせなければ手番が移るだけ
@@ -2245,6 +2386,9 @@ export class Agent {
    * 絞り込みはスカラー側と同じ `shortlist` を使う。
    */
   expandRollsVector(board, toMove, depth, level, rollIndices = null) {
+    if (this.resolveBackend({ board }) === 'wasm') {
+      return wasmSearchVectorRolls(this, board, toMove, depth, level, rollIndices, false);
+    }
     const weightScale = rollIndices === null
       ? 1.0
       : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
@@ -2265,7 +2409,7 @@ export class Agent {
       const selection = this.checkerRollCache
         ? this.rollShortlistBoards(board, toMove, roll, level, this.filters)
         : (() => {
-            const moves = generateMoves(board, toMove, roll.die1, roll.die2);
+            const moves = generateMovesJs(board, toMove, roll.die1, roll.die2);
             if (moves.length === 0) return { hasMoves: false, boards: [] };
             const boards = moves.map((m) => m.resultingBoard);
             const picks = this.shortlist(boards, toMove, level);
@@ -2297,6 +2441,11 @@ export class Agent {
   selectMove(legalMoves, player) {
     if (legalMoves.length === 1) return 0;
     const boards = legalMoves.map((m) => m.resultingBoard);
+    if (this.noise <= 0 && this.blotPenalty <= 0 && this.resolveBackend({ board: boards[0] }) === 'wasm') {
+      const opp = opponent(player);
+      const safeOrigin = boards.find((b) => b.allInHome(opp)) ?? boards[0];
+      return wasmSelectMoveCubeless(this, safeOrigin, boards, player, false).index;
+    }
     const values = this.equitiesFor(boards, opponent(player)).map((v) => -v);
 
     if (this.searchPlies < 2) {

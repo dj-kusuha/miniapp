@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Issue #587 / #578 Phase 4b WASM Device Verification (miniapp preview)</title>
+  <link rel="stylesheet" href="./harness.css" />
+</head>
+<body>
+  <h1>Issue #587 / #578 Phase 4b — 実機 WASM 検証ハーネス（miniapp HTTPS プレビュー）</h1>
+  <div class="nav-links">
+    <a href="../backgammon/">→ 通常対局アプリ（miniapp バックギャモン / 既定 WASM）</a>
+    <a href="../backgammon/?backend=js">→ JS 切り戻し確認（?backend=js）</a>
+  </div>
+  <div class="meta">
+    Engine SHA: <code>727ae5559be62b2f8992a37e2fa469fc16123997</code> (PR #586) /
+    Package: <code>0.2.8-wasm-preview.727ae55</code> /
+    既定 backend='auto' (WASM 優先) / SIMD・Scalar / MIME フォールバック / 1w・4w &amp; BG2N 6x6 メモリ / 復帰生存
+  </div>
+  <div id="oom-banner" hidden></div>
+  <div id="summary">検証を実行中... (10〜30 秒ほどかかります)</div>
+  <div class="actions">
+    <button id="reload-btn" type="button">再実行 (ページリロード)</button>
+    <button id="copy-btn" type="button">結果 JSON をコピー</button>
+    <button id="download-btn" type="button">JSON を保存 (.json)</button>
+  </div>
+
+  <section id="app-route-panel" class="panel">
+    <h2>miniapp 実経路診断（ThinkerPool + docs/backgammon/src/worker.js — 専用ハーネスとは別記録）</h2>
+    <p class="hint">
+      通常の miniapp バックギャモンが実際に使う <code>ThinkerPool</code>（4 Worker・既定 <code>'auto'</code>）で
+      champion 3-ply staged3ply・ヒント 2-ply・Money BG2N 6x6・Match キューブを実行し、実効 WASM 稼働と独立 JS 基準パリティを別枠で記録します。
+    </p>
+    <div id="app-route-status" class="soak-box">自動スイート完了後に実行できます（またはボタンを押して手動実行）</div>
+    <div class="actions">
+      <button id="app-route-run-btn" type="button">miniapp 実経路診断を実行</button>
+    </div>
+    <pre id="app-route-log">(未実行)</pre>
+  </section>
+
+  <section id="soak-panel" class="panel">
+    <h2>実機専用: 4-Worker BG2N 持続セッション（長時間稼働・同一プール再ロード・バックグラウンド復帰）</h2>
+    <p class="hint">
+      手順: (1)「開始・保持」で既定 URL（runtime 再利用経路）のまま 4 Worker を起動し expert / champion 3-ply / 通常 cube / BG2N を保持 →
+      (2a)「既定 URL 再 load (runtime 再利用)」を 2〜3 回実行し、同一 runtime 再利用・全 5 ハンドル不増・各 Worker &lt;= 42 MiB・独立 JS 基準一致を確認 →
+      (2b 任意)「明示 URL 再 load (runtime 交換ピーク耐性)」で同一 Worker 内 runtime 交換時のピーク耐性も確認 →
+      (3) 4 Worker 稼働中のままホーム画面へ移動/別アプリ切替（約 30 秒）後に復帰し、同一 pageRunId / sessionId・hidden→visible 記録を確認して「復帰後の再照会」を実行 →
+      (4)「終了 (dispose &amp; terminate)」で安全終了。最後に上の「JSON を保存」または下のテキスト欄から最新結果を控えてください（コピー/保存直前に遅延ログも再集計されます）。
+    </p>
+    <div id="soak-status" class="soak-box">自動スイート完了後に操作可能になります...</div>
+    <div class="actions">
+      <button id="soak-start-btn" type="button" disabled>1. 4-Worker (BG2N) 開始・保持 (既定 URL + champion)</button>
+      <button id="soak-reload-btn" type="button" disabled>2a. 再 load: 既定 URL (runtime 再利用経路)</button>
+      <button id="soak-reload-swap-btn" type="button" disabled>2b. 再 load: 明示 URL (runtime 交換ピーク耐性)</button>
+      <button id="soak-requery-btn" type="button" disabled>3. 復帰後の通常/champion/BG2N 再照会 (load なし)</button>
+      <button id="soak-stop-btn" type="button" disabled>4. 終了 (dispose &amp; terminate)</button>
+      <button id="soak-clear-history-btn" type="button">履歴をクリア</button>
+    </div>
+    <pre id="soak-log">(まだステップ履歴はありません)</pre>
+  </section>
+
+  <section class="panel">
+    <h2>結果 JSON 手動コピー用</h2>
+    <p class="hint">「結果 JSON をコピー」が使えない環境では「JSON を保存 (.json)」を使うか、下のテキスト欄をタップして全選択→コピーしてください。</p>
+    <textarea id="json-copy-box" readonly aria-label="Verification result JSON"></textarea>
+    <pre id="out">running...</pre>
+  </section>
+
+  <script type="module" src="./preview-boot.mjs"></script>
+</body>
+</html>

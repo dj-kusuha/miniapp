@@ -29,9 +29,7 @@ export class Game {
    *   （あと 1 点）に達した直後の 1 局に立てる。
    * @param {boolean} options.unboundedMoneyCube Money gameでcubeの64倍上限を外す。
    */
-  constructor(board = null, rng = Math.random, {
-    jacoby = true, crawford = false, unboundedMoneyCube = false,
-  } = {}) {
+  constructor(board = null, rng = Math.random, { jacoby = true, crawford = false, unboundedMoneyCube = false } = {}) {
     this.board = board ?? new Board();
     this.rng = rng;
     this.jacoby = jacoby;

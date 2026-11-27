@@ -1,0 +1,2424 @@
+// 着手の選択。backgammon_engine の `backgammon/agent.py` の移植。
+//
+// **equity（1 局あたりの期待得点）が最大の手を選ぶ。** 勝率ではないのは、
+// ギャモンの有無で 1 局の価値が最大 3 倍変わるため。
+//
+// 着手後の局面（afterstate）の手番は相手に移っているので、**相手視点の
+// equity を求めて符号を反転**すると「自分の equity」になる。
+
+import { WHITE, opponent, encodeBoard, hasContact } from './board.js';
+import {
+  equity,
+  flipPerspective,
+  winLossMagnitudes,
+  encodeCubeContext,
+  encodeMatchCubeContext,
+  WIN,
+  WIN_GAMMON,
+  WIN_BACKGAMMON,
+  LOSE_GAMMON,
+  LOSE_BACKGAMMON,
+} from './nn.js';
+import { matchWinChance, mwcWithCube, outcomeSpread, redoubleGain } from './met.js';
+import { generateMovesJs, diceValues, boardKey } from './rules.js';
+import {
+  Bg2nRootUnavailable,
+  evaluateMoneyBg2nRoot,
+  MONEY_BG2N_FILE_SHA256,
+} from './money-bearoff.js';
+import {
+  resolveEngineBackend,
+  wasmCubeHeadMatchEfficiencies,
+  wasmCubeHeadMoneyEfficiencies,
+  wasmEvalBoardsEquities,
+  wasmEvalBoardsVectors,
+  wasmEvaluateMoneyBg2nRootRaw,
+  wasmMatchCubeActionValues,
+  wasmMatchMwcSearch,
+  wasmMoneyCubeActionValues,
+  wasmMoneyCubefulSearch,
+  wasmRollVolatility,
+  wasmSearchCubelessEquity,
+  wasmSearchVectorRolls,
+  wasmSelectMoveCubeless,
+} from './wasm-backend.js';
+
+/** マネー用 CubeHead のフロア（ADR-0057 Phase 11）。大規模2-ply学習により自律的に抑制されるため既定0.0。 */
+export const DEFAULT_CUBE_EFFICIENCY_FLOOR = 0.0;
+export const DEFAULT_CUBE_EFFICIENCY_FLOOR_DT = 0.0;
+
+/** 出目 21 通りと、それぞれの確率（engine の `ALL_ROLLS` と同じ）。 */
+export const ALL_ROLLS = (() => {
+  const rolls = [];
+  for (let a = 1; a <= 6; a += 1) {
+    for (let b = a; b <= 6; b += 1) {
+      rolls.push({ die1: a, die2: b, weight: a === b ? 1 / 36 : 2 / 36 });
+    }
+  }
+  return rolls;
+})();
+
+/** 深い段ほどきつく絞る（engine の DEFAULT_SEARCH_FILTERS と同じ）。 */
+export const DEFAULT_FILTERS = [
+  { candidates: 8, tolerance: 0.160 },   // 段 0（根）
+  { candidates: 2, tolerance: 0.040 },   // 段 1 以降
+];
+
+/**
+ * 3-ply の既定構成。**相手の応手を 2 手 / 0.040 に絞る。**
+ *
+ * engine 側の再評価（固定 3,000 局面・3-ply）で、現行との差は
+ * **+0.023 ± 0.055 mEMG**（95%区間）に収まり、**1.565 倍**速かった。
+ * 深い段は期待値の推定に寄与するだけで、1 手の違いが結果に効きにくいため
+ * （docs/adr/0016-faster-3ply-search.md）。
+ *
+ * `DEFAULT_FILTERS` と値は同じだが、3-ply用の名前を残して
+ * `filtersFor()` の選択点を明示する。
+ */
+export const FAST_FILTERS = [
+  { candidates: 8, tolerance: 0.160 },   // 段 0（根）はそのまま
+  { candidates: 2, tolerance: 0.040 },   // 段 1 以降
+];
+
+/**
+ * その深さで使う絞り方を返す。**アプリと Worker とテストで 1 か所を見る。**
+ *
+ * 3-ply は `FAST_FILTERS`（現在は `DEFAULT_FILTERS` と同じ値）。2-ply では
+ * **着手木の**段 1 のフィルタに到達しないので変えても意味が無く、0-ply は
+ * そもそも探索しない。
+ *
+ * **これは着手木だけの話。** キューブ木は段によらず `cubeFilters`
+ * （＝`DEFAULT_FILTERS`）で絞る。`DEFAULT_FILTERS` も段 1 を 2 手 / 0.040
+ * とするので、3-plyの着手木とキューブ木で同じ段の意味になる。
+ */
+export function filtersFor(plies) {
+  return plies >= 3 ? FAST_FILTERS : DEFAULT_FILTERS;
+}
+
+/**
+ * ダブルを提案する最低 equity。engine の `DEFAULT_DOUBLE_POINT` と同じ値。
+ *
+ * キューブ・ベンチマーク 1,200 局面で振って 0.45〜0.46 に底があった
+ * （backgammon_engine の docs/adr/0017-cube-measurement.md）。
+ * **engine 側と必ず揃えること。**
+ */
+export const DEFAULT_DOUBLE_POINT = 0.45;
+
+/**
+ * 「キューブを自分が持っている」ことの価値（キューブ 1 単位あたり）。
+ * **Janowski の x=0.60 に相当する理論値。engine 側と必ず揃えること。**
+ *
+ * 長らく 0（死んだキューブの仮定）だった。理論上は正のはずなのに実測で
+ * 改善せず、2026-08-21 の測定では 0.145 で悪化していた。原因は評価器の誤差が
+ * 調整幅より大きかったこと。モデルの精度が上がって equity の絶対誤差が
+ * 0.087 → 0.060 になった 2026-08-23 に測り直したところ、テイク判断の損失が
+ * 26.0 → 17.5 mEMG（-33%）に改善した。3 つのベンチマークすべてで最小。
+ * （backgammon_engine の docs/adr/0017-cube-measurement.md）
+ */
+export const DEFAULT_CUBE_OWNERSHIP = 0.130;
+
+/**
+ * Janowski の cube efficiency（cubeModel === 'janowski' のときだけ効く）。
+ * **engine 側と必ず揃えること。**
+ *
+ * **0.92 は cube efficiency の理論値ではない**（gnubg は 0.6〜0.7）。
+ * engine の 32,400 局面の測定では 0.60 以降ずっと単調に下がり続けて 0.91 で底を
+ * 打つ。これは「x を上げると良くなる」＝「テイクし足りない」という意味で、
+ * **うちの勝率の過小評価（P(win) の平均のずれ -0.0059）を吸収した補正項**に
+ * なっている。モデルの較正が改善したら測り直すこと。
+ * （backgammon_engine の docs/adr/0017-cube-measurement.md）
+ */
+export const DEFAULT_CUBE_EFFICIENCY = 0.80;
+// 2026-10-06: cycle700 に合わせ、固定値フォールバックを 0.80 に再較正。
+// モデル内に保存した cube_head_money.baseline_x（cycle700 は 0.76）とは別設定。
+
+/** マネーのテイク側（double-take 枝）で使う cube efficiency（ADR-0062）。接触あり 0.60 / レース 0.52。 */
+export const DEFAULT_CUBE_EFFICIENCY_DT = 0.60;
+export const DEFAULT_CUBE_EFFICIENCY_DT_RACE = 0.52;
+
+/**
+ * **マッチのキューブ判断で使う cube efficiency。**
+ * **engine 側（`DEFAULT_MATCH_CUBE_EFFICIENCY`）と必ず揃えること。**
+ *
+ * マネー（`cubefulEquity`）とマッチ（`mwcLeaf`）は同じ内挿の形をしているが、
+ * **最適な x が逆向きに動く**。0.68 はマネーのベンチで較正された値で、
+ * あとから足したマッチ側が同じ定数を借りていた。
+ *
+ * | x | マネー 1,200 局面 | マッチ 10,558 局面 |
+ * | --- | --- | --- |
+ * | 0.55 | 9.02 mEMG | **2.87 mEMG** |
+ * | 0.68 | **5.26 mEMG** | 3.31 mEMG |
+ *
+ * 際どいダブル 2,631 局面の対応のある比較で **ダブル -2.641 ± 0.797 mEMG（有意）**。
+ * 計算コストはゼロ。谷は 0.50〜0.60 で平らなので 0.55 ちょうどに意味はない。
+ * **モデルを更新したら測り直すこと。**
+ * （backgammon_engine の docs/adr/0041-match-cube-efficiency.md）
+ */
+export const DEFAULT_MATCH_CUBE_EFFICIENCY = 0.55;
+
+/**
+ * キューブ判断の方式。
+ *
+ *   'constant' : 2E + c >= -1                     （c は固定）
+ *   'janowski' : p >= (L - 0.5) / (W + L + 0.5x)   （W / L は局面ごと）
+ *
+ * engine の 32,400 局面では定数をどう最適化しても 16.28 mEMG が限界なのに対し
+ * Janowski は 14.91。ギャモンが濃い局面ほど差が開く（-3.3）。
+ */
+export const DEFAULT_CUBE_MODEL = 'janowski';
+
+/**
+ * キューブ判断の方式（既定）。
+ *
+ *   'search'    : ダイスを展開した各ノードでもキューブを検討する（段 B-1）
+ *   'cubeful'   : ノーダブル / ダブル・テイク / ダブル・パスの3つを比べる（段 A）
+ *   'threshold' : equity >= doublePoint + too good（旧方式）
+ */
+export const DEFAULT_CUBE_DECISION = 'search';
+
+/** cubeDecision === 'search' のときにダイスを展開する段数。 */
+export const DEFAULT_CUBE_SEARCH_DEPTH = 1;
+
+/** キューブ探索の葉で展開する段数（ADR-0063）。 */
+export const DEFAULT_CUBE_LEAF_PLIES = 1;
+
+// **足切りの幅は名前付きで持つ。** engine 側のフィクスチャ（`defaults`）と
+// 突き合わせるため。
+//
+// **どちらも `cubeLeafPlies > 0` のときだけ効く**（下の `shouldDoubleSearch` と
+// マッチ側の分岐を参照）。
+// engine 側と値を揃えておくためのもの。
+
+/** 際どいときだけ深く読むための足切り幅（マネー・equity）。0 で無効。 */
+export const DEFAULT_CUBE_SCREEN_MARGIN = 0.05;
+
+/** 同じくマッチ側（MWC 単位。マネーとは桁が違うので別に持つ）。0 で無効。 */
+export const DEFAULT_MATCH_CUBE_SCREEN_MARGIN = 0.02;
+
+/** Cubeful Cash Option（出目展開の中で次回キャッシュ権利とギャモン価値を数式に織り込む、ADR-0061/ADR-0064）。 */
+export const DEFAULT_CUBE_CASH_OPTION = true;
+export const DEFAULT_CUBE_CASH_ALPHA = 1.0;
+
+/** 2 段葉プルーニング（Pruning Net 有効時）の既定設定（ADR-0172 / ADR-0178）。 */
+export const DEFAULT_LEAF_PRUNE_CANDIDATES = 7;
+export const DEFAULT_LEAF_PRUNE_TOLERANCE = 0.200;
+const LEAF_PRUNE_MIN_UNIQUE_BOARDS = 16;
+
+// ── 弱い相手の作り方 ──────────────────────────────
+//
+// **先読み 0 が床なので、それより弱くするには別の軸が要る。**
+// 採ったのは gnubg が Beginner / Casual を作るのと同じ「評価値にノイズを乗せる」
+// 方式。equity に平均 0・標準偏差 `noise` のノイズを足してから最大を選ぶ。
+//
+// **なぜこれが人間らしいか**: 間違える確率が「判断の難しさ」に自動で連動する。
+// equity 差 0.3 の明らかな手はノイズ 0.05 ではまず逆転せず、差 0.02 の際どい手は
+// しょっちゅう逆転する。弱い人が「簡単な手は外さず、際どい判断だけ落とす」のと
+// 同じ形になる。
+//
+// **採らなかった案**:
+//
+// | やり方 | 何が起きるか |
+// | --- | --- |
+// | ランダムに選ぶ | equity 差を見ていないので、明らかな悪手を平気で打つ |
+// | 上位 k 手から等確率 | 差の大きさを見ていない。まともな手が 2 つしかない局面で破綻 |
+// | X% の確率でランダム手 | **間違いが難易度と無相関**になる。ふだん完璧で突然おかしい＝人間味の逆 |
+//
+// ノイズは正規分布なので裾が無限に伸びる。そこで **`maxLoss`（最善からの
+// equity 差の上限）で足切りしてから**ノイズを掛ける。「よく間違えるが、
+// 絶対にアホなことはしない」の 2 つのつまみ。
+
+/**
+ * 盤面から決定的にノイズを作る（32bit FNV-1a + 撹拌）。
+ *
+ * **毎回乱数を引いてはいけない。** 1 手戻してやり直すと AI の手が変わり、
+ * 同じ局面で違う手を打つのが露骨に見える。局面を鍵にすれば、同じ局面は
+ * 何度でも同じ読み違えをする。
+ */
+function hash32(text, seed) {
+  let h = seed >>> 0;
+  for (let i = 0; i < text.length; i += 1) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  h ^= h >>> 15; h = Math.imul(h, 2246822507) >>> 0;
+  h ^= h >>> 13; h = Math.imul(h, 3266489909) >>> 0;
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** 標準正規分布の値を 1 つ、鍵から決定的に作る（Box-Muller）。 */
+export function gaussianFor(key) {
+  // log(0) を避けるため u1 は 0 を取らないようにずらす
+  const u1 = (hash32(key, 0x811c9dc5) + 1) / 4294967297;
+  const u2 = hash32(key, 0x01000193) / 4294967296;
+  return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+}
+
+/**
+ * 強さの段。**着手・キューブ・Worker が同じ表を見る。**
+ *
+ * `plies` だけで Agent を作り分けると、**先読み 0 の段が 4 つあるせいで
+ * 弱い段が黙って上級のまま**になる（Worker は plies を鍵に使い回していた）。
+ * Agent を作る入口は `agentFor()` 1 つに統一すること。
+ *
+ * `noise` / `maxLoss` は equity（1 局あたりの期待得点）の単位。
+ *
+ * **σ は勘で置かない。** `tools/measure-level.mjs` で自己対局の棋譜を gnubg に
+ * 採点させ、技量帯に合わせて選んである（現行 wide4 / cycle200 モデル、
+ * 30 局・seed 1・キューブなし・gnubg 2-ply 評価 / 2026-09-15）。
+ *
+ * **小さい標本では帯をまたぐ**ので、ER は目安として扱う。
+ */
+//
+// | 設定 | 実測 ER mEMG（平均、W / B） | gnubg のラベル（W / B） | 採否 |
+// | --- | --- | --- | --- |
+// | **σ=0.10 / cap 0.5** | **34.6（31.3 / 37.9）** | Beginner / Awful! | **初心者** |
+// | **σ=0.05 / cap 0.5** | **15.3（15.4 / 15.1）** | Intermediate / Intermediate | **カジュアル** |
+// | **σ=0.03 / cap 0.5** | **11.8（11.6 / 12.0）** | Advanced / Advanced | **中級** |
+// | **0-ply** | **5.4（5.3 / 5.5）** | Expert / Expert | **上級** |
+// | **2-ply** | **3.0（2.8 / 3.1）** | World class / World class | **エキスパート** |
+// | **3-ply** | **最高峰** | Superhuman / World class | **世界チャンピオン** |
+//
+// 全段 30 局、1,483〜1,692 手。ER はチェッカー 1 手あたりの mEMG で、キューブは
+// 切っている。名前は gnubg の技量帯から借りた**目安**で、完全一致は狙っていない。
+/**
+ * **強い段でキューブ判断も深く読ませる設定。**
+ *
+ * `cubeLeafPlies` を 1 にすると、キューブ探索の**葉**でもダイスを 1 段展開する。
+ * 葉は数百個あるのでコストが跳ねる（実測で 1 判断 966 ms）ため、**足切りと
+ * セットでしか使えない**。足切りは「まず葉 0 段で見て、差が幅より開いていれば
+ * そこで決める」もので、際どいときだけ深く読む。
+ *
+ * **幅はマネーとマッチで別に持つ**（マネーは equity、マッチは MWC で桁が違う）。
+ *
+ * **幅はマネーとマッチで別に持つ**（マネーは equity、マッチは MWC で桁が違う）。
+ * どちらも `DEFAULT_CUBE_SCREEN_MARGIN` / `DEFAULT_MATCH_CUBE_SCREEN_MARGIN` に
+ * 移した（engine 側の `defaults` と突き合わせるため）。
+ *
+ * | | 幅 | 根拠 |
+ * | :--- | ---: | :--- |
+ * | `matchCubeScreenMargin` | 0.020 | engine の ADR-0038 が 2,631 局面で較正 |
+ * | `cubeScreenMargin` | 0.05 | engine 側に合わせた（2026-09-11） |
+ *
+ * > **`cubeLeafPlies` はまだ 0 のまま。** 幅を入れても、深く読む段を有効に
+ * > しなければ効かない（足切りは `cubeLeafPlies > 0` のときだけ通る）。
+ * > 有効にする前に、engine 側で 1 つ確かめることになっている:
+ * >
+ * > **深さがまだ効くかの測り直し。** 「0→1 で -0.910 mEMG」は**マッチの
+ * > cube efficiency が 0.68 だったとき**の値で、いまは 0.55（ADR-0041）。
+ * > ADR-0041 自身が「深さの効果は測り直しになる」と書いている。
+ * >
+ * > **測る前に有効にしないこと。** 遅くなるだけで強くならない可能性がある。
+ */
+export const DEEP_CUBE = {
+  cubeLeafPlies: 1,
+};
+
+export const LEVELS = [
+  {
+    id: 'beginner', name: '初心者', plies: 0, noise: 0.10, maxLoss: 0.50,
+    note: '読み違えが多め',
+  },
+  {
+    id: 'casual', name: 'カジュアル', plies: 0, noise: 0.05, maxLoss: 0.50,
+    note: 'ときどき読み違える',
+  },
+  {
+    id: 'intermediate', name: '中級', plies: 0, noise: 0.03, maxLoss: 0.50,
+    note: '先読みなし・ときどき読み違える',
+  },
+  {
+    id: 'advanced', name: '上級', plies: 0, noise: 0, maxLoss: Infinity,
+    note: '先読みなし・読み違え無し',
+  },
+  {
+    id: 'expert', name: 'エキスパート', plies: 2, noise: 0, maxLoss: Infinity,
+    note: '2 手先読み',
+  },
+  {
+    id: 'champion', name: '世界チャンピオン', plies: 3, noise: 0, maxLoss: Infinity,
+    note: '3 手先読み・最高峰の強さ（思考に数秒）',
+  },
+];
+
+/** 既定の段（設定画面の初期選択）。 */
+export const DEFAULT_LEVEL = 'intermediate';
+
+/**
+ * ヒントを出すときの段。**対戦相手の段とは無関係に固定する。**
+ *
+ * 初心者と対局していても、助言は良いものであってほしい。
+ * **読み違えの無い段**であることが必須（ノイズの乗った助言は助言ではない）。
+ *
+ * **エキスパート（2-ply）にしている。** 上級は 0-ply にして対局の段を分け、
+ * エキスパートでも実用的な応答速度に収める。
+ *
+ * ヒントは着手と同じく Web Worker 経由で、計算中は「考えています…」を出す
+ * 作りのままにしてある。
+ */
+export const ADVICE_LEVEL = 'expert';
+
+export function levelById(id) {
+  return LEVELS.find((l) => l.id === id) ?? LEVELS.find((l) => l.id === DEFAULT_LEVEL);
+}
+
+/**
+ * 段から Agent を作る。**アプリ・Worker・テストはここだけを通すこと。**
+ */
+/**
+ * 全 Agent で共有するベアオフ DB（`bearoff.js`）。
+ *
+ * **1 ファイル 3.9 MB を段ごとに持つ意味がない**ので、読み込んだものを
+ * ここに置いて `agentFor()` が配る。メインスレッドと Worker はそれぞれ
+ * 自分の側で 1 度読む（同じ URL なのでブラウザのキャッシュが効く）。
+ */
+let sharedBearoff = null;
+let sharedMoneyBearoff = null;
+
+/** 読み込んだベアオフ DB を全 Agent で使うようにする。 */
+export function setBearoffDatabase(database) {
+  sharedBearoff = database;
+}
+
+/** 読み込んだベアオフ DB を取得する。 */
+export function getBearoffDatabase() {
+  return sharedBearoff;
+}
+
+/** Money BG2N v4 DB を全 Agent で共有設定する。 */
+export function setMoneyBearoffDatabase(database) {
+  sharedMoneyBearoff = database;
+}
+
+/** Money BG2N v4 DB を取得する。 */
+export function getMoneyBearoffDatabase() {
+  return sharedMoneyBearoff;
+}
+
+let sharedPruneNet = null;
+
+/**
+ * 2 段葉プルーニング用ネットの互換契約（198 入力・5 出力・features="none"・white/mover 視点）を検証する。
+ * `Agent` コンストラクタ・`setPruneNet`・`worker.js` で共通使用する。
+ */
+export function validatePruneNet(pruneNet) {
+  if (pruneNet === null || pruneNet === undefined) return null;
+  if (typeof pruneNet !== 'object' || typeof pruneNet.predict !== 'function') {
+    throw new Error('pruneNet は predict() を持つ NeuralNet インスタンスである必要があります');
+  }
+  const prunePerspective = pruneNet.perspective ?? 'white';
+  if (
+    pruneNet.inputDim !== 198
+    || pruneNet.outputDim !== 5
+    || (pruneNet.features ?? 'none') !== 'none'
+  ) {
+    throw new Error('pruneNet は 198入力・5出力・features="none" の単独 MLP 専用です');
+  }
+  if (prunePerspective !== 'white' && prunePerspective !== 'mover') {
+    throw new Error(`pruneNet の未対応 perspective です: ${prunePerspective}`);
+  }
+  return pruneNet;
+}
+
+/** 2 段葉プルーニング用ネットを全 Agent で共有設定する（既定 null = 無効）。 */
+export function setPruneNet(net) {
+  sharedPruneNet = validatePruneNet(net ?? null);
+}
+
+/** 共有 Pruning Net を取得する。 */
+export function getPruneNet() {
+  return sharedPruneNet;
+}
+
+export function agentFor(net, levelId, overrides = {}) {
+  const level = levelById(levelId);
+  return new Agent(net, level.plies, filtersFor(level.plies), {
+    noise: level.noise,
+    maxLoss: level.maxLoss,
+    useMoneyBearoff: level.useBearoff !== false,
+    // **段ごとのキューブ設定。** 無い段は Agent の既定（engine と同じ）。
+    // 強い段だけ深く読ませるための口（`DEEP_CUBE`）。
+    ...(level.cube ?? {}),
+    ...(level.useBearoff === false ? { bearoff: null } : {}),
+    ...overrides,
+  });
+}
+
+export class Agent {
+  /**
+   * @param {NeuralNet} net
+   * @param {number} searchPlies 先読みの深さ
+   * @param {Array<{candidates: number, tolerance: number}>} filters 段ごとの絞り込み
+   */
+  constructor(net, searchPlies = 0, filters = DEFAULT_FILTERS, {
+    doublePoint = DEFAULT_DOUBLE_POINT,
+    cubeOwnership = DEFAULT_CUBE_OWNERSHIP,
+    cubeEfficiency = DEFAULT_CUBE_EFFICIENCY,
+    cubeEfficiencyDt = DEFAULT_CUBE_EFFICIENCY_DT,
+    cubeEfficiencyDtRace = DEFAULT_CUBE_EFFICIENCY_DT_RACE,
+    matchCubeEfficiency = DEFAULT_MATCH_CUBE_EFFICIENCY,
+    cubeModel = DEFAULT_CUBE_MODEL,
+    cubePlies = null,
+    cubeDecision = DEFAULT_CUBE_DECISION,
+    cubeSearchDepth = DEFAULT_CUBE_SEARCH_DEPTH,
+    cubeLeafPlies = DEFAULT_CUBE_LEAF_PLIES,
+    cubeFilters = DEFAULT_FILTERS,
+    cubeFilterLevel = null,
+    cubeScreenMargin = DEFAULT_CUBE_SCREEN_MARGIN,
+    matchCubeScreenMargin = DEFAULT_MATCH_CUBE_SCREEN_MARGIN,
+    cubeCashOption = DEFAULT_CUBE_CASH_OPTION,
+    cubeCashAlpha = DEFAULT_CUBE_CASH_ALPHA,
+    jacoby = true,
+    noise = 0,
+    maxLoss = Infinity,
+    useCubeHead = null,
+    cubeHeadMoney = null,
+    cubeHeadMatch = null,
+    cubeEfficiencyFloor = DEFAULT_CUBE_EFFICIENCY_FLOOR,
+    cubeEfficiencyFloorDt = DEFAULT_CUBE_EFFICIENCY_FLOOR_DT,
+    useMoneyBearoff = true,
+    checkerSearchMode = 'full-root',
+    // **既定は共有 DB**（`setBearoffDatabase()` で差したもの）。
+    // ここを null 既定にすると、`new Agent(...)` を直接呼んだ場所だけ
+    // 厳密解を失う——実際にパリティのテストがそれで engine と食い違った。
+    bearoff = sharedBearoff,
+    pruneNet = sharedPruneNet,
+    leafPruneCandidates = DEFAULT_LEAF_PRUNE_CANDIDATES,
+    leafPruneTolerance = DEFAULT_LEAF_PRUNE_TOLERANCE,
+    backend = null,
+  } = {}) {
+    this.net = net;
+    this.backend = backend;
+    if (!Number.isInteger(leafPruneCandidates) || leafPruneCandidates < 0) {
+      throw new Error(`leafPruneCandidates は 0 以上の整数を指定してください: ${leafPruneCandidates}`);
+    }
+    if (!Number.isFinite(leafPruneTolerance) || leafPruneTolerance < 0) {
+      throw new Error(`leafPruneTolerance は 0 以上の有限値を指定してください: ${leafPruneTolerance}`);
+    }
+    this.pruneNet = validatePruneNet(pruneNet ?? null);
+    this.leafPruneCandidates = leafPruneCandidates;
+    this.leafPruneTolerance = leafPruneTolerance;
+    this.cubeHeadMoney = cubeHeadMoney ?? this.net?.cubeHeadMoney ?? null;
+    this.cubeHeadMatch = cubeHeadMatch ?? this.net?.cubeHeadMatch ?? null;
+    this.useCubeHead = useCubeHead ?? (this.cubeHeadMoney !== null || this.cubeHeadMatch !== null);
+    this.cubeEfficiencyFloor = cubeEfficiencyFloor;
+    this.cubeEfficiencyFloorDt = cubeEfficiencyFloorDt;
+    this.useMoneyBearoff = Boolean(useMoneyBearoff);
+    if (!['legacy', 'full-root', 'staged3ply'].includes(checkerSearchMode)) {
+      throw new Error(`未対応のcheckerSearchMode: ${checkerSearchMode}`);
+    }
+    this.checkerSearchMode = checkerSearchMode;
+    this.moneyBg2nStats = { attempts: 0, exactRoots: 0, fallbackRoots: 0 };
+    this.moneyBg2nLastRoot = null;
+    this.searchPlies = searchPlies;
+    this.filters = filters;
+    this.doublePoint = doublePoint;
+    this.cubeOwnership = cubeOwnership;
+    this.cubeEfficiency = cubeEfficiency;
+    this.cubeEfficiencyDt = cubeEfficiencyDt;
+    this.cubeEfficiencyDtRace = cubeEfficiencyDtRace;
+    this.cubeCashOption = cubeCashOption;
+    this.cubeCashAlpha = cubeCashAlpha;
+    /** マッチの葉で使う cube efficiency（**マネーとは最適値が違う**）。 */
+    this.matchCubeEfficiency = matchCubeEfficiency;
+    this.cubeModel = cubeModel;
+    this.cubePlies = cubePlies ?? Math.min(searchPlies, 2);
+    this.cubeDecision = cubeDecision;
+    this.cubeSearchDepth = cubeSearchDepth;
+    this.cubeLeafPlies = cubeLeafPlies;
+    /**
+     * キューブ木で使う絞り方の表。**着手木の `filters` とは別に持つ。**
+     *
+     * 3-ply 相当の深い段は着手木に `FAST_FILTERS` を使う。現在は段 1 を
+     * **2 手 / 0.040** に揃え、キューブ木は `DEFAULT_FILTERS` を使う。
+     * 両者の既定値は同じだが、着手木とキューブ木を個別に調整できるよう表は
+     * 分けて持つ。
+     *
+     * キューブ探索は着手の速さと関係が無い（毎回 1 段しか展開しない）ので、
+     * ここを速さのために狭める理由も無い。
+     */
+    this.cubeFilters = cubeFilters;
+    /**
+     * キューブ木で手を絞るときに使う **move filter の段**。
+     *
+     * `null`（既定）なら根から数えた段に合わせる。整数を渡すと全段でその段の
+     * フィルタを使う。**`0` が 2026-09-08 以前の挙動**（キューブ木の全段で
+     * 着手木の根と同じ 8 手 / 0.160 を使う）。
+     * （engine の docs/adr/0038-hard-cube-benchmark.md 節 3）
+     */
+    this.cubeFilterLevel = cubeFilterLevel;
+    /**
+     * ダブル判断の**足切り幅**（0 で足切りしない。単位は equity＝マネー用）。
+     *
+     * まず葉 0 段で判断し、**勝ち負けの差がこの幅より開いていればそこで
+     * 打ち切る**。際どいときだけ `cubeLeafPlies` 段で読み直す。
+     * **`cubeLeafPlies > 0` のときだけ効く。**
+     */
+    this.cubeScreenMargin = cubeScreenMargin;
+    /** 同上のマッチ版（単位が MWC なのでマネーとは桁が違う）。 */
+    this.matchCubeScreenMargin = matchCubeScreenMargin;
+    this.jacoby = jacoby;
+    this.noise = noise;
+    this.maxLoss = maxLoss;
+    /**
+     * 両者が自陣に入りきった局面を**厳密解で置き換える**データベース
+     * （`bearoff.js`。既定 null = 使わない）。
+     *
+     * engine 側の実測（32,000 局面・2-ply）で標準ベンチが **-0.159 mEMG**。
+     * 適用範囲は 11.8% だが、**着手が変わるのは 1.6%（502 局面）**で、
+     * その局面の損失が 11.77 → 1.64 mEMG になる。
+     */
+    this.bearoff = bearoff;
+    // checker候補を同時に評価する間だけ、重複するafterstateの5-vectorを再利用する。
+    this.checkerVectorCache = null;
+    this.checkerRollCache = null;
+    this.checkerLastStagedSearch = null;
+    this.checkerSearchStats = {
+      rollExpansionHits: 0,
+      rollExpansionMisses: 0,
+      batchCalls: 0,
+      batchVectors: 0,
+    };
+  }
+
+  /** この Agent の設定と入力オブジェクトから実行バックエンド (`'js' | 'wasm'`) を解決する。 */
+  resolveBackend({
+    board = null,
+    moneyBearoff = null,
+    cubeHeadMoney = undefined,
+    cubeHeadMatch = undefined,
+  } = {}) {
+    return resolveEngineBackend({
+      backend: this.backend,
+      net: this.net,
+      pruneNet: this.pruneNet,
+      bearoff: this.bearoff,
+      moneyBearoff,
+      cubeHeadMoney: cubeHeadMoney !== undefined ? cubeHeadMoney : (this.useCubeHead ? this.cubeHeadMoney : null),
+      cubeHeadMatch: cubeHeadMatch !== undefined ? cubeHeadMatch : (this.useCubeHead ? this.cubeHeadMatch : null),
+      requireBoardObject: board,
+    });
+  }
+
+  /**
+   * `(board, turn)` の **White 視点**の確率ベクトル。
+   *
+   * **ネットを引く経路はここに 1 本化する。** 厳密解があるならそちらを返す。
+   * 散らばっていると「片方だけ DB を通し忘れる」形で静かに壊れる。
+   */
+  vectorFor(board, turn) {
+    const cache = this.checkerVectorCache;
+    const key = cache && Array.isArray(board?.points) ? `${turn}:${boardKey(board)}` : null;
+    if (key !== null && cache.has(key)) return cache.get(key);
+
+    let result;
+    if (this.resolveBackend({ board }) === 'wasm') {
+      result = wasmEvalBoardsVectors(this.net, this.bearoff, [board], turn)[0];
+    } else {
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(board, turn);
+        if (exact !== null) result = exact;
+      }
+      if (result === undefined) result = this.net.predict(encodeBoard(board, WHITE, turn));
+    }
+    if (key !== null && cache.size < 250_000) cache.set(key, result);
+    return result;
+  }
+
+  /**
+   * checker cubeful/MWC leafで使うraw vectorだけを重複排除してbatch推論する。
+   * cube owner/value/Jacoby/ND-DTの変換は後続の探索関数が個別に適用する。
+   */
+  prefetchCheckerVectors(boards, turn) {
+    const cache = this.checkerVectorCache;
+    if (!cache || typeof this.net?.predictBatch !== 'function') return;
+
+    const pending = new Map();
+    for (const board of boards) {
+      if (this.terminalVector(board) !== null) continue;
+      const key = `${turn}:${boardKey(board)}`;
+      if (cache.has(key) || pending.has(key)) continue;
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(board, turn);
+        if (exact !== null) {
+          cache.set(key, exact);
+          continue;
+        }
+      }
+      pending.set(key, board);
+    }
+    if (pending.size === 0) return;
+
+    const entries = [...pending.entries()];
+    const features = entries.map(([, board]) => encodeBoard(board, WHITE, turn));
+    const vectors = this.net.predictBatch(features);
+    for (let index = 0; index < entries.length; index += 1) {
+      if (cache.size >= 250_000) break;
+      cache.set(entries[index][0], vectors[index]);
+    }
+    this.checkerSearchStats.batchCalls += 1;
+    this.checkerSearchStats.batchVectors += entries.length;
+  }
+
+  /** checker rootの同期探索中だけ、同一局面のNN推論を共有する。 */
+  withCheckerVectorCache(callback) {
+    const previous = this.checkerVectorCache;
+    if (previous) return callback();
+    this.checkerVectorCache = new Map();
+    try {
+      return callback();
+    } finally {
+      this.checkerVectorCache = previous;
+    }
+  }
+
+  /**
+   * この局面をどれだけ読み違えるか（equity 単位）。強い段では常に 0。
+   *
+   * **キューブの判断にも同じ値を掛ける。** 着手だけ弱くすると「手はヘボいのに
+   * ダブルは完璧」という妙な相手になる。
+   */
+  noiseFor(board) {
+    if (this.noise <= 0) return 0;
+    return this.noise * gaussianFor(boardKey(board));
+  }
+
+  /**
+   * 1 局面ぶんの確率ベクトル（**White 視点**の 5 要素）。
+   *
+   * ジャコビー equity は `2·P(win) - 1` で、**equity からは勝率を逆算できない**
+   * ため、生の出力が要る。
+   */
+  probabilitiesFor(board, turn) {
+    const probs = this.vectorFor(board, turn);
+    const noise = this.noiseFor(board);
+    if (noise === 0) return probs;
+    // **確率の側でも同じだけ読み違える。** equity ≒ 2·P(win) − 1 なので、
+    // equity 単位のノイズは P(win) では半分。
+    //
+    // ここでずらすのは P(win) だけ。ギャモンの累積が P(win) を超え得るが、
+    // **`met.js` の `outcomeSpread()` が包含関係を押さえ直す**ので、負の確率は
+    // 出ない（元の出力も独立なシグモイドなので同じ問題を持っており、
+    // その対策がそのまま効く）。
+    const w = Math.min(0.999, Math.max(0.001, probs[WIN] + noise / 2));
+    const out = [...probs];
+    out[WIN] = w;
+    return out;
+  }
+
+  /**
+   * ジャコビールール下の equity（**キューブがまだ回されていない**局面用）。
+   *
+   * ギャモンが数えられないので `2·P(win) - 1`。**equity ではなく確率
+   * ベクトルを伝播する必要がある**ため、`searchedVectorFor` を使う。
+   * **マネーゲーム専用**で、マッチプレイには無い。
+   *
+   * @param {Board} board
+   * @param {string} turn
+   * @param {string} player
+   * @param {?number} plies 省略時は this.cubePlies
+   */
+  jacobyEquityFor(board, turn, player, plies = null) {
+    const depth = plies ?? this.cubePlies;
+    const vector = depth < 1
+      ? this.probabilitiesFor(board, turn)
+      : this.expandRollsVector(board, turn, depth, 0);
+    const whiteView = 2 * vector[WIN] - 1;
+    return player === WHITE ? whiteView : -whiteView;
+  }
+
+  /**
+   * `player` 視点の cubeless equity（0-ply）。
+   *
+   * **キューブ判断でしか使わない**ので、ここでノイズを乗せる（着手側は
+   * `selectMove` が足切りと一緒に掛ける）。
+   */
+  equityFor(board, turn, player) {
+    const mover = this.equitiesFor([board], turn)[0] + this.noiseFor(board);
+    return player === turn ? mover : -mover;
+  }
+
+  /**
+   * `plies` 段ぶんダイスを展開した cubeless equity（キューブ判断用）。
+   *
+   * @param {Board} board
+   * @param {string} turn
+   * @param {string} player
+   * @param {?number} plies 省略時は this.cubePlies
+   */
+  searchedEquityFor(board, turn, player, plies = null) {
+    const depth = plies ?? this.cubePlies;
+    if (depth < 1) {
+      return this.equityFor(board, turn, player);
+    }
+    return this.expandRolls(board, turn, player, depth, 0);
+  }
+
+  /**
+   * `searchedEquityFor` の確率ベクトル版（`player` 視点）。
+   *
+   * @param {Board} board
+   * @param {string} turn
+   * @param {string} player
+   * @param {?number} plies 省略時は this.cubePlies
+   */
+  searchedVectorFor(board, turn, player, plies = null) {
+    const depth = plies ?? this.cubePlies;
+    const vector = depth < 1
+      ? this.probabilitiesFor(board, turn)
+      : this.expandRollsVector(board, turn, depth, 0);
+    return player === WHITE ? vector : flipPerspective(vector);
+  }
+
+  /**
+   * 次の 1 ロールで勝率がどれだけ散るか（toMove 視点の標準偏差）。
+   * @param {Board} board
+   * @param {string} toMove
+   * @returns {number}
+   */
+  rollVolatility(board, toMove) {
+    if (this.resolveBackend({ board }) === 'wasm') {
+      return wasmRollVolatility(this, board, toMove);
+    }
+    const opp = opponent(toMove);
+    const weights = [];
+    const probabilities = [];
+
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMovesJs(board, toMove, die1, die2);
+      let boards;
+      if (moves.length === 0) {
+        boards = [board];
+      } else {
+        boards = moves.map((m) => m.resultingBoard);
+      }
+      const vectors = boards.map((b) => {
+        const terminal = this.terminalVector(b);
+        if (terminal !== null) return terminal;
+        return this.vectorFor(b, opp);
+      });
+      const bestIdx = this.pickOwnBest(vectors, toMove);
+      const bestVec = vectors[bestIdx];
+      const win = toMove === WHITE ? bestVec[WIN] : 1.0 - bestVec[WIN];
+      weights.push(weight);
+      probabilities.push(win);
+    }
+
+    let mean = 0.0;
+    for (let i = 0; i < weights.length; i += 1) {
+      mean += weights[i] * probabilities[i];
+    }
+    let variance = 0.0;
+    for (let i = 0; i < weights.length; i += 1) {
+      const diff = probabilities[i] - mean;
+      variance += weights[i] * diff * diff;
+    }
+    return Math.sqrt(Math.max(0.0, variance));
+  }
+
+  /**
+   * ADR-0057: root 局面から no-double 枝と double-take 枝の x を推論する（マネー用）。
+   */
+  cubeHeadActionEfficiencies(board, proposer, cubeValue, currentOwner) {
+    const head = this.cubeHeadMoney;
+    if (!head) {
+      return [this.cubeEfficiency, this.cubeEfficiencyDtFor(board, proposer)];
+    }
+    if (this.resolveBackend({ board, cubeHeadMoney: head }) === 'wasm') {
+      return wasmCubeHeadMoneyEfficiencies(this, board, proposer, cubeValue, currentOwner);
+    }
+    const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
+    const feat = encodeBoard(board, viewer, proposer, this.net.features);
+    const vol = head.contextDim >= 5 ? this.rollVolatility(board, proposer) : null;
+    // lastHidden は共有バッファを返す。rollVolatility が後からNNを呼ぶと h を上書きするため、先に計算する。
+    const h = this.net.lastHidden(feat);
+    const cNd = encodeCubeContext(cubeValue, currentOwner, 'me', vol, head.contextDim);
+    const cDt = encodeCubeContext(cubeValue * 2, 'opponent', 'me', vol, head.contextDim);
+
+    let xNd = head.predict(h, cNd);
+    let xDt = head.predict(h, cDt);
+
+    xNd = this.applyCubeEfficiencyFloor(xNd, 'nd');
+    xDt = this.applyCubeEfficiencyFloor(xDt, 'dt');
+
+    return [xNd, xDt];
+  }
+
+  applyCubeEfficiencyFloor(efficiency, action) {
+    const floor = action === 'dt'
+      ? (this.cubeEfficiencyFloorDt > 0 ? this.cubeEfficiencyFloorDt : this.cubeEfficiencyFloor)
+      : this.cubeEfficiencyFloor;
+    return Math.max(efficiency, floor);
+  }
+
+  /**
+   * ダブルテイク枝（テイク側）のマネー用 cube efficiency を求める (ADR-0062)。
+   */
+  cubeEfficiencyDtFor(board, proposer) {
+    if (!hasContact(board)) {
+      return this.cubeEfficiencyDtRace;
+    }
+    return this.cubeEfficiencyDt;
+  }
+
+  /**
+   * ADR-0057: root 局面からマッチ専用 CubeHead で no-double 枝と double-take 枝の x を推論する。
+   */
+  matchCubeHeadActionEfficiencies(board, proposer, cubeValue, currentOwner, match) {
+    const head = this.cubeHeadMatch;
+    if (!head) {
+      return [this.matchCubeEfficiency, this.matchCubeEfficiency];
+    }
+    if (this.resolveBackend({ board, cubeHeadMatch: head }) === 'wasm') {
+      return wasmCubeHeadMatchEfficiencies(this, board, proposer, cubeValue, currentOwner, match);
+    }
+    const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
+    const feat = encodeBoard(board, viewer, proposer, this.net.features);
+    const awayUs = match.away[proposer];
+    const awayThem = match.away[opponent(proposer)];
+    const played = match.crawfordPlayed;
+    const vol = this.rollVolatility(board, proposer);
+    // lastHidden は共有バッファを返す。rollVolatility が後からNNを呼ぶと h を上書きするため、先に計算する。
+    const h = this.net.lastHidden(feat);
+
+    const cNd = encodeMatchCubeContext(
+      awayUs, awayThem, cubeValue, currentOwner, 'me', vol, played, head.contextDim);
+    const cDt = encodeMatchCubeContext(
+      awayUs, awayThem, cubeValue * 2, 'opponent', 'me', vol, played, head.contextDim);
+
+    const xNd = head.predict(h, cNd);
+    const xDt = head.predict(h, cDt);
+
+    return [xNd, xDt];
+  }
+
+  /**
+   * 単一の局面・キューブ状態に対する x を CubeHead から取得。
+   */
+  cubeHeadFor(board, proposer, cubeValue, owner, action = 'nd') {
+    const head = this.cubeHeadMoney;
+    if (!head) return this.cubeEfficiency;
+    if (this.resolveBackend({ board, cubeHeadMoney: head }) === 'wasm') {
+      const floor = action === 'dt'
+        ? (this.cubeEfficiencyFloorDt > 0 ? this.cubeEfficiencyFloorDt : this.cubeEfficiencyFloor)
+        : this.cubeEfficiencyFloor;
+      return wasmCubeHeadMoneyEfficiencies(this, board, proposer, cubeValue, owner, {
+        floorNd: floor,
+        floorDt: floor,
+      })[0];
+    }
+
+    const viewer = this.net.perspective === 'mover' ? proposer : WHITE;
+    const feat = encodeBoard(board, viewer, proposer, this.net.features);
+    const vol = head.contextDim >= 5 ? this.rollVolatility(board, proposer) : null;
+    // lastHidden は共有バッファを返す。rollVolatility が後からNNを呼ぶと h を上書きするため、先に計算する。
+    const h = this.net.lastHidden(feat);
+    const c = encodeCubeContext(cubeValue, owner, 'me', vol, head.contextDim);
+
+    const x = head.predict(h, c);
+    return this.applyCubeEfficiencyFloor(x, action);
+  }
+
+  /**
+   * その equity でテイクするのが正しいか（engine の `would_take` と同じ式）。
+   *
+   *   ドロップ → 確定で -1
+   *   テイク   → 以後キューブ 2 倍で続くので 2·E、さらに所有価値が乗る
+   */
+  wouldTake(equityForTaker) {
+    return 2 * equityForTaker + this.cubeOwnership >= -1;
+  }
+
+  /**
+   * Janowski のテイクポイントで判断する（engine の would_take_janowski）。
+   *
+   *   テイク ⟺ p >= (L - 0.5) / (W + L + 0.5x)
+   *
+   * W（勝ったときの平均得点）と L（負けたときの平均失点）を**局面ごとに**
+   * 出すので、**ギャモン負けが多い局面では自動的にテイクポイントが上がる**。
+   * 定数 cubeOwnership は x·TP に相当するが、TP が W / L に依存する
+   * ため定数 1 個では表せない。
+   *
+   * @param {number[]} outputs **テイクする側から見た** 5 要素の確率ベクトル
+   */
+  wouldTakeJanowski(outputs, cubeEfficiency = null) {
+    const { p, win, lose } = winLossMagnitudes(outputs);
+    const eff = cubeEfficiency ?? this.cubeEfficiency;
+    const denominator = win + lose + 0.5 * eff;
+    if (denominator <= 1e-9) return false;
+    return p >= (lose - 0.5) / denominator;
+  }
+
+  /**
+   * テイクする側から見た確率ベクトル。
+   */
+  takerProbabilities(board, proposer) {
+    return this.searchedVectorFor(board, proposer, opponent(proposer));
+  }
+
+  /**
+   * テイクするか。**ダブル側と同じ探索の値で決める**（ADR-0017 段 B-2）。
+   *
+   * 新しい式は要らない。`shouldDoubleSearch` はすでに `min(take, 1.0)` の形で
+   * テイクの是非を判定している。その `take` は提案者視点でテイクされた時の
+   * 値なので、**1.0 より小さければ相手にとってテイクが得**。
+   *
+   * これを入れるまで、ダブル側は探索の値で「相手はテイクする」と見込むのに
+   * 受ける側は Janowski の定数式で判断していた（**同じ局面に 2 つの基準**）。
+   */
+  wouldTakeSearch(board, proposer, cubeValue = 1, unboundedMoney = false) {
+    let eff = (this.useCubeHead && this.cubeHeadMoney)
+      ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent', 'dt')
+      : this.cubeEfficiencyDtFor(board, proposer);
+    const take = 2.0 * this.cubefulSearch(
+      board, proposer, 'opponent', this.cubeSearchDepth, false, null, eff, {
+        cubeValue: cubeValue * 2,
+        actionContext: 'post_double_take',
+        unboundedMoney,
+      });
+    return take < 1.0;
+  }
+
+  /** テイクするか（**方式の振り分けはここ 1 箇所**）。 */
+  wouldTakeFor(board, proposer, cubeValue = 1, unboundedMoney = false) {
+    if (this.cubeDecision === 'search') {
+      return this.wouldTakeSearch(board, proposer, cubeValue, unboundedMoney);
+    }
+    const taker = opponent(proposer);
+    if (this.cubeModel === 'janowski') {
+      let eff = (this.useCubeHead && this.cubeHeadMoney)
+        ? this.cubeHeadFor(board, proposer, cubeValue * 2, 'opponent', 'dt')
+        : this.cubeEfficiencyDtFor(board, proposer);
+      return this.wouldTakeJanowski(this.searchedVectorFor(board, proposer, taker), eff);
+    }
+    return this.wouldTake(this.searchedEquityFor(board, proposer, taker));
+  }
+
+  /** 提案された側がテイクするか（too good to double の判定用）。 */
+  opponentWouldTake(board, proposer, cubeValue = 1, unboundedMoney = false) {
+    return this.wouldTakeFor(board, proposer, cubeValue, unboundedMoney);
+  }
+
+  /**
+   * 葉の**マッチ勝率**（`turn` 視点）。**Janowski を MWC 空間で行う。**
+   *
+   * `mwcWithCube` は**キューブが以後動かない前提**（死んだキューブ）なので、
+   * わずかな有利を 2 倍にすれば MWC が線形に増えるように見え、
+   * **開幕の 0-0 でダブルする**という誤った判断が出る。キューブを持っている
+   * 価値＝**上に行くと頭打ちになる**形を入れないと判断にならない。
+   *
+   * 端点は MET から引く（`cash` / `drop`）。**同じ 1 点でもスコアで価値が
+   * 違う**ので、マネーの「+1 / -1」はそのまま使えない。
+   *
+   * CP / TP は閉じた式で解ける。勝ち側・負け側を比例配分して勝率を p に
+   * 置き換えると、死んだキューブの MWC は **p について線形**になるため。
+   */
+  mwcLeaf(board, turn, cube, owner, match, leaf = null, matchCubeEfficiency = null) {
+    const vector = this.searchedVectorFor(board, turn, WHITE, leaf ?? this.cubeLeafPlies);
+    const spread = outcomeSpread(vector, turn === WHITE);
+    const awayUs = match.away[turn];
+    const awayThem = match.away[opponent(turn)];
+    const played = match.crawfordPlayed;
+
+    const dead = mwcWithCube(spread, cube, awayUs, awayThem, played);
+    const p = spread.win1 + spread.win2 + spread.win3;
+    if (p <= 1e-9 || p >= 1.0 - 1e-9) return dead;
+
+    // そのキューブ値での [p=1 のときの MWC, p=0 のときの MWC]
+    const ends = (value) => {
+      const win = [1, 2, 3].map((k) => matchWinChance(awayUs - value * k, awayThem, played));
+      const lose = [1, 2, 3].map((k) => matchWinChance(awayUs, awayThem - value * k, played));
+      const top = (spread.win1 * win[0] + spread.win2 * win[1] + spread.win3 * win[2]) / p;
+      const bottom = (spread.lose1 * lose[0] + spread.lose2 * lose[1]
+                      + spread.lose3 * lose[2]) / (1.0 - p);
+      return [top, bottom];
+    };
+
+    const cash = matchWinChance(awayUs - cube, awayThem, played);
+    const drop = matchWinChance(awayUs, awayThem - cube, played);
+    const [top2, bottom2] = ends(cube * 2);
+    const [top1, bottom1] = ends(cube);
+    const span = top2 - bottom2;
+    if (Math.abs(span) < 1e-9) return dead;
+    const cashPoint = (cash - bottom2) / span;
+    const takePoint = (drop - bottom2) / span;
+
+    const liveMine = cashPoint > 1e-9
+      ? Math.min(cash, bottom1 + (cash - bottom1) * p / cashPoint)
+      : cash;
+    const liveTheirs = takePoint < 1.0 - 1e-9
+      ? Math.max(drop, drop + (top1 - drop) * (p - takePoint) / (1.0 - takePoint))
+      : drop;
+
+    let live;
+    if (owner === 'me') live = liveMine;
+    else if (owner === 'opponent') live = liveTheirs;
+    else live = Math.min(liveMine, liveTheirs);   // センターは相手に有利な方
+
+    // **マネーの cubeEfficiency ではなくマッチ用の x を使う**（ADR-0041）
+    const x = matchCubeEfficiency ?? this.matchCubeEfficiency;
+    return (1.0 - x) * dead + x * live;
+  }
+
+  /** 手番側がキューブを検討できるなら 3 択も評価する（`turn` 視点の MWC）。 */
+  mwcNode(board, turn, owner, depth, cube, match, leaf = null,
+          matchCubeEfficiency = null, allowDouble = true) {
+    const noDouble = this.mwcSearch(board, turn, owner, depth, cube, match, leaf,
+      matchCubeEfficiency, allowDouble);
+    if (!allowDouble || owner === 'opponent' || cube >= 64) return noDouble;
+    const take = this.mwcSearch(board, turn, 'opponent', depth, cube * 2, match, leaf,
+      matchCubeEfficiency, allowDouble);
+    const drop = matchWinChance(match.away[turn] - cube,
+                                match.away[opponent(turn)], match.crawfordPlayed);
+    return Math.max(noDouble, Math.min(take, drop));
+  }
+
+  /**
+   * `turn` 視点のマッチ勝率（**キューブの分岐まで展開する**）。
+   *
+   * `cubefulSearch` のマッチ版。違いは 2 つだけ。
+   * 1. **葉の値が MWC**（点数の equity ではない）
+   * 2. **手番が移るときは `1 - x`**（`-x` ではない）。MWC は
+   *    `MWC(a,b) + MWC(b,a) = 1` で対称なので、符号反転ではなく余事象
+   *
+   * **キューブ値を引数で持ち回る。** マネーでは「いまの値を 1 とする」正規化が
+   * できるが、MWC では 2 点と 4 点で MET の引き当てが変わるので絶対値が要る。
+   */
+  mwcSearch(board, turn, owner, depth, cube, match, leaf = null,
+            matchCubeEfficiency = null, allowDouble = true, rollIndices = null) {
+    const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+    if (!(this.noise > 0 && resolvedLeaf === 0) && this.resolveBackend({ board }) === 'wasm') {
+      return wasmMatchMwcSearch(
+        this, board, turn, owner, depth, cube, match, leaf, matchCubeEfficiency, allowDouble, rollIndices, true,
+      );
+    }
+    const weightScale = rollIndices === null
+      ? 1.0
+      : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
+    const terminal = this.terminalVector(board);
+    if (terminal !== null) {
+      const spread = outcomeSpread(terminal, turn === WHITE);
+      return weightScale * mwcWithCube(spread, cube, match.away[turn],
+                         match.away[opponent(turn)], match.crawfordPlayed);
+    }
+    if (depth <= 0) {
+      if (!allowDouble || cube >= 64) {
+        const vector = this.searchedVectorFor(board, turn, WHITE, leaf ?? this.cubeLeafPlies);
+        return weightScale * mwcWithCube(outcomeSpread(vector, turn === WHITE), cube,
+          match.away[turn], match.away[opponent(turn)], match.crawfordPlayed);
+      }
+      return weightScale * this.mwcLeaf(board, turn, cube, owner, match, leaf, matchCubeEfficiency);
+    }
+
+    let total = 0.0;
+    const flipped = Agent.flipOwner(owner);
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    const preparedRolls = this.checkerRollCache
+      ? activeRolls.map((roll) => ({
+        roll,
+        selection: this.checkerRollBoards(board, turn, roll, depth),
+      }))
+      : null;
+    const leafPlies = leaf ?? this.cubeLeafPlies;
+    if (depth === 1 && leafPlies === 0 && preparedRolls) {
+      const leafTurn = opponent(turn);
+      const leafBoards = [];
+      for (const { selection } of preparedRolls) {
+        if (selection.hasMoves) leafBoards.push(...selection.boards);
+        else leafBoards.push(board);
+      }
+      this.prefetchCheckerVectors(leafBoards, leafTurn);
+    }
+    for (let rollIndex = 0; rollIndex < activeRolls.length; rollIndex += 1) {
+      const roll = activeRolls[rollIndex];
+      const { weight } = roll;
+      const selection = preparedRolls
+        ? preparedRolls[rollIndex].selection
+        : this.checkerRollBoards(board, turn, roll, depth);
+      if (!selection.hasMoves) {
+        total += weight * (1.0 - this.mwcNode(
+          board, opponent(turn), flipped, depth - 1, cube, match, leaf,
+          matchCubeEfficiency, allowDouble));
+        continue;
+      }
+      let best = null;
+      // **マネー側（`cubefulSearch`）と同じ段で絞る。**
+      for (const selectedBoard of selection.boards) {
+        const value = 1.0 - this.mwcNode(
+          selectedBoard, opponent(turn), flipped, depth - 1, cube, match, leaf,
+          matchCubeEfficiency, allowDouble);
+        if (best === null || value > best) best = value;
+      }
+      total += weight * best;
+    }
+    return total;
+  }
+
+  /** マッチのキューブ 3 択を探索で求める（すべて提案者視点の MWC）。 */
+  matchCubeSearch(game, proposer, match, leaf = null, allowDouble = true) {
+    const owner = this.cubeOwnerKind(game, proposer);
+    const cube = game.cube.value;
+    const depth = this.cubeSearchDepth;
+
+    let xNd = this.matchCubeEfficiency;
+    let xDt = this.matchCubeEfficiency;
+    if (this.useCubeHead && this.cubeHeadMatch) {
+      [xNd, xDt] = this.matchCubeHeadActionEfficiencies(game.board, proposer, cube, owner, match);
+    }
+
+    const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+    if (!(this.noise > 0 && resolvedLeaf === 0) && this.resolveBackend({ board: game.board }) === 'wasm') {
+      const { noDouble, doubleTake, doublePass } = wasmMatchCubeActionValues(
+        this, game.board, proposer, owner, depth, cube, match, leaf, xNd, xDt, true, allowDouble, null, true,
+      );
+      return { noDouble, take: doubleTake, drop: doublePass };
+    }
+
+    const noDouble = this.mwcSearch(
+      game.board, proposer, owner, depth, cube, match, leaf, xNd, allowDouble);
+    const take = this.mwcSearch(
+      game.board, proposer, 'opponent', depth, cube * 2, match, leaf, xDt, allowDouble);
+    const drop = matchWinChance(match.away[proposer] - cube,
+                                match.away[opponent(proposer)], match.crawfordPlayed);
+    return { noDouble, take, drop };
+  }
+
+  /**
+   * マッチでのキューブ判断に使う 3 つのマッチ勝率（**提案者から見た値**）。
+   *
+   * マネーゲームの equity（1 局あたりの期待得点）はマッチでは使えない。
+   * **同じ 1 点でも、スコアによって価値が違う**（マッチポイントの 1 点と
+   * 0-0 の 1 点は別物）。MET を通して**マッチに勝つ確率**へ換算する。
+   *
+   * @param {object} match `Match.cubeContext()` が返す文脈
+   * @returns {{noDouble: number, take: number, pass: number}}
+   */
+  matchCubeEquities(board, proposer, cubeValue, match) {
+    // **マッチのキューブ判断も cubePlies 段で読む。** MET に渡すのは equity では
+    // なく確率ベクトルなので、`searchedVectorFor` の White 視点をそのまま使う。
+    // **engine にマッチ対応が無いので判断そのものは突き合わせられない**が、
+    // 入力のベクトルは `cube-parity.json` の searched_vectors で検証している。
+    const spread = outcomeSpread(this.searchedVectorFor(board, proposer, WHITE),
+                                 proposer === WHITE);
+    const awayUs = match.away[proposer];
+    const awayThem = match.away[opponent(proposer)];
+    const played = match.crawfordPlayed;
+    const nextCube = cubeValue * 2;
+
+    const noDouble = mwcWithCube(spread, cubeValue, awayUs, awayThem, played);
+    let take = mwcWithCube(spread, nextCube, awayUs, awayThem, played);
+
+    // 相手がキューブを持つことによるリダブル脅威（MET から厳密に算出）
+    const gain = redoubleGain(awayUs, awayThem, nextCube, played);
+    if (gain > 0) {
+      take -= gain * 0.12;
+    }
+
+    return {
+      noDouble,
+      take,
+      // ドロップされたら、いまのキューブの値ぶんを取って局が終わる
+      pass: matchWinChance(awayUs - cubeValue, awayThem, played),
+    };
+  }
+
+  /**
+   * キューブ込みの equity を返す（現在のキューブ値を 1 とした点数）。
+   *
+   * `owner` は 'me'（手番側が保持）/ 'opponent'（相手が保持）/
+   * 'center'（センター）。すべて手番側から見た値。
+   *
+   * @param {number[]} outputs 手番側から見た 5 要素の確率ベクトル
+   * @param {'me'|'opponent'|'center'} owner
+   */
+  cubefulEquity(outputs, owner, cubeEfficiency = null) {
+    const { p, win, lose } = winLossMagnitudes(outputs);
+    const dead = p * win - (1.0 - p) * lose;
+    const denominator = win + lose + 0.5;
+    if (denominator <= 1e-9) return dead;
+
+    const takePoint = (lose - 0.5) / denominator;
+    const cashPoint = (lose + 1.0) / denominator;
+
+    let liveMine;
+    if (cashPoint > 1e-9) {
+      liveMine = Math.min(1.0, -lose + p * (1.0 + lose) / cashPoint);
+    } else {
+      liveMine = 1.0;
+    }
+
+    const span = 1.0 - takePoint;
+    let liveTheirs;
+    if (span > 1e-9) {
+      liveTheirs = Math.max(-1.0, win - (1.0 - p) * (win + 1.0) / span);
+    } else {
+      liveTheirs = win;
+    }
+
+    let live;
+    if (owner === 'me') {
+      live = liveMine;
+    } else if (owner === 'opponent') {
+      live = liveTheirs;
+    } else {
+      const low = 1.0 - (win + 1.0) / denominator;
+      const width = cashPoint - low;
+      live = width > 1e-9 ? (-1.0 + (p - low) * 2.0 / width) : 0.0;
+      live = Math.max(-1.0, Math.min(1.0, live));
+    }
+
+    const x = cubeEfficiency ?? this.cubeEfficiency;
+    return (1.0 - x) * dead + x * live;
+  }
+
+  /** キューブが一度も回されていないか（ジャコビーの適用条件）。 */
+  cubeUntouched(game) {
+    return game.cube.untouched;
+  }
+
+  /** キューブの所在を提案者から見た owner に直す。 */
+  cubeOwnerKind(game, proposer) {
+    if (game.cube.owner === null) return 'center';
+    return game.cube.owner === proposer ? 'me' : 'opponent';
+  }
+
+  /** 手番が移ったときのキューブの所在（視点が入れ替わる）。 */
+  static flipOwner(owner) {
+    if (owner === 'me') return 'opponent';
+    if (owner === 'opponent') return 'me';
+    return 'center';
+  }
+
+  /** 葉の値。模型で cubeless から cubeful に直す。 */
+  cubeLeaf(board, turn, owner, jacoby, leaf = null, cubeEfficiency = null) {
+    let vector = this.searchedVectorFor(board, turn, turn, leaf ?? this.cubeLeafPlies);
+    if (jacoby && owner === 'center') {
+      const flat = [0, 0, 0, 0, 0];
+      flat[WIN] = vector[WIN];
+      vector = flat;
+    }
+    return this.cubefulEquity(vector, owner, cubeEfficiency);
+  }
+
+  /** 手番側がキューブを検討できるなら 3 択も評価する（turn 視点）。 */
+  cubeNode(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null,
+           cubeValue = 1, allowDouble = true, cashPolicy = null,
+           unboundedMoney = false) {
+    const noDouble = this.cubefulSearch(board, turn, owner, depth, jacoby, leaf, cubeEfficiency,
+      { cubeValue, allowDouble, cashPolicy, unboundedMoney });
+    // 相手所有・キューブ64（Money unboundedを除く）・キューブ禁止の局は提案できない。
+    if (!allowDouble || owner === 'opponent'
+        || (cubeValue >= 64 && !unboundedMoney)) return noDouble;
+
+    const take = 2.0 * this.cubefulSearch(board, turn, 'opponent', depth, false, leaf,
+      cubeEfficiency, {
+        cubeValue: cubeValue * 2,
+        allowDouble,
+        actionContext: 'post_double_take',
+        unboundedMoney,
+      });
+    return Math.max(noDouble, Math.min(take, 1.0));
+  }
+
+  /** turn 視点のキューブ込み equity（現在のキューブ値を 1 とする）。 */
+  cubefulSearch(board, turn, owner, depth, jacoby, leaf = null, cubeEfficiency = null, {
+    cashOption = false,
+    cashAlpha = null,
+    cashPolicy: inheritedCashPolicy = null,
+    cubeValue = 1,
+    allowDouble = true,
+    actionContext = 'post_no_double',
+    unboundedMoney = false,
+    rollIndices = null,
+  } = {}) {
+    const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+    if (!(this.noise > 0 && resolvedLeaf === 0) && this.resolveBackend({ board }) === 'wasm') {
+      return wasmMoneyCubefulSearch(
+        this,
+        board,
+        turn,
+        owner,
+        depth,
+        jacoby,
+        leaf,
+        cubeEfficiency,
+        {
+          cashOption,
+          cashAlpha,
+          cashPolicy: inheritedCashPolicy,
+          cubeValue,
+          allowDouble,
+          actionContext,
+          unboundedMoney,
+          rollIndices,
+        },
+        true,
+      );
+    }
+    const cashPolicy = actionContext === 'post_double_take' ? null : inheritedCashPolicy;
+    const weightScale = rollIndices === null
+      ? 1.0
+      : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
+    const terminal = this.terminalVector(board);
+    if (terminal !== null) {
+      // Jacoby有効・まだ一度もダブルされていない場合、G/BGも1点。
+      if (jacoby && owner === 'center') {
+        return weightScale * (turn === WHITE ? 2 * terminal[WIN] - 1 : 1 - 2 * terminal[WIN]);
+      }
+      return weightScale * this.terminalEquity(board, turn);
+    }
+    if (depth <= 0) {
+      if (cubeValue >= 64 && !unboundedMoney) {
+        const vector = this.searchedVectorFor(board, turn, turn, leaf ?? this.cubeLeafPlies);
+        return weightScale * equity(vector);
+      }
+      return weightScale * this.cubeLeaf(board, turn, owner, jacoby, leaf, cubeEfficiency);
+    }
+
+    let total = 0;
+    const flipped = Agent.flipOwner(owner);
+    // Jacoby時も旧cash専用葉評価経路を保ち、cash式は後段で別に判定する。
+    const cashPathEligible = this.cashOptionPathEligible(
+      cashPolicy, depth, owner, cubeValue, allowDouble, actionContext, unboundedMoney);
+    // V_rollなどの既存直接呼び出しはroot depth=1の契約を保つ。
+    const legacyCash = cashOption && depth === 1;
+    const alpha = cashAlpha ?? this.cubeCashAlpha;
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    const preparedRolls = this.checkerRollCache
+      ? activeRolls.map((roll) => ({
+        roll,
+        selection: this.checkerRollBoards(board, turn, roll, depth),
+      }))
+      : null;
+    const leafPlies = leaf ?? this.cubeLeafPlies;
+    if (depth === 1 && leafPlies === 0 && preparedRolls) {
+      const leafTurn = opponent(turn);
+      const leafBoards = [];
+      for (const { selection } of preparedRolls) {
+        if (selection.hasMoves) leafBoards.push(...selection.boards);
+        else leafBoards.push(board);
+      }
+      this.prefetchCheckerVectors(leafBoards, leafTurn);
+    }
+
+    for (let rollIndex = 0; rollIndex < activeRolls.length; rollIndex += 1) {
+      const roll = activeRolls[rollIndex];
+      const { weight } = roll;
+      const selection = preparedRolls
+        ? preparedRolls[rollIndex].selection
+        : this.checkerRollBoards(board, turn, roll, depth);
+      if (!selection.hasMoves) {
+        const termVector = this.terminalVector(board);
+        if (termVector !== null) {
+          const term = jacoby && owner === 'center'
+            ? (turn === WHITE ? 2 * termVector[WIN] - 1 : 1 - 2 * termVector[WIN])
+            : this.terminalEquity(board, turn);
+          total += weight * term;
+        } else if (cashPathEligible || legacyCash) {
+          const oppVec = this.searchedVectorFor(board, opponent(turn), opponent(turn), leaf ?? this.cubeLeafPlies);
+          const propVec = flipPerspective(oppVec);
+          const dtProp = 2.0 * this.cubefulEquity(propVec, 'opponent', cubeEfficiency);
+          let v;
+          if (dtProp >= 1.0 && !jacoby) {
+            v = this.cashOptionValue(propVec, cashPathEligible ? cashPolicy.alpha : alpha);
+          } else {
+            let oppVecJacoby = oppVec;
+            if (jacoby && flipped === 'center') {
+              oppVecJacoby = [0, 0, 0, 0, 0];
+              oppVecJacoby[WIN] = oppVec[WIN];
+            }
+            v = -this.cubefulEquity(oppVecJacoby, flipped, cubeEfficiency);
+          }
+          total += weight * v;
+        } else {
+          total += weight * -this.cubeNode(board, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency,
+            cubeValue, allowDouble, cashPolicy, unboundedMoney);
+        }
+        continue;
+      }
+      let best = null;
+      for (const b of selection.boards) {
+        let value;
+        if (cashPathEligible || legacyCash) {
+          const termVector = this.terminalVector(b);
+          if (termVector !== null) {
+            value = jacoby && owner === 'center'
+              ? (turn === WHITE ? 2 * termVector[WIN] - 1 : 1 - 2 * termVector[WIN])
+              : this.terminalEquity(b, turn);
+          } else {
+            const oppVec = this.searchedVectorFor(b, opponent(turn), opponent(turn), leaf ?? this.cubeLeafPlies);
+            const propVec = flipPerspective(oppVec);
+            const dtProp = 2.0 * this.cubefulEquity(propVec, 'opponent', cubeEfficiency);
+            if (dtProp >= 1.0 && !jacoby) {
+              value = this.cashOptionValue(propVec, cashPathEligible ? cashPolicy.alpha : alpha);
+            } else {
+              let oppVecJacoby = oppVec;
+              if (jacoby && flipped === 'center') {
+                oppVecJacoby = [0, 0, 0, 0, 0];
+                oppVecJacoby[WIN] = oppVec[WIN];
+              }
+              value = -this.cubefulEquity(oppVecJacoby, flipped, cubeEfficiency);
+            }
+          }
+        } else {
+          value = -this.cubeNode(b, opponent(turn), flipped, depth - 1, jacoby, leaf, cubeEfficiency,
+            cubeValue, allowDouble, cashPolicy, unboundedMoney);
+        }
+        if (best === null || value > best) {
+          best = value;
+        }
+      }
+      total += weight * best;
+    }
+    return total;
+  }
+
+  cashOptionPathEligible(policy, depth, owner, cubeValue, allowDouble, actionContext,
+                         unboundedMoney = false) {
+    return Boolean(policy && depth === 1 && (owner === 'center' || owner === 'me') &&
+      allowDouble && (cubeValue < 64 || unboundedMoney)
+      && actionContext !== 'post_double_take');
+  }
+
+  cashOptionValue(vector, alpha) {
+    const lossExpected = (1.0 - vector[WIN]) +
+      2.0 * vector[LOSE_GAMMON] + 3.0 * vector[LOSE_BACKGAMMON];
+    return 1.0 + vector[WIN_GAMMON] + 2.0 * vector[WIN_BACKGAMMON] -
+      alpha * lossExpected;
+  }
+
+  /** キューブの分岐まで展開してダブルするか決める（ADR-0017 段 B-1）。 */
+  shouldDoubleSearch(game) {
+    const proposer = game.currentPlayer;
+    const owner = this.cubeOwnerKind(game, proposer);
+    const jacoby = (this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game);
+    const depth = this.cubeSearchDepth;
+
+    let xNd = this.cubeEfficiency;
+    let xDt = this.cubeEfficiencyDtFor(game.board, proposer);
+    if (this.useCubeHead && this.cubeHeadMoney) {
+      [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
+    }
+
+    const useWasm = this.resolveBackend({ board: game.board }) === 'wasm';
+    const decide = (leaf) => {
+      const resolvedLeaf = leaf ?? this.cubeLeafPlies;
+      if (useWasm && !(this.noise > 0 && resolvedLeaf === 0)) {
+        const { noDouble, doubleTake } = wasmMoneyCubeActionValues(
+          this,
+          game.board,
+          proposer,
+          owner,
+          depth,
+          jacoby,
+          leaf,
+          xNd,
+          xDt,
+          true,
+          {
+            cubeValue: game.cube.value,
+            cashOption: this.cubeCashOption,
+            cashAlpha: this.cubeCashAlpha,
+            unboundedMoney: game.cube.unboundedMoney === true,
+          },
+          true,
+        );
+        return [noDouble, Math.min(doubleTake, 1.0)];
+      }
+      const ndOptions = {
+        cubeValue: game.cube.value,
+        actionContext: 'post_no_double',
+        unboundedMoney: game.cube.unboundedMoney === true,
+      };
+      const nd = this.cubeCashOption
+        ? this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd,
+            { ...ndOptions, cashOption: true, cashAlpha: this.cubeCashAlpha })
+        : this.cubefulSearch(game.board, proposer, owner, depth, jacoby, leaf, xNd, ndOptions);
+      const tk = 2.0 * this.cubefulSearch(
+        game.board, proposer, 'opponent', depth, false, leaf, xDt,
+        {
+          cubeValue: 2 * game.cube.value,
+          actionContext: 'post_double_take',
+          unboundedMoney: game.cube.unboundedMoney === true,
+        });
+      return [nd, Math.min(tk, 1.0)];
+    };
+
+    // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める
+    if (this.cubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
+      const [nd, best] = decide(0);
+      if (Math.abs(best - nd) > this.cubeScreenMargin) return best > nd;
+    }
+    const [nd, best] = decide(null);
+    return best > nd;
+  }
+
+  /** 3 つのキューブ込み equity を比べてダブルするか決める（ADR-0017 段 A）。 */
+  shouldDoubleCubeful(game) {
+    const proposer = game.currentPlayer;
+    const vector = this.searchedVectorFor(game.board, proposer, proposer);
+    const owner = this.cubeOwnerKind(game, proposer);
+
+    let xNd = this.cubeEfficiency;
+    let xDt = this.cubeEfficiencyDtFor(game.board, proposer);
+    if (this.useCubeHead && this.cubeHeadMoney) {
+      [xNd, xDt] = this.cubeHeadActionEfficiencies(game.board, proposer, game.cube.value, owner);
+    }
+
+    let noDouble;
+    if ((this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game)) {
+      const flat = [0, 0, 0, 0, 0];
+      flat[WIN] = vector[WIN];
+      noDouble = this.cubefulEquity(flat, owner, xNd);
+    } else {
+      noDouble = this.cubefulEquity(vector, owner, xNd);
+    }
+
+    const take = 2.0 * this.cubefulEquity(vector, 'opponent', xDt);
+    return Math.min(take, 1.0) > noDouble;
+  }
+
+  /**
+   * Money strict-rootを試し、非対応root・DB異常・子missならnullを返す。
+   * 呼出側はnull時に従来のcube searchをroot全体で実行する。
+   */
+  tryMoneyBg2nRoot(game, match, source) {
+    if (match !== null || game.crawford || !game.cube.unboundedMoney
+        || !this.useMoneyBearoff) return null;
+
+    this.moneyBg2nStats.attempts += 1;
+    const fallback = (reason, category = 'unsupported_root') => {
+      this.moneyBg2nStats.fallbackRoots += 1;
+      this.moneyBg2nLastRoot = { status: 'fallback', source, reason, category };
+      return null;
+    };
+    const database = sharedMoneyBearoff;
+    if (!database) return fallback('Money BG2N database is not available', 'database_unavailable');
+
+    const proposer = game.doublingProposer ?? game.currentPlayer;
+    const owner = this.cubeOwnerKind(game, proposer);
+    try {
+      let result;
+      if (this.resolveBackend({ board: game.board, moneyBearoff: database }) === 'wasm') {
+        const raw = wasmEvaluateMoneyBg2nRootRaw(
+          game.board, proposer, game.cube.value, owner, database, true,
+        );
+        if (!raw.ok) {
+          throw new Bg2nRootUnavailable(raw.message, raw.category);
+        }
+        result = raw.result;
+      } else {
+        result = evaluateMoneyBg2nRoot(
+          game.board, proposer, game.cube.value, owner, database,
+        );
+      }
+      this.moneyBg2nStats.exactRoots += 1;
+      this.moneyBg2nLastRoot = {
+        status: 'exact',
+        source,
+        action: result.action,
+        cube: result.cube,
+        owner: result.owner,
+        valuesPoints: {
+          ND: result.ND_points,
+          DT: result.DT_points,
+          DP: result.DP_points,
+        },
+        valuesCurrentCube: {
+          noDouble: result.no_double,
+          doubleTake: result.double_take,
+          doublePass: result.double_pass,
+        },
+        fileSha256: MONEY_BG2N_FILE_SHA256,
+        payloadSha256: database.payloadSha256,
+      };
+      return result;
+    } catch (error) {
+      const category = error.category ?? 'runtime_error';
+      if (category === 'runtime_error') setMoneyBearoffDatabase(null);
+      return fallback(`${error.name ?? 'Error'}: ${error.message ?? error}`, category);
+    }
+  }
+
+  /**
+   * ダブルを提案すべきか。
+   *
+   * @param {Game} game
+   * @param {?object} match `Match.cubeContext()`。**アンリミテッドでは null**
+   *   で、その場合は従来どおり equity の閾値で決める。
+   */
+  shouldDouble(game, match = null) {
+    if (!game.canDouble()) return false;
+    const proposer = game.currentPlayer;
+
+    if (match) {
+      // **葉を MWC 空間の Janowski にした探索で判断する。**
+      // 実戦由来の 10,558 局面（gnubg 3-ply が正解）で
+      // ダブル判断 3.4 → 1.3 mEMG、テイク判断 4.2 → 1.8 mEMG。
+      if (this.cubeDecision === 'search') {
+        // **足切り**: まず葉 0 段で見て、差が開いていればそこで決める。
+        // 単位は MWC なのでマネーの `cubeScreenMargin` とは桁が違う。
+        // **`cubeLeafPlies > 0` のときだけ効く。**
+        const decide = (s) => {
+          const opponentTakes = s.take <= s.drop;
+          const awayThem = match.away[opponent(proposer)];
+          const holdMargin = (!match.crawfordPlayed && opponentTakes && game.cube.value === 1)
+            ? (awayThem <= 2 ? 0.045 : 0.020)
+            : 0.0;
+          return [s.noDouble + holdMargin, Math.min(s.take, s.drop)];
+        };
+        if (this.matchCubeScreenMargin > 0 && this.cubeLeafPlies > 0) {
+          const [nd, best] = decide(this.matchCubeSearch(game, proposer, match, 0));
+          if (Math.abs(best - nd) > this.matchCubeScreenMargin) return best > nd;
+        }
+        const [nd, best] = decide(this.matchCubeSearch(game, proposer, match));
+        return best > nd;
+      }
+      const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
+      // 相手のテイク / パスはこちらが選べない。相手は自分に有利な方を選ぶ。
+      //
+      // **センターキューブ保持のオプション価値（先送りマージン）**:
+      // 死んだキューブの MWC ではキューブを持っている価値が入らないので、
+      // 定数で手当てしていた。探索版では葉の模型が同じ役割を果たす。
+      const opponentTakes = e.take <= e.pass;
+      const holdMargin = (opponentTakes && game.cube.value === 1) ? 0.020 : 0.0;
+      return Math.min(e.take, e.pass) > (e.noDouble + holdMargin);
+    }
+
+    const exact = this.tryMoneyBg2nRoot(game, null, 'should_double');
+    if (exact !== null) return exact.action !== 'no_double';
+
+    if (this.cubeDecision === 'cubeful') {
+      return this.shouldDoubleCubeful(game);
+    }
+    if (this.cubeDecision === 'search') {
+      return this.shouldDoubleSearch(game);
+    }
+
+    // ジャコビー: キューブが回されるまでギャモンは 1 点なので、判断に使う
+    // equity からギャモンぶんを外す
+    const jacobyNow = (this.jacoby ?? true) && game.jacoby && this.cubeUntouched(game);
+    const value = jacobyNow
+      ? this.jacobyEquityFor(game.board, proposer, proposer)
+      : this.searchedEquityFor(game.board, proposer, proposer);
+
+    if (value < this.doublePoint) return false;
+
+    // too good to double: 相手がドロップするなら +1 で終わってしまう。
+    // **ジャコビー下の未ダブル局では成立しない**（打ち続けてもギャモンが
+    // 数えられないので「ダブルせずギャモンを狙う」に意味が無い）。
+    if (!jacobyNow && value > 1
+        && !this.opponentWouldTake(game.board, proposer, game.cube.value,
+          game.cube.unboundedMoney === true)) return false;
+
+    return true;
+  }
+
+  /** 相手のダブルを受けるか（テイク = true / ドロップ = false）。 */
+  shouldAcceptDouble(game, match = null) {
+    const proposer = game.doublingProposer;
+
+    if (match) {
+      if (this.cubeDecision === 'search') {
+        const s = this.matchCubeSearch(game, proposer, match);
+        return s.take < s.drop;
+      }
+      // 提案者視点の値をそのまま使う。MET は対称（`MWC(a,b) + MWC(b,a) = 1`）
+      // なので、**提案者のマッチ勝率が低い方**がテイク側にとって良い方。
+      const e = this.matchCubeEquities(game.board, proposer, game.cube.value, match);
+      return e.take < e.pass;
+    }
+
+    const exact = this.tryMoneyBg2nRoot(game, null, 'should_accept_double');
+    if (exact !== null && exact.DT_points !== null) {
+      // engine's response rule: equality passes.
+      return exact.double_take < exact.double_pass;
+    }
+
+    // **テイクを検討する時点でキューブは回る**ので、ジャコビーでも
+    // ギャモンは数えられる。通常の equity でよい。
+    return this.wouldTakeFor(game.board, proposer, game.cube.value,
+      game.cube.unboundedMoney === true);
+  }
+
+  /**
+   * 候補手を強い順に並べる。**ヒント表示用**で、対局の着手選択には使わない。
+   *
+   * 並べ替えは `selectMove` と同じ基準（`searchPlies` の深さ）。**2-ply 以上では
+   * 絞り込み（shortlist）に残った手だけを深く読む**ので、返すのはその中の上位。
+   * 絞り落とされた手は 0-ply の時点で明らかに劣っているものなので、ヒントとして
+   * 出す価値がない。
+   *
+   * `probabilities` は**着手後の局面を 0-ply で評価した**確率
+   * （手番は相手に移っている）。探索は equity しか返さないため、深く読んだ
+   * 結果ではない。**順位と確率で深さが違う**ことに注意。
+   *
+   * @returns {{move, index, equity, loss, probabilities}[]} loss は最善との差
+   */
+  rankMoves(legalMoves, player, limit = 3) {
+    const boards = legalMoves.map((m) => m.resultingBoard);
+    const shallow = this.equitiesFor(boards, opponent(player)).map((v) => -v);
+    const picks = this.searchPlies >= 2
+      ? this.shortlist(boards, player)
+      : shallow.map((_, i) => i);
+
+    const scored = picks.map((i) => ({
+      index: i,
+      equity: this.searchPlies >= 2
+        ? this.expandRolls(boards[i], opponent(player), player, this.searchPlies - 1, 1)
+        : shallow[i],
+    }));
+    scored.sort((a, b) => b.equity - a.equity);
+
+    const best = scored.length ? scored[0].equity : 0;
+    return scored.slice(0, limit).map(({ index, equity: value }) => ({
+      move: legalMoves[index],
+      index,
+      equity: value,
+      loss: best - value,
+      probabilities: outcomeSpread(
+        this.probabilitiesFor(boards[index], opponent(player)), player === WHITE),
+    }));
+  }
+
+  /** 各盤面の **turn（手番側）から見た** equity。 */
+  equitiesFor(boards, turn) {
+    if (boards.length > 0 && this.resolveBackend({ board: boards[0] }) === 'wasm') {
+      return Array.from(wasmEvalBoardsEquities(this.net, this.bearoff, boards, turn));
+    }
+    // perspective='white' のモデルなので White 視点で評価して符号を合わせる
+    const sign = turn === WHITE ? 1 : -1;
+    return boards.map((b) => {
+      // 決着済み局面はネット予測より確定ベクトルを優先する。
+      const terminal = this.terminalVector(b);
+      return sign * equity(terminal ?? this.vectorFor(b, turn));
+    });
+  }
+
+  /** 決着済みなら viewer 視点の確定 equity、まだなら null。 */
+  terminalEquity(board, viewer) {
+    for (const player of [WHITE, opponent(WHITE)]) {
+      if (board.hasWon(player)) {
+        const points = board.winType(opponent(player));
+        return player === viewer ? points : -points;
+      }
+    }
+    return null;
+  }
+
+  filterFor(level, filters = this.filters) {
+    return filters[Math.min(level, filters.length - 1)];
+  }
+
+  /**
+   * キューブ木のこの段で使う move filter の段を返す。
+   *
+   * **キューブ木は着手木の「段 1 以降」と同じ絞り方で読む。** ここで欲しいのは
+   * 指す手ではなく値なので、根と同じ広さ（8 手 / 0.160）で読む必要が無い。
+   * 段 1（2 手 / 0.040）に揃えると葉の候補上限が 21×8 から 21×2 に減る。
+   *
+   * 代償はゼロではないが桁違いに小さい。際どいダブル 2,631 局面の対応のある
+   * 比較で **+0.033 ± 0.051 mEMG**（有意差なし）で、それで買える深さの利得
+   * （`cubeLeafPlies` 0→1 の -0.910 mEMG）の 1/27。
+   *
+   * `cubeFilterLevel` に整数を渡せば全段でその段に固定できる
+   * （**`0` が 2026-09-08 以前の挙動**）。
+   * （engine の docs/adr/0038-hard-cube-benchmark.md 節 3）
+   */
+  cubeFilterLevelFor(depth) {
+    if (this.cubeFilterLevel !== null) return this.cubeFilterLevel;
+    return this.cubeSearchDepth - depth + 1;
+  }
+
+  /**
+   * `toMove` から見て強い順に並べ、深く読む手の index を返す。
+   *
+   * `filters` を渡すと着手木とは別の表で絞れる（キューブ木が `cubeFilters` を
+   * 渡す。段によって違う木を読まないため）。
+   */
+  shortlist(boards, toMove, level = 0, filters = this.filters) {
+    const filter = this.filterFor(level, filters);
+    const own = this.equitiesFor(boards, opponent(toMove)).map((v) => -v);
+    const order = own.map((v, i) => i).sort((a, b) => own[b] - own[a])
+      .slice(0, filter.candidates);
+    if (filter.tolerance > 0) {
+      const best = own[order[0]];
+      return order.filter((i) => own[i] >= best - filter.tolerance);
+    }
+    return order;
+  }
+
+  rollShortlistBoards(board, turn, roll, level, filters = this.cubeFilters) {
+    const filter = this.filterFor(level, filters);
+    const key = this.checkerRollCache
+      ? `${boardKey(board)}|${turn}|${roll.die1},${roll.die2}|${level}|${filter.candidates}|${filter.tolerance}`
+      : null;
+    if (key !== null && this.checkerRollCache.has(key)) {
+      this.checkerSearchStats.rollExpansionHits += 1;
+      return this.checkerRollCache.get(key);
+    }
+    if (key !== null) this.checkerSearchStats.rollExpansionMisses += 1;
+
+    const moves = generateMovesJs(board, turn, roll.die1, roll.die2);
+    let selection;
+    if (moves.length === 0) selection = { hasMoves: false, boards: [] };
+    else {
+      const boards = moves.map((move) => move.resultingBoard);
+      const indices = this.shortlist(boards, turn, level, filters);
+      selection = { hasMoves: true, boards: indices.map((index) => boards[index]) };
+    }
+    if (key !== null && this.checkerRollCache.size < 65_536) {
+      this.checkerRollCache.set(key, selection);
+    }
+    return selection;
+  }
+
+  /**
+   * 1 rollの合法手展開とshortlistをchecker root内で共有する。選ばれた盤面は
+   * cube文脈に依存しないが、その先のcubeful/MWC値は個別に評価する。
+   */
+  checkerRollBoards(board, turn, roll, depth, filters = this.cubeFilters) {
+    const level = this.cubeFilterLevelFor(depth);
+    return this.rollShortlistBoards(board, turn, roll, level, filters);
+  }
+
+  /** 2 段葉プルーニングが有効か（Rust `active_leaf_prune` と同条件）。 */
+  get activeLeafPrune() {
+    return this.pruneNet !== null && this.leafPruneCandidates > 0;
+  }
+
+  /**
+   * 指定ネット `evalNet`（+ Bearoff + 終局確定値）で `boards` の **turn 視点** equity を一括計算する。
+   * `evalNet.perspective`（`'white'` / `'mover'`）を吸収し、C# `EquitiesWithNet` と同一契約を保つ。
+   */
+  equitiesWithNet(evalNet, boards, turn) {
+    const count = boards.length;
+    const results = new Float64Array(count);
+    const bearoffSign = turn === WHITE ? 1 : -1;
+    const isMoverPerspective = (evalNet.perspective ?? 'white') === 'mover';
+    const viewer = isMoverPerspective ? turn : WHITE;
+    const nnSign = isMoverPerspective ? 1 : bearoffSign;
+    const pendingIdx = [];
+    const pendingFeatures = [];
+    for (let i = 0; i < count; i += 1) {
+      const b = boards[i];
+      const terminal = this.terminalEquity(b, turn);
+      if (terminal !== null) {
+        results[i] = terminal;
+        continue;
+      }
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(b, turn);
+        if (exact !== null) {
+          results[i] = bearoffSign * equity(exact);
+          continue;
+        }
+      }
+      pendingIdx.push(i);
+      pendingFeatures.push(encodeBoard(b, viewer, turn));
+    }
+    if (pendingIdx.length > 0) {
+      const vectors = typeof evalNet.predictBatch === 'function'
+        ? evalNet.predictBatch(pendingFeatures)
+        : pendingFeatures.map((feat) => evalNet.predict(feat));
+      for (let j = 0; j < pendingIdx.length; j += 1) {
+        results[pendingIdx[j]] = nnSign * equity(vectors[j]);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * 主ネット `this.net`（+ Bearoff + 終局確定値 + checkerVectorCache）で `boards` の White 視点 5-vector を一括計算する。
+   */
+  vectorsForBoards(boards, turn) {
+    const count = boards.length;
+    const results = new Array(count);
+    const cache = this.checkerVectorCache;
+    const pendingIdx = [];
+    const pendingKeys = [];
+    const pendingFeatures = [];
+    for (let i = 0; i < count; i += 1) {
+      const b = boards[i];
+      const terminal = this.terminalVector(b);
+      if (terminal !== null) {
+        results[i] = terminal;
+        continue;
+      }
+      const key = cache && Array.isArray(b?.points) ? `${turn}:${boardKey(b)}` : null;
+      if (key !== null && cache.has(key)) {
+        results[i] = cache.get(key);
+        continue;
+      }
+      if (this.bearoff !== null) {
+        const exact = this.bearoff.boardProbabilities(b, turn);
+        if (exact !== null) {
+          results[i] = exact;
+          if (key !== null && cache.size < 250_000) cache.set(key, exact);
+          continue;
+        }
+      }
+      pendingIdx.push(i);
+      pendingKeys.push(key);
+      pendingFeatures.push(encodeBoard(b, WHITE, turn));
+    }
+    if (pendingIdx.length > 0) {
+      const vectors = typeof this.net.predictBatch === 'function'
+        ? this.net.predictBatch(pendingFeatures)
+        : pendingFeatures.map((feat) => this.net.predict(feat));
+      for (let j = 0; j < pendingIdx.length; j += 1) {
+        const vec = vectors[j];
+        results[pendingIdx[j]] = vec;
+        const key = pendingKeys[j];
+        if (key !== null && cache.size < 250_000) cache.set(key, vec);
+      }
+    }
+    return results;
+  }
+
+  /**
+   * `activeRolls` 分の合法手を盤面キーで重複排除して展開する（Rust `expand_all_rolls_dedup` と同一構造）。
+   */
+  expandRollsDedup(board, toMove, activeRolls) {
+    const uniqueBoards = [];
+    const uidByKey = new Map();
+    const rollUids = [];
+    const starts = new Int32Array(activeRolls.length + 1);
+    for (let r = 0; r < activeRolls.length; r += 1) {
+      starts[r] = rollUids.length;
+      const { die1, die2 } = activeRolls[r];
+      const moves = generateMovesJs(board, toMove, die1, die2);
+      if (moves.length === 0) {
+        const key = boardKey(board);
+        let uid = uidByKey.get(key);
+        if (uid === undefined) {
+          uid = uniqueBoards.length;
+          uidByKey.set(key, uid);
+          uniqueBoards.push(board);
+        }
+        rollUids.push(uid);
+      } else {
+        for (let m = 0; m < moves.length; m += 1) {
+          const next = moves[m].resultingBoard;
+          const key = boardKey(next);
+          let uid = uidByKey.get(key);
+          if (uid === undefined) {
+            uid = uniqueBoards.length;
+            uidByKey.set(key, uid);
+            uniqueBoards.push(next);
+          }
+          rollUids.push(uid);
+        }
+      }
+    }
+    starts[activeRolls.length] = rollUids.length;
+    return { uniqueBoards, rollUids, starts, uidByKey };
+  }
+
+  /**
+   * ロールチャンク評価（`rollIndices !== null`）でも全 21 出目と同一のプルーニング適用判定を
+   * 維持するため、未処理ロールを含めたユニーク盤面数が `LEAF_PRUNE_MIN_UNIQUE_BOARDS` を超えるか
+   * 早期打ち切り付きで判定する。
+   */
+  exceedsLeafPruneThreshold(board, toMove, coveredRollIndices, existingUidByKey) {
+    if (existingUidByKey.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
+    const covered = new Set(coveredRollIndices);
+    const seen = new Set(existingUidByKey.keys());
+    for (let idx = 0; idx < ALL_ROLLS.length; idx += 1) {
+      if (covered.has(idx)) continue;
+      const { die1, die2 } = ALL_ROLLS[idx];
+      const moves = generateMovesJs(board, toMove, die1, die2);
+      if (moves.length === 0) {
+        seen.add(boardKey(board));
+        if (seen.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
+      } else {
+        for (let m = 0; m < moves.length; m += 1) {
+          seen.add(boardKey(moves[m].resultingBoard));
+          if (seen.size > LEAF_PRUNE_MIN_UNIQUE_BOARDS) return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /**
+   * `pruneNet` の opponent 視点スコア（小さいほど `toMove` に有利）から
+   * 各ロールの上位候補を抽出し、本物 `this.net` で再評価するユニーク盤面リストを構築する。
+   * Rust `select_leaf_re_eval_candidates` / C# `SelectLeafReEvalCandidates` と完全同一規則。
+   */
+  selectLeafReEvalCandidates(uniqueBoards, rollUids, starts, oppEquities, rollCount) {
+    const marked = new Uint8Array(uniqueBoards.length);
+    const slUids = [];
+    const slStarts = new Int32Array(rollCount + 1);
+    const reUids = [];
+    const reBoards = [];
+    for (let r = 0; r < rollCount; r += 1) {
+      slStarts[r] = slUids.length;
+      const s = starts[r];
+      const e = starts[r + 1];
+      const count = e - s;
+      if (count === 0) continue;
+      if (count === 1) {
+        const uid = rollUids[s];
+        slUids.push(uid);
+        if (!marked[uid]) {
+          marked[uid] = 1;
+          reUids.push(uid);
+          reBoards.push(uniqueBoards[uid]);
+        }
+        continue;
+      }
+      let bestLocal = 0;
+      let bestOpp = oppEquities[rollUids[s]];
+      for (let localI = 1; localI < count; localI += 1) {
+        const val = oppEquities[rollUids[s + localI]];
+        if (val < bestOpp) {
+          bestOpp = val;
+          bestLocal = localI;
+        }
+      }
+      const limit = Math.min(Math.max(this.leafPruneCandidates, 1), count);
+      const cutoff = this.leafPruneTolerance > 0 ? bestOpp + this.leafPruneTolerance : Infinity;
+      const tmpOrder = [];
+      for (let localI = 0; localI < count; localI += 1) {
+        const val = oppEquities[rollUids[s + localI]];
+        if (val <= cutoff) tmpOrder.push([localI, val]);
+      }
+      if (tmpOrder.length === 0) tmpOrder.push([bestLocal, bestOpp]);
+      if (tmpOrder.length > limit) {
+        tmpOrder.sort((a, b) => (a[1] !== b[1] ? a[1] - b[1] : a[0] - b[0]));
+        tmpOrder.length = limit;
+      }
+      for (let i = 0; i < tmpOrder.length; i += 1) {
+        const uid = rollUids[s + tmpOrder[i][0]];
+        slUids.push(uid);
+        if (!marked[uid]) {
+          marked[uid] = 1;
+          reUids.push(uid);
+          reBoards.push(uniqueBoards[uid]);
+        }
+      }
+    }
+    slStarts[rollCount] = slUids.length;
+    return { slUids, slStarts, reUids, reBoards };
+  }
+
+  /**
+   * 出目 21 通りを展開し、最善を尽くしたときの viewer 視点 equity。
+   * 最深段（残り 1 段）専用。応手は 0-ply で選ぶ。`pruneNet` 指定時は 2 段葉プルーニングを行う。
+   */
+  expectedEquityAfterMove(board, toMove, viewer) {
+    if (this.activeLeafPrune) {
+      const opp = opponent(toMove);
+      const { uniqueBoards, rollUids, starts } = this.expandRollsDedup(board, toMove, ALL_ROLLS);
+      let oppEquities;
+      let evalUids;
+      let evalStarts;
+      if (uniqueBoards.length > LEAF_PRUNE_MIN_UNIQUE_BOARDS) {
+        oppEquities = this.equitiesWithNet(this.pruneNet, uniqueBoards, opp);
+        const { slUids, slStarts, reUids, reBoards } = this.selectLeafReEvalCandidates(
+          uniqueBoards, rollUids, starts, oppEquities, ALL_ROLLS.length,
+        );
+        const reEquities = this.equitiesWithNet(this.net, reBoards, opp);
+        for (let i = 0; i < reUids.length; i += 1) oppEquities[reUids[i]] = reEquities[i];
+        evalUids = slUids;
+        evalStarts = slStarts;
+      } else {
+        oppEquities = this.equitiesWithNet(this.net, uniqueBoards, opp);
+        evalUids = rollUids;
+        evalStarts = starts;
+      }
+      let totalToMove = 0;
+      for (let r = 0; r < ALL_ROLLS.length; r += 1) {
+        const s = evalStarts[r];
+        const e = evalStarts[r + 1];
+        let bestOpp = Infinity;
+        for (let i = s; i < e; i += 1) {
+          const vOpp = oppEquities[evalUids[i]];
+          if (vOpp < bestOpp) bestOpp = vOpp;
+        }
+        totalToMove += ALL_ROLLS[r].weight * (-bestOpp);
+      }
+      return toMove === viewer ? totalToMove : -totalToMove;
+    }
+
+    let total = 0;
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMovesJs(board, toMove, die1, die2);
+      let boards;
+      if (moves.length === 0) {
+        boards = [board];                       // 動かせなければ手番が移るだけ
+      } else {
+        boards = moves.map((m) => m.resultingBoard);
+      }
+      const values = this.equitiesFor(boards, opponent(toMove))
+        .map((v, i) => {
+          const terminal = this.terminalEquity(boards[i], viewer);
+          if (terminal !== null) return terminal;
+          return opponent(toMove) === viewer ? v : -v;
+        });
+      total += weight * (toMove === viewer ? Math.max(...values) : Math.min(...values));
+    }
+    return total;
+  }
+
+  /** `board`（`toMove` の手番）を depth 段ぶん展開し、viewer 視点の equity を返す。 */
+  expandRolls(board, toMove, viewer, depth, level) {
+    if (this.resolveBackend({ board }) === 'wasm') {
+      return wasmSearchCubelessEquity(this, board, toMove, viewer, depth, level, depth >= 2);
+    }
+    const terminal = this.terminalEquity(board, viewer);
+    if (terminal !== null) return terminal;
+    if (depth <= 0) {
+      const v = this.equitiesFor([board], toMove)[0];
+      return toMove === viewer ? v : -v;
+    }
+    if (depth === 1) return this.expectedEquityAfterMove(board, toMove, viewer);
+
+    let total = 0;
+    for (const { die1, die2, weight } of ALL_ROLLS) {
+      const moves = generateMovesJs(board, toMove, die1, die2);
+      if (moves.length === 0) {
+        total += weight * this.expandRolls(board, opponent(toMove), viewer, depth - 1, level + 1);
+        continue;
+      }
+      const boards = moves.map((m) => m.resultingBoard);
+      const picks = this.shortlist(boards, toMove, level);
+      const values = picks.map((i) =>
+        this.expandRolls(boards[i], opponent(toMove), viewer, depth - 1, level + 1));
+      total += weight * (toMove === viewer ? Math.max(...values) : Math.min(...values));
+    }
+    return total;
+  }
+
+  /** 決着済みなら White 視点の確定ベクトル、まだなら null。 */
+  terminalVector(board) {
+    for (const player of [WHITE, opponent(WHITE)]) {
+      if (board.hasWon(player)) {
+        const winType = board.winType(opponent(player));
+        const target = [0, 0, 0, 0, 0];
+        if (player === WHITE) {
+          target[WIN] = 1.0;
+          if (winType >= 2) target[WIN_GAMMON] = 1.0;
+          if (winType >= 3) target[WIN_BACKGAMMON] = 1.0;
+        } else {
+          if (winType >= 2) target[LOSE_GAMMON] = 1.0;
+          if (winType >= 3) target[LOSE_BACKGAMMON] = 1.0;
+        }
+        return target;
+      }
+    }
+    return null;
+  }
+
+  /** `toMove` にとって最良のベクトルの index。 */
+  pickOwnBest(vectors, toMove) {
+    let bestIndex = 0;
+    let bestEquity = equity(vectors[0]);
+    if (toMove === WHITE) {
+      for (let i = 1; i < vectors.length; i += 1) {
+        const val = equity(vectors[i]);
+        if (val > bestEquity) {
+          bestEquity = val;
+          bestIndex = i;
+        }
+      }
+    } else {
+      for (let i = 1; i < vectors.length; i += 1) {
+        const val = equity(vectors[i]);
+        if (val < bestEquity) {
+          bestEquity = val;
+          bestIndex = i;
+        }
+      }
+    }
+    return bestIndex;
+  }
+
+  /**
+   * 出目 21 通りを展開し、最善を尽くしたときの White 視点ベクトル。
+   * 最深段（残り 1 段）専用。応手は 0-ply で選ぶ。
+   */
+  expectedVectorAfterMove(board, toMove, rollIndices = null) {
+    const total = [0, 0, 0, 0, 0];
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    if (this.activeLeafPrune) {
+      const opp = opponent(toMove);
+      const { uniqueBoards, rollUids, starts, uidByKey } = this.expandRollsDedup(board, toMove, activeRolls);
+      const uniqueVectors = new Array(uniqueBoards.length);
+      const whiteEquities = new Float64Array(uniqueBoards.length);
+      let evalUids;
+      let evalStarts;
+      const shouldPrune = uniqueBoards.length > LEAF_PRUNE_MIN_UNIQUE_BOARDS
+        || (rollIndices !== null
+          && this.exceedsLeafPruneThreshold(board, toMove, rollIndices, uidByKey));
+      if (shouldPrune) {
+        const oppEquities = this.equitiesWithNet(this.pruneNet, uniqueBoards, opp);
+        const { slUids, slStarts, reUids, reBoards } = this.selectLeafReEvalCandidates(
+          uniqueBoards, rollUids, starts, oppEquities, activeRolls.length,
+        );
+        const reVectors = this.vectorsForBoards(reBoards, opp);
+        for (let i = 0; i < reUids.length; i += 1) {
+          const uid = reUids[i];
+          uniqueVectors[uid] = reVectors[i];
+          whiteEquities[uid] = equity(reVectors[i]);
+        }
+        evalUids = slUids;
+        evalStarts = slStarts;
+      } else {
+        const allVectors = this.vectorsForBoards(uniqueBoards, opp);
+        for (let i = 0; i < uniqueBoards.length; i += 1) {
+          uniqueVectors[i] = allVectors[i];
+          whiteEquities[i] = equity(allVectors[i]);
+        }
+        evalUids = rollUids;
+        evalStarts = starts;
+      }
+      const maximizeWhite = toMove === WHITE;
+      for (let r = 0; r < activeRolls.length; r += 1) {
+        const s = evalStarts[r];
+        const e = evalStarts[r + 1];
+        let bestUid = evalUids[s];
+        let bestEq = whiteEquities[bestUid];
+        for (let i = s + 1; i < e; i += 1) {
+          const uid = evalUids[i];
+          const eq = whiteEquities[uid];
+          if (maximizeWhite ? eq > bestEq : eq < bestEq) {
+            bestEq = eq;
+            bestUid = uid;
+          }
+        }
+        const bestVec = uniqueVectors[bestUid];
+        const { weight } = activeRolls[r];
+        for (let k = 0; k < 5; k += 1) total[k] += weight * bestVec[k];
+      }
+      return total;
+    }
+    for (const { die1, die2, weight } of activeRolls) {
+      const moves = generateMovesJs(board, toMove, die1, die2);
+      let boards;
+      if (moves.length === 0) {
+        boards = [board];                       // 動かせなければ手番が移るだけ
+      } else {
+        boards = moves.map((m) => m.resultingBoard);
+      }
+      const vectors = boards.map((b) => {
+        const terminal = this.terminalVector(b);
+        if (terminal !== null) return terminal;
+        return this.vectorFor(b, opponent(toMove));
+      });
+      const bestIdx = this.pickOwnBest(vectors, toMove);
+      const bestVec = vectors[bestIdx];
+      for (let k = 0; k < 5; k += 1) {
+        total[k] += weight * bestVec[k];
+      }
+    }
+    return total;
+  }
+
+  /**
+   * `board`（`toMove` の手番）を depth 段ぶん展開し、White 視点の確率ベクトルを返す。
+   * 絞り込みはスカラー側と同じ `shortlist` を使う。
+   */
+  expandRollsVector(board, toMove, depth, level, rollIndices = null) {
+    if (this.resolveBackend({ board }) === 'wasm') {
+      return wasmSearchVectorRolls(this, board, toMove, depth, level, rollIndices, false);
+    }
+    const weightScale = rollIndices === null
+      ? 1.0
+      : rollIndices.reduce((sum, idx) => sum + ALL_ROLLS[idx].weight, 0);
+    const terminal = this.terminalVector(board);
+    if (terminal !== null) return weightScale === 1.0 ? terminal : terminal.map((v) => v * weightScale);
+    if (depth <= 0) {
+      const vec = this.vectorFor(board, toMove);
+      return weightScale === 1.0 ? vec : Array.from(vec, (v) => v * weightScale);
+    }
+    if (depth === 1) return this.expectedVectorAfterMove(board, toMove, rollIndices);
+
+    const total = [0, 0, 0, 0, 0];
+    const activeRolls = rollIndices === null
+      ? ALL_ROLLS
+      : rollIndices.map((idx) => ALL_ROLLS[idx]);
+    for (const roll of activeRolls) {
+      const { weight } = roll;
+      const selection = this.checkerRollCache
+        ? this.rollShortlistBoards(board, toMove, roll, level, this.filters)
+        : (() => {
+            const moves = generateMovesJs(board, toMove, roll.die1, roll.die2);
+            if (moves.length === 0) return { hasMoves: false, boards: [] };
+            const boards = moves.map((m) => m.resultingBoard);
+            const picks = this.shortlist(boards, toMove, level);
+            return { hasMoves: true, boards: picks.map((i) => boards[i]) };
+          })();
+      if (!selection.hasMoves) {
+        // 合法手が無ければ手番が相手に移るだけ（1段は消費する）
+        const next = this.expandRollsVector(board, opponent(toMove), depth - 1, level + 1);
+        for (let k = 0; k < 5; k += 1) {
+          total[k] += weight * next[k];
+        }
+        continue;
+      }
+      const vectors = selection.boards.map((nextBoard) =>
+        this.expandRollsVector(nextBoard, opponent(toMove), depth - 1, level + 1));
+      const bestIdx = this.pickOwnBest(vectors, toMove);
+      const bestVec = vectors[bestIdx];
+      for (let k = 0; k < 5; k += 1) {
+        total[k] += weight * bestVec[k];
+      }
+    }
+    return total;
+  }
+
+  /**
+   * 合法手の中から equity が最良のものを選び、その index を返す。
+   * @param {Move[]} legalMoves
+   */
+  selectMove(legalMoves, player) {
+    if (legalMoves.length === 1) return 0;
+    const boards = legalMoves.map((m) => m.resultingBoard);
+    if (this.noise <= 0 && this.resolveBackend({ board: boards[0] }) === 'wasm') {
+      const opp = opponent(player);
+      const safeOrigin = boards.find((b) => b.allInHome(opp)) ?? boards[0];
+      return wasmSelectMoveCubeless(this, safeOrigin, boards, player, false).index;
+    }
+    const values = this.equitiesFor(boards, opponent(player)).map((v) => -v);
+
+    if (this.searchPlies < 2) {
+      if (this.noise <= 0) {
+        let best = 0;
+        for (let i = 1; i < values.length; i += 1) if (values[i] > values[best]) best = i;
+        return best;
+      }
+      // **足切りしてからノイズ。** 最善から maxLoss 以上劣る手は候補にすら
+      // 入れない（ノイズは正規分布で裾が無限に伸びるため、これが無いと
+      // ごく稀に「その手はやらんやろ」が出る）。最善手は必ず生き残る。
+      const best = Math.max(...values);
+      let pick = 0;
+      let bestScore = -Infinity;
+      for (let i = 0; i < values.length; i += 1) {
+        if (values[i] < best - this.maxLoss) continue;
+        const score = values[i] + this.noiseFor(boards[i]);
+        if (score > bestScore) { bestScore = score; pick = i; }
+      }
+      return pick;
+    }
+
+    const picks = this.shortlist(boards, player);
+    let bestIndex = picks[0];
+    let bestValue = null;
+    for (const i of picks) {
+      const value = this.expandRolls(
+        boards[i], opponent(player), player, this.searchPlies - 1, 1);
+      if (bestValue === null || value > bestValue) {
+        bestIndex = i;
+        bestValue = value;
+      }
+    }
+    return bestIndex;
+  }
+}

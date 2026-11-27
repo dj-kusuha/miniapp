@@ -1,0 +1,22 @@
+body { font-family: system-ui, -apple-system, sans-serif; margin: 16px; line-height: 1.5; background: #111; color: #eee; }
+h1 { font-size: 1.15rem; margin: 0 0 8px; }
+h2 { font-size: 1.0rem; margin: 16px 0 8px; }
+a { color: #58a6ff; }
+.meta { font-size: 0.85rem; color: #bbb; margin-bottom: 12px; }
+.nav-links { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; font-size: 0.85rem; }
+#oom-banner { padding: 12px; border-radius: 8px; background: #3b1219; border: 2px solid #f85149; color: #ffd7d5; margin-bottom: 12px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84rem; }
+#summary { padding: 12px; border-radius: 8px; background: #1e1e1e; border: 1px solid #333; margin-bottom: 12px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.84rem; }
+#summary.pass { border-color: #2ea043; background: #132819; }
+#summary.fail { border-color: #f85149; background: #2d1416; }
+.panel { padding: 12px; border-radius: 8px; background: #171717; border: 1px solid #333; margin-bottom: 14px; }
+.hint { font-size: 0.82rem; color: #c5c5c5; margin: 0 0 10px; }
+.soak-box { padding: 10px; border-radius: 6px; background: #1e1e1e; border: 1px solid #3a3a3a; margin-bottom: 10px; white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+.soak-box.active { border-color: #d29922; background: #2b2311; }
+.soak-box.pass { border-color: #2ea043; background: #132819; }
+.soak-box.fail { border-color: #f85149; background: #2d1416; }
+.actions { display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; }
+button { padding: 8px 14px; border-radius: 6px; border: 1px solid #444; background: #262626; color: #fff; font-size: 0.88rem; cursor: pointer; }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+pre#soak-log, pre#app-route-log { padding: 10px; border-radius: 6px; background: #121212; border: 1px solid #2c2c2c; overflow-x: auto; font-size: 0.76rem; white-space: pre-wrap; margin: 0; }
+textarea#json-copy-box { width: 100%; min-height: 96px; box-sizing: border-box; padding: 8px; border-radius: 6px; background: #141414; color: #ddd; border: 1px solid #333; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.75rem; margin-bottom: 10px; }
+pre#out { padding: 12px; border-radius: 8px; background: #181818; border: 1px solid #333; overflow-x: auto; font-size: 0.78rem; }

@@ -100,3 +100,19 @@ node tests/backgammon/run.mjs
   - `docs/backgammon/src/worker.js` / `thinker-pool.js`: `loadGeneration` / `moneyBearoffGeneration` による非同期 `load`・Money DB ロードの stale 完了抑止、`pruneNetUrl` 読込＋`validatePruneNet()` 検証（省略 / `null` / 失敗 / 構成不適合時は `null` へ安全フォールバック）、`pruneNetStatus` 公開、および同一解析内で pruning ON/OFF を混在させない `_consistentWorkers()` 揃え。
   - `docs/backgammon/app.js`: 起動時に `src/prune_net.json` を読み込み、全 4 Worker（`ThinkerPool`）およびメインスレッドフォールバックへ適用。
   - `tests/backgammon/prune-net.mjs` / `tests/backgammon/prune-parity.json` / `tests/backgammon/parallel-pool.mjs`: SHA-256・`pruneNet === net` 不変条件・Rust 24 局面（White 12 / Black 12）パリティ・`mover` 視点・1/2/4 worker & roll-chunk 閾値またぎ parity・部分的読込失敗時の統一・Worker 非同期 `load` / Money DB 世代競合を検証。
+
+## Issue #587: Phase 4b WASM エンジン先行適用（HTTPS プレビュー実機検証、2026-11-27）
+
+`backgammon_engine` PR #586（Phase 4b レビュー済み head `727ae55` / ADR-0183）から作成した検証専用パッケージ `@dj-kusuha/backgammon-engine@0.2.8-wasm-preview.727ae55`（tarball SHA-256: `18d9fcb38be5db1045cfabcaa4408992c6c08793578b5e3871923daa38a16238`）を、実機検証限定の先行ブランチへ適用した（本番 `main` / `miniapp.kusuha.com` 反映および純 JS 削除は保留）。
+
+- 参照 engine SHA: `727ae5559be62b2f8992a37e2fa469fc16123997`（PR #586）
+- 固定検証パッケージ版: `0.2.8-wasm-preview.727ae55`
+- WASM バイナリ SHA-256:
+  - `bg_engine_scalar.wasm` (272,727 bytes): `2e0a4e5a249ee3d1d4d26ec4045d3dcf6d83f0285aa594521359e7e7edbabfb1`
+  - `bg_engine_simd.wasm` (282,779 bytes): `9b6a43b0bfa1e5ecd22c626277eccdd721ef4b7929251395ce4f895f485929b9`
+- 本体モデル / Pruning Net / Bearoff / Money BG2N v4 SHA-256: `0.2.7` と完全一致（変更なし）
+- 適用内容:
+  - `docs/backgammon/assets/`: `bg_engine_scalar.wasm`, `bg_engine_simd.wasm`, `metadata.json` を配置。
+  - `docs/backgammon/src/`: `wasm-backend.js`, `bearoff.js`, `money-bearoff.js`, `rules.js`, `match.js`, `cube.js`, `game.js`, `agent.js`（`miniapp` 固有の初心者 `blotPenalty` / `doubleMargin` / `takeMargin` 維持）を `727ae55` へ同期。`worker.js` / `thinker-pool.js` / `app.js` で既定 `'auto'`（WASM 優先）・`?backend=js` 切り戻し・`backendStatus` / `window.__BG_PREVIEW_DIAG__` 診断を追加。
+  - `docs/wasm-verify/`: 既存 Phase 4b 実機検証ハーネスを再利用配置し、`app-route-check.mjs` による `miniapp` 実経路診断を別枠で記録。
+

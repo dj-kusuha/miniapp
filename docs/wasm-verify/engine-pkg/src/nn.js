@@ -1,0 +1,506 @@
+// ニューラルネットの推論。198 -> 隠れ層（1 層以上） -> 5 の MLP。
+//
+// backgammon_engine の `backgammon/nn.py` の移植。**重みは学習済みのものを
+// そのまま読む**ので、ここでやるのは順伝播だけ。
+//
+// 隠れ層の数は `hidden_dims` の長さで決まる。同梱モデルは 4 層（256 -> 192 -> 128 -> 64）
+// だが、1 層の旧モデルもそのまま読める（`hidden_dims` を持たない世代は
+// `hidden_dim` から 1 層とみなす）。
+//
+// 隠れ層の活性化関数は `activation`（既定 `'sigmoid'`）で切り替える。
+// SiLU モデル（'silu'）にも対応する。出力層は sigmoid の条件確率で、
+// `output_transform` に応じて独立出力または階層型累積確率を返す。
+
+/** 出力ユニットの意味（engine の nn.py と同じ並び）。 */
+export const WIN = 0;
+export const WIN_GAMMON = 1;
+export const WIN_BACKGAMMON = 2;
+export const LOSE_GAMMON = 3;
+export const LOSE_BACKGAMMON = 4;
+
+export const OUTPUT_TRANSFORM_INDEPENDENT = 'independent_sigmoid';
+export const OUTPUT_TRANSFORM_HIERARCHICAL = 'hierarchical_cumulative_v1';
+
+/**
+ * engine と同じ範囲でクリップする。
+ *
+ * Python 側は `np.clip(x, -15, 15)` してから exp を取る。JS でも同じ範囲に
+ * しないと、飽和した局面で最後の桁が食い違う。
+ */
+function sigmoid(x) {
+  const z = x < -15 ? -15 : x > 15 ? 15 : x;
+  return 1 / (1 + Math.exp(-z));
+}
+
+/**
+ * SiLU (Swish) 活性化関数: x * sigmoid(x)。
+ * 隠れ層の活性化関数として使用（出力層は常に sigmoid）。
+ */
+function silu(x) {
+  return x * sigmoid(x);
+}
+
+function transformOutput(activation, outputTransform) {
+  if (outputTransform === OUTPUT_TRANSFORM_HIERARCHICAL) {
+    const win = activation[WIN];
+    const winGammonGivenWin = activation[WIN_GAMMON];
+    const winBackgammonGivenGammon = activation[WIN_BACKGAMMON];
+    const loseGammonGivenLoss = activation[LOSE_GAMMON];
+    const loseBackgammonGivenGammon = activation[LOSE_BACKGAMMON];
+    const winGammon = Math.fround(win * winGammonGivenWin);
+    const winBackgammon = Math.fround(winGammon * winBackgammonGivenGammon);
+    const loseProbability = Math.fround(1 - win);
+    const loseGammon = Math.fround(loseProbability * loseGammonGivenLoss);
+    const loseBackgammon = Math.fround(loseGammon * loseBackgammonGivenGammon);
+    return new Float32Array([
+      win, winGammon, winBackgammon, loseGammon, loseBackgammon,
+    ]);
+  }
+  return activation;
+}
+
+export class NeuralNet {
+  /**
+   * @param {object} data engine の `models/*.json` をそのまま渡す。
+   */
+  constructor(data) {
+    this.inputDim = data.input_dim;
+    this.hiddenDims = data.hidden_dims ?? [data.hidden_dim];
+    this.outputDim = data.output_dim ?? 1;
+    this.perspective = data.perspective ?? 'white';
+    this.features = data.features ?? 'none';
+    this.totalEpisodes = data.total_episodes ?? 0;
+    //: 隠れ層の活性化関数（'sigmoid' または 'silu'）。
+    this.activation = data.activation ?? 'sigmoid';
+    this.outputTransform = data.output_transform ?? OUTPUT_TRANSFORM_INDEPENDENT;
+    if (![OUTPUT_TRANSFORM_INDEPENDENT, OUTPUT_TRANSFORM_HIERARCHICAL]
+      .includes(this.outputTransform)) {
+      throw new Error(`未対応の output_transform: ${this.outputTransform}`);
+    }
+    if (this.outputTransform === OUTPUT_TRANSFORM_HIERARCHICAL && this.outputDim !== 5) {
+      throw new Error('hierarchical_cumulative_v1 は5出力専用です');
+    }
+    //: engine が保存した日付（YYYY-MM-DD）。**古いモデルには入っていない**ので
+    //: 空文字に落とす。対戦前の画面に「どの世代を配っているか」を出すために使う。
+    this.savedAt = data.saved_at ?? '';
+    //: どうやって作ったモデルかの覚え書き。**オフラインの教師あり学習は
+    //: エピソードを進めない**ので、total_episodes だけでは世代を区別できない。
+    this.note = data.note ?? '';
+
+    //: ADR-0057 CubeHead
+    this.cubeHeadMoney = data.cube_head_money ? new CubeHead(data.cube_head_money) : null;
+    this.cubeHeadMatch = data.cube_head_match ? new CubeHead(data.cube_head_match) : null;
+
+    if (this.hiddenDims.length < 1) {
+      throw new Error(`隠れ層が 1 層以上のモデルにのみ対応します: ${this.hiddenDims}`);
+    }
+
+    // 重みのキーは engine と同じ W1/b1, W2/b2, ... という連番。
+    // **第 1 層だけ行優先、第 2 層以降は列優先**で持つ。理由は predict を参照。
+    const dims = [this.inputDim, ...this.hiddenDims, this.outputDim];
+    for (let index = 1; index < dims.length; index += 1) {
+      if (!data[`W${index}`] || !data[`b${index}`]) {
+        throw new Error(`重み W${index} / b${index} がモデルにありません`);
+      }
+    }
+
+    // 第 1 層: W1[i] = 「入力ユニット i が全隠れユニットへ寄与する重み」。
+    // JSON がもともと行優先なので、そのまま Float32Array にするだけでよい。
+    this.rowsFirst = [];
+    this.flatFirst = new Float32Array(dims[0] * dims[1]);
+    for (let i = 0; i < dims[0]; i += 1) {
+      const row = Float32Array.from(data.W1[i]);
+      this.rowsFirst.push(row);
+      this.flatFirst.set(row, i * dims[1]);
+    }
+    this.biasFirst = Float32Array.from(data.b1);
+    this.isSilu = this.activation === 'silu';
+
+    // 第 2 層以降: 入力（前段の活性化出力）が密なので内積のほうが素直。
+    // 転置して「出力ユニットごとに連続した Float32Array」とフラット配列を持つ。
+    this.layers = [];
+    for (let index = 2; index < dims.length; index += 1) {
+      const inDim = dims[index - 1];
+      const outDim = dims[index];
+      const columns = toColumns(data[`W${index}`], inDim, outDim);
+      const flat = new Float32Array(outDim * inDim);
+      for (let j = 0; j < outDim; j += 1) flat.set(columns[j], j * inDim);
+      this.layers.push({
+        columns,
+        flat,
+        inDim,
+        outDim,
+        bias: Float32Array.from(data[`b${index}`]),
+      });
+    }
+
+    // 使い回すバッファ。3-ply では 1 手あたり 10 万回以上 predict を呼ぶので、
+    // 毎回確保すると効いてくる。**出力層だけは毎回新しく確保する**
+    // （呼び出し側が返り値を保持しても壊れないようにするため。実測 +9%）。
+    this.accumulator = new Float64Array(Math.max(...dims));
+    this.hiddenBuffers = this.hiddenDims.map((d) => new Float32Array(d));
+    this.nonzeroIndex = new Int32Array(this.inputDim);
+    this.nonzeroValue = new Float64Array(this.inputDim);
+  }
+
+  static async load(url) {
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`モデルを取得できません: ${url} (${response.status})`);
+    return new NeuralNet(await response.json());
+  }
+
+  /**
+   * 1 局面ぶんの順伝播。
+   *
+   * **第 1 層は疎に回す。** 盤面の符号化 198 次元のうち非ゼロは平均 16.6 個
+   * （8.4%）しかない。ゼロを掛けて足しても和は変わらないので、
+   * **飛ばしても結果はビット単位で変わらない**（近似ではない）。
+   * 第 2 層以降はフラット化した連続 Float32Array を使い、IEEE 754 の
+   * 逐次加算順を保ったまま 4-way アンロールで高速化する。
+   *
+   * @param {ArrayLike<number>} x 入力（`inputDim` 要素）
+   * @returns {Float32Array} 出力（`outputDim` 要素）
+   */
+  predict(x) {
+    const { flatFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue, isSilu } = this;
+    const hidden = biasFirst.length;
+    const xLen = x.length;
+
+    let count = 0;
+    for (let i = 0; i < xLen; i += 1) {
+      const value = x[i];
+      if (value !== 0) {
+        nonzeroIndex[count] = i;
+        nonzeroValue[count] = value;
+        count += 1;
+      }
+    }
+
+    for (let j = 0; j < hidden; j += 1) accumulator[j] = biasFirst[j];
+    const hidden4 = hidden & ~3;
+    for (let k = 0; k < count; k += 1) {
+      const value = nonzeroValue[k];
+      const base = nonzeroIndex[k] * hidden;
+      let j = 0;
+      for (; j < hidden4; j += 4) {
+        accumulator[j] += value * flatFirst[base + j];
+        accumulator[j + 1] += value * flatFirst[base + j + 1];
+        accumulator[j + 2] += value * flatFirst[base + j + 2];
+        accumulator[j + 3] += value * flatFirst[base + j + 3];
+      }
+      for (; j < hidden; j += 1) accumulator[j] += value * flatFirst[base + j];
+    }
+
+    let activation = this.hiddenBuffers[0];
+    if (isSilu) {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = v * (1 / (1 + Math.exp(-z)));
+      }
+    } else {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = 1 / (1 + Math.exp(-z));
+      }
+    }
+
+    const last = this.layers.length - 1;
+    for (let l = 0; l < this.layers.length; l += 1) {
+      const { flat, bias, inDim, outDim } = this.layers[l];
+      const isLast = l === last;
+      const next = isLast
+        ? new Float32Array(outDim)
+        : this.hiddenBuffers[l + 1];
+      const inDim4 = inDim & ~3;
+      const useSilu = !isLast && isSilu;
+      for (let j = 0; j < outDim; j += 1) {
+        const base = j * inDim;
+        let sum = bias[j];
+        let i = 0;
+        for (; i < inDim4; i += 4) {
+          sum += activation[i] * flat[base + i];
+          sum += activation[i + 1] * flat[base + i + 1];
+          sum += activation[i + 2] * flat[base + i + 2];
+          sum += activation[i + 3] * flat[base + i + 3];
+        }
+        for (; i < inDim; i += 1) sum += activation[i] * flat[base + i];
+        const z = sum < -15 ? -15 : sum > 15 ? 15 : sum;
+        next[j] = useSilu ? sum * (1 / (1 + Math.exp(-z))) : 1 / (1 + Math.exp(-z));
+      }
+      activation = next;
+    }
+    return transformOutput(activation, this.outputTransform);
+  }
+
+  /**
+   * 複数局面を1回の呼び出しで推論する。各局面で predict() と全く同じ
+   * 計算経路を使い、ビット同一出力と再利用バッファによる高速推論を両立する。
+   * @param {ArrayLike<ArrayLike<number>>} inputs
+   * @returns {Float32Array[]}
+   */
+  predictBatch(inputs) {
+    const batchSize = inputs?.length ?? 0;
+    if (batchSize === 0) return [];
+    const expectedDim = this.inputDim;
+    const outputs = new Array(batchSize);
+    for (let sample = 0; sample < batchSize; sample += 1) {
+      const input = inputs[sample];
+      if (!input || input.length !== expectedDim) {
+        throw new Error(`predictBatch input ${sample} must have ${expectedDim} values`);
+      }
+      outputs[sample] = this.predict(input);
+    }
+    return outputs;
+  }
+
+  /**
+   * 最終隠れ層の活性化ベクトルを返す（CubeHead 用）。
+   * @param {ArrayLike<number>} x
+   * @returns {Float32Array}
+   */
+  lastHidden(x) {
+    const { flatFirst, biasFirst, accumulator, nonzeroIndex, nonzeroValue, isSilu } = this;
+    const hidden = biasFirst.length;
+    const xLen = x.length;
+
+    let count = 0;
+    for (let i = 0; i < xLen; i += 1) {
+      const value = x[i];
+      if (value !== 0) {
+        nonzeroIndex[count] = i;
+        nonzeroValue[count] = value;
+        count += 1;
+      }
+    }
+
+    for (let j = 0; j < hidden; j += 1) accumulator[j] = biasFirst[j];
+    const hidden4 = hidden & ~3;
+    for (let k = 0; k < count; k += 1) {
+      const value = nonzeroValue[k];
+      const base = nonzeroIndex[k] * hidden;
+      let j = 0;
+      for (; j < hidden4; j += 4) {
+        accumulator[j] += value * flatFirst[base + j];
+        accumulator[j + 1] += value * flatFirst[base + j + 1];
+        accumulator[j + 2] += value * flatFirst[base + j + 2];
+        accumulator[j + 3] += value * flatFirst[base + j + 3];
+      }
+      for (; j < hidden; j += 1) accumulator[j] += value * flatFirst[base + j];
+    }
+
+    let activation = this.hiddenBuffers[0];
+    if (isSilu) {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = v * (1 / (1 + Math.exp(-z)));
+      }
+    } else {
+      for (let j = 0; j < hidden; j += 1) {
+        const v = accumulator[j];
+        const z = v < -15 ? -15 : v > 15 ? 15 : v;
+        activation[j] = 1 / (1 + Math.exp(-z));
+      }
+    }
+
+    for (let l = 0; l < this.layers.length - 1; l += 1) {
+      const { flat, bias, inDim, outDim } = this.layers[l];
+      const next = this.hiddenBuffers[l + 1];
+      const inDim4 = inDim & ~3;
+      for (let j = 0; j < outDim; j += 1) {
+        const base = j * inDim;
+        let sum = bias[j];
+        let i = 0;
+        for (; i < inDim4; i += 4) {
+          sum += activation[i] * flat[base + i];
+          sum += activation[i + 1] * flat[base + i + 1];
+          sum += activation[i + 2] * flat[base + i + 2];
+          sum += activation[i + 3] * flat[base + i + 3];
+        }
+        for (; i < inDim; i += 1) sum += activation[i] * flat[base + i];
+        const z = sum < -15 ? -15 : sum > 15 ? 15 : sum;
+        next[j] = isSilu ? sum * (1 / (1 + Math.exp(-z))) : 1 / (1 + Math.exp(-z));
+      }
+      activation = next;
+    }
+    return activation;
+  }
+}
+
+function toColumns(matrix, rows, cols) {
+  const columns = [];
+  for (let c = 0; c < cols; c += 1) {
+    const column = new Float32Array(rows);
+    for (let r = 0; r < rows; r += 1) column[r] = matrix[r][c];
+    columns.push(column);
+  }
+  return columns;
+}
+
+/**
+ * 出力を equity（1 局あたりの期待得点・White 視点）に換算する。
+ *
+ *   equity = 2·P(win) + P(win g) + P(win bg) − P(lose g) − P(lose bg) − 1
+ */
+/**
+ * 出力を {p: 勝率, win: 勝ったときの平均得点 W, lose: 負けたときの平均失点 L}
+ * に分解する（engine の win_loss_magnitudes）。
+ *
+ * **Janowski のテイクポイントに要る。** 出力は累積確率なので:
+ *
+ *   W = (P(win) + P(wg) + P(wbg)) / P(win)
+ *   L = (P(lose) + P(lg) + P(lbg)) / P(lose)
+ *
+ * **equity(outputs) === p·W - (1-p)·L が恒等的に成り立つ。**
+ * 勝率が 0 / 1 に振り切ると W / L が定義できないので、その場合は 1 点に落とす
+ * （そこまで振り切った局面はドロップ一択なので影響しない）。
+ */
+export function winLossMagnitudes(outputs) {
+  const p = outputs[WIN];
+  if (outputs.length === 1) return { p, win: 1, lose: 1 };
+  const q = 1 - p;
+  const win = p > 1e-9
+    ? (p + outputs[WIN_GAMMON] + outputs[WIN_BACKGAMMON]) / p
+    : 1;
+  const lose = q > 1e-9
+    ? (q + outputs[LOSE_GAMMON] + outputs[LOSE_BACKGAMMON]) / q
+    : 1;
+  return { p, win, lose };
+}
+
+/** 確率ベクトルの視点を反転する（White ↔ Black）。 */
+export function flipPerspective(outputs) {
+  if (outputs.length === 1) return [1 - outputs[WIN]];
+  return [
+    1 - outputs[WIN],
+    outputs[LOSE_GAMMON],
+    outputs[LOSE_BACKGAMMON],
+    outputs[WIN_GAMMON],
+    outputs[WIN_BACKGAMMON],
+  ];
+}
+
+export function equity(outputs) {
+  if (outputs.length === 1) return 2 * outputs[WIN] - 1;
+  return (
+    2 * outputs[WIN] +
+    outputs[WIN_GAMMON] +
+    outputs[WIN_BACKGAMMON] -
+    outputs[LOSE_GAMMON] -
+    outputs[LOSE_BACKGAMMON] -
+    1
+  );
+}
+
+function logit(p) {
+  const clipped = Math.min(1.0 - 1e-7, Math.max(1e-7, p));
+  return Math.log(clipped / (1.0 - clipped));
+}
+
+/**
+ * ADR-0057: 盤面隠れ層表現 h とキューブコンテキスト c から動的キューブ効率 x を推定するヘッド。
+ */
+export class CubeHead {
+  constructor(data) {
+    this.hiddenDim = data.hidden_dim;
+    this.contextDim = data.context_dim ?? 4;
+    this.mlpDim = data.mlp_dim ?? 32;
+    this.baselineX = data.baseline_x ?? (this.contextDim >= 8 ? 0.55 : 0.76);
+    this.baselineLogit = logit(this.baselineX);
+
+    const inDim = this.hiddenDim + this.contextDim;
+    this.columnsW1 = [];
+    for (let j = 0; j < this.mlpDim; j += 1) {
+      const col = new Float32Array(inDim);
+      for (let i = 0; i < inDim; i += 1) {
+        col[i] = data.W1[i][j];
+      }
+      this.columnsW1.push(col);
+    }
+    this.b1 = Float32Array.from(data.b1);
+
+    this.colW2 = new Float32Array(this.mlpDim);
+    for (let i = 0; i < this.mlpDim; i += 1) {
+      this.colW2[i] = data.W2[i][0];
+    }
+    this.b2 = data.b2[0];
+  }
+
+  predict(hidden, context) {
+    const a1 = new Float32Array(this.mlpDim);
+    for (let j = 0; j < this.mlpDim; j += 1) {
+      const col = this.columnsW1[j];
+      let sum = this.b1[j];
+      for (let i = 0; i < this.hiddenDim; i += 1) {
+        sum += hidden[i] * col[i];
+      }
+      for (let i = 0; i < this.contextDim; i += 1) {
+        sum += context[i] * col[this.hiddenDim + i];
+      }
+      a1[j] = silu(sum);
+    }
+
+    let delta = this.b2;
+    for (let j = 0; j < this.mlpDim; j += 1) {
+      delta += a1[j] * this.colW2[j];
+    }
+
+    return sigmoid(this.baselineLogit + delta);
+  }
+}
+
+/**
+ * マネーゲーム用のキューブコンテキストを符号化する（4 または 5 次元）。
+ */
+export function encodeCubeContext(
+  cubeValue, owner, perspective = 'me', volatility = null, contextDim = 4
+) {
+  const vec = new Float32Array(contextDim);
+  vec[0] = Math.log2(Math.max(1, cubeValue)) / 3.0;
+  let relOwner = owner;
+  if (owner !== 'center') {
+    relOwner = owner === perspective ? 'me' : 'opponent';
+  }
+  if (relOwner === 'center') vec[1] = 1.0;
+  else if (relOwner === 'me') vec[2] = 1.0;
+  else vec[3] = 1.0;
+
+  if (contextDim >= 5) {
+    let normVol = 0.0;
+    if (volatility !== null && volatility !== undefined) {
+      normVol = Math.min(1.0, Math.max(0.0, volatility / 0.25));
+    }
+    vec[4] = normVol;
+  }
+  return vec;
+}
+
+/**
+ * マッチ戦用のキューブコンテキストを符号化する（8 次元）。
+ */
+export function encodeMatchCubeContext(
+  awayUs, awayThem, cubeValue, owner, perspective = 'me',
+  volatility = null, crawfordPlayed = false, contextDim = 8
+) {
+  const vec = new Float32Array(contextDim);
+  vec[0] = awayUs / 7.0;
+  vec[1] = awayThem / 7.0;
+  vec[2] = Math.log2(Math.max(1, cubeValue)) / 4.0;
+  let relOwner = owner;
+  if (owner !== 'center') {
+    relOwner = owner === perspective ? 'me' : 'opponent';
+  }
+  if (relOwner === 'center') vec[3] = 1.0;
+  else if (relOwner === 'me') vec[4] = 1.0;
+  else vec[5] = 1.0;
+
+  if (contextDim >= 7 && volatility !== null && volatility !== undefined) {
+    vec[6] = Math.min(1.0, Math.max(0.0, volatility / 0.25));
+  }
+  if (contextDim >= 8 && crawfordPlayed) {
+    vec[7] = 1.0;
+  }
+  return vec;
+}

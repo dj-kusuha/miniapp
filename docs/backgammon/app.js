@@ -19,6 +19,11 @@ import { MOVING, ROLLING, DOUBLING_PROPOSED, GAME_OVER } from './src/game.js';
 import { Match, MONEY } from './src/match.js';
 import { diceValues, applySingle, nextSingles, boardKey, SingleMove, canReach, findPointMakeAction, findBearOffAction, canPlayerDouble } from './src/rules.js';
 import { toMat as buildMat } from './src/mat.js';
+import {
+  getEngineBackendStatus,
+  initWasmEngine,
+  setEngineBackend,
+} from './src/wasm-backend.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -30,13 +35,15 @@ const $ = (id) => document.getElementById(id);
  * なく `state.delay` を都度読むこと。
  */
 const DEFAULT_DELAY = 1000;
-const RAW_CHECKER_SEARCH_MODE = new URLSearchParams(globalThis.location?.search ?? '')
-  .get('checker-search');
+const URL_PARAMS = new URLSearchParams(globalThis.location?.search ?? '');
+const RAW_CHECKER_SEARCH_MODE = URL_PARAMS.get('checker-search');
 // 明示クエリがあれば尊重。未指定時は Worker の世界チャンピオン段で staged3ply を既定 ON、
 // メインスレッド fallback は UI ブロック防止のため legacy を維持する。
 const EXPLICIT_CHECKER_SEARCH_MODE = ['legacy', 'staged3ply', 'full-root']
   .includes(RAW_CHECKER_SEARCH_MODE) ? RAW_CHECKER_SEARCH_MODE : null;
 const CHECKER_SEARCH_MODE = EXPLICIT_CHECKER_SEARCH_MODE ?? 'legacy';
+const RAW_BACKEND = URL_PARAMS.get('backend');
+const EXPLICIT_BACKEND = ['auto', 'wasm', 'js'].includes(RAW_BACKEND) ? RAW_BACKEND : null;
 
 const state = {
   net: null,
@@ -64,6 +71,7 @@ const state = {
   runId: 0,            // 対局をまたいで古いアニメーションが動き続けないように
   busy: false,
   threaded: false,     // Worker で思考できているか
+  engineMetadata: null, // assets/metadata.json（プレビュー版・SHA 確認用）
   moneyBearoffLoadPromise: null,
   thinking: false,     // 思考中の表示を出すか
 };
@@ -97,12 +105,14 @@ const pause = () => sleep(state.delay);
 
 const thinker = new ThinkerPool({
   explicitCheckerSearchMode: EXPLICIT_CHECKER_SEARCH_MODE,
+  explicitBackend: EXPLICIT_BACKEND,
 });
 
-/** ベアオフ DB / Pruning Net の置き場（モデルと同じ src/ の下）。 */
+/** ベアオフ DB / Pruning Net / メタデータの置き場。 */
 const BEAROFF_URL = './src/bearoff-6x15.bin';
 const MONEY_BEAROFF_URL = './src/money-bg2n-6x6-v4.bin';
 const PRUNE_NET_URL = './src/prune_net.json';
+const METADATA_URL = './assets/metadata.json';
 
 function startThinker(modelUrl) {
   return thinker.start({
@@ -217,9 +227,56 @@ function describeModel(net) {
   return parts.join(' / ');
 }
 
+function formatBackendSummary() {
+  const poolStatus = thinker.backendStatus;
+  if (state.threaded && poolStatus.workerCount > 0) {
+    if (poolStatus.allWasm) {
+      const variant = poolStatus.wasmVariants.join('/') || 'wasm';
+      return `WASM (${variant})`;
+    }
+    if (poolStatus.activeBackend === 'js') {
+      const reason = poolStatus.fallbackReasons[0];
+      return reason ? `JS fallback (${reason})` : 'JS';
+    }
+    return `混在 (${poolStatus.activeBackend})`;
+  }
+  const mainStatus = getEngineBackendStatus();
+  if (mainStatus.activeBackend === 'wasm' && mainStatus.wasmReady) {
+    return `WASM (${mainStatus.wasmVariant ?? 'wasm'} / main)`;
+  }
+  return mainStatus.fallbackReason
+    ? `JS fallback (${mainStatus.fallbackReason})`
+    : 'JS (main)';
+}
+
+function updatePreviewDiagnostics() {
+  const diag = {
+    app: 'miniapp-backgammon',
+    url: globalThis.location?.href ?? null,
+    isSecureContext: Boolean(globalThis.isSecureContext),
+    hasSubtleCrypto: Boolean(globalThis.crypto?.subtle),
+    threaded: state.threaded,
+    explicitBackend: EXPLICIT_BACKEND,
+    explicitCheckerSearchMode: EXPLICIT_CHECKER_SEARCH_MODE,
+    engineMetadata: state.engineMetadata,
+    workerPool: thinker.backendStatus,
+    pruneNetStatus: thinker.pruneNetStatus,
+    mainThreadBackend: getEngineBackendStatus(),
+    refreshWorkerStatuses: () => thinker.refreshBackendStatuses(),
+  };
+  globalThis.__BG_PREVIEW_DIAG__ = diag;
+  return diag;
+}
+
 NeuralNet.load('./src/model.json')
   .then(async (net) => {
     state.net = net;
+    try {
+      const metaResp = await fetch(new URL(METADATA_URL, import.meta.url).href);
+      if (metaResp.ok) state.engineMetadata = await metaResp.json();
+    } catch {
+      state.engineMetadata = null;
+    }
     $('model-info').textContent = describeModel(net);
     // **ベアオフ DB はモデルと一緒に読む。** 終盤の競走を厳密解で評価する
     // ためのもので（`src/bearoff.js`）、1 MB ほど。**読めなくても対局は
@@ -238,10 +295,30 @@ NeuralNet.load('./src/model.json')
       setPruneNet(null);
       console.warn('Pruning Net を読めませんでした', error);
     }
+    if (EXPLICIT_BACKEND !== null) {
+      setEngineBackend(EXPLICIT_BACKEND);
+    }
     state.threaded = await startThinker('./src/model.json');
+    // Worker が使えない環境のみ、メインスレッドで WASM 初期化を試みる（通常は Worker 側のみでメモリ節約）。
+    if (!state.threaded && EXPLICIT_BACKEND !== 'js') {
+      try {
+        await initWasmEngine({
+          variant: 'auto',
+          backend: EXPLICIT_BACKEND ?? 'auto',
+        });
+      } catch (error) {
+        console.warn('メインスレッド WASM 初期化に失敗しました。JS へフォールバックします', error);
+      }
+    }
+    const backendLabel = formatBackendSummary();
+    const versionSuffix = state.engineMetadata?.enginePackageVersion
+      ? ` · ${state.engineMetadata.enginePackageVersion}`
+      : '';
+    $('model-info').textContent = `${describeModel(net)} / ${backendLabel}${versionSuffix}`;
     $('loading').textContent = state.threaded
-      ? '準備できました'
-      : '準備できました（別スレッドが使えないため、深い読み中は画面が一時的に止まります）';
+      ? `準備できました（${backendLabel}）`
+      : `準備できました（${backendLabel} / 別スレッドが使えないため、深い読み中は画面が一時的に止まります）`;
+    updatePreviewDiagnostics();
     $('start').disabled = false;
   })
   .catch((error) => {
