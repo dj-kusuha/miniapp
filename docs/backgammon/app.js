@@ -74,6 +74,7 @@ const state = {
   engineMetadata: null, // assets/metadata.json（同梱エンジン版・SHA 確認用）
   moneyBearoffLoadPromise: null,
   thinking: false,     // 思考中の表示を出すか
+  runtimeError: null,  // 明示 ?backend=wasm の対局中思考エラー（fail-closed 表示用）
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -138,6 +139,22 @@ async function ensureMainMoneyBearoff(match) {
 }
 
 
+function requireWasmThinking(contextLabel, error) {
+  const detail = error instanceof Error ? error.message : String(error);
+  const message = `WASM 思考を継続できませんでした（${contextLabel} / ?backend=wasm）: ${detail}`;
+  state.runtimeError = message;
+  return new Error(message);
+}
+
+function canRunMainWasmThinking() {
+  const status = getEngineBackendStatus();
+  return status.activeBackend === 'wasm' && status.wasmReady === true;
+}
+
+function isWasmFailClosedError(error) {
+  return error instanceof Error && error.message.startsWith('WASM 思考を継続できませんでした');
+}
+
 /**
  * キューブ判断を **Worker プールに投げる**（駄目ならこのスレッドで）。
  *
@@ -151,8 +168,11 @@ async function ensureMainMoneyBearoff(match) {
 async function askCube(game, kind) {
   const match = state.match.cubeContext();
   if (thinker.available) {
+    if (EXPLICIT_BACKEND === 'wasm' && !thinker.backendStatus.allWasm) {
+      throw requireWasmThinking('キューブ判断', 'Worker の WASM 稼働を確認できませんでした');
+    }
     try {
-      return await thinker.decideCube({
+      const answer = await thinker.decideCube({
         ask: kind,
         boardDto: {
           points: game.board.points,
@@ -168,9 +188,16 @@ async function askCube(game, kind) {
         match,
         game,
       });
+      state.runtimeError = null;
+      return answer;
     } catch (error) {
+      if (EXPLICIT_BACKEND === 'wasm') {
+        throw isWasmFailClosedError(error) ? error : requireWasmThinking('キューブ判断', error);
+      }
       console.warn('Worker でのキューブ判断に失敗しました。こちらで決めます', error);
     }
+  } else if (EXPLICIT_BACKEND === 'wasm' && !canRunMainWasmThinking()) {
+    throw requireWasmThinking('キューブ判断', 'WASM Worker が停止しています');
   }
   await ensureMainMoneyBearoff(match);
   return kind === 'accept'
@@ -183,8 +210,12 @@ async function askCube(game, kind) {
  * 返すのは `moves` の index。
  */
 async function chooseMove(board, player, roll, moves, level) {
+  if (moves.length <= 1) return 0;
   const context = checkerContextFor(state.game, state.match, player);
-  if (thinker.available && moves.length > 1) {
+  if (thinker.available) {
+    if (EXPLICIT_BACKEND === 'wasm' && !thinker.backendStatus.allWasm) {
+      throw requireWasmThinking('AI 着手', 'Worker の WASM 稼働を確認できませんでした');
+    }
     try {
       const reply = await thinker.chooseMove({
         boardDto: {
@@ -196,13 +227,27 @@ async function chooseMove(board, player, roll, moves, level) {
       });
       // 合法手の並びは generateMoves が純関数なので一致するはずだが、
       // 念のため鍵で照合する。ずれていたら鍵で引き直す。
-      if (boardKey(moves[reply.index].resultingBoard) === reply.key) return reply.index;
+      if (moves[reply.index] && boardKey(moves[reply.index].resultingBoard) === reply.key) {
+        state.runtimeError = null;
+        return reply.index;
+      }
       const found = moves.findIndex((m) => boardKey(m.resultingBoard) === reply.key);
-      if (found >= 0) return found;
+      if (found >= 0) {
+        state.runtimeError = null;
+        return found;
+      }
+      if (EXPLICIT_BACKEND === 'wasm') {
+        throw requireWasmThinking('AI 着手', 'Worker の手がメイン側の合法手に見つかりません');
+      }
       console.warn('Worker の手がメイン側の合法手に見つかりません。こちらで選び直します');
     } catch (error) {
+      if (EXPLICIT_BACKEND === 'wasm') {
+        throw isWasmFailClosedError(error) ? error : requireWasmThinking('AI 着手', error);
+      }
       console.warn('Worker での思考に失敗しました。こちらで選びます', error);
     }
+  } else if (EXPLICIT_BACKEND === 'wasm' && !canRunMainWasmThinking()) {
+    throw requireWasmThinking('AI 着手', 'WASM Worker が停止しています');
   }
   return selectCheckerMove(state.agent, context, moves, player);
 }
@@ -258,6 +303,9 @@ function updateBackendDiagnostics(initError = null) {
     explicitBackend: EXPLICIT_BACKEND,
     explicitCheckerSearchMode: EXPLICIT_CHECKER_SEARCH_MODE,
     initError,
+    get runtimeError() {
+      return state.runtimeError;
+    },
     get threaded() {
       return state.threaded;
     },
@@ -323,6 +371,9 @@ NeuralNet.load('./src/model.json')
     //   Worker 起動成功時はメモリ節約方針を維持してメインスレッド UI 合法手生成は `'js'` とし、
     //   Worker の WASM 稼働を検証する。Worker 起動失敗時はメインスレッドで明示 `'wasm'` 初期化を試み、
     //   失敗した場合は start を有効化せずエラー表示で停止する。
+    //   対局中に Worker 停止・RPC 失敗・合法手不一致が起きた場合もメイン JS 思考へフォールバックせず、
+    //   UI（`#hint`）と診断（`__BG_BACKEND_DIAG__.runtimeError`）へ明示して安全に中断する
+    //   （合法手 1 件の非探索処理と UI 合法手生成は対象外）。
     state.threaded = await startThinker('./src/model.json');
     if (EXPLICIT_BACKEND === 'js') {
       setEngineBackend('js');
@@ -536,6 +587,7 @@ async function humanRollDice(fromAutoRoll = false) {
     state.autoRolling = false;
     state.busy = false;
   }
+  state.runtimeError = null;
   const before = game.currentPlayer;
   game.rollDice();          // 動かせない出目なら内部で手番が飛ぶ
   // ダンスした（手番が移った）ときも、出目をひと呼吸見せてから相手へ渡す
@@ -551,26 +603,43 @@ async function humanRollDice(fromAutoRoll = false) {
 $('roll').addEventListener('click', () => humanRollDice());
 $('double').addEventListener('click', async () => {
   const game = state.game;
-  if (!state.match.useCube || !game.canDouble()) return;
+  if (state.busy || !state.match.useCube || !game.canDouble()) return;
+  const runId = state.runId;
+  state.busy = true;
+  state.runtimeError = null;
   game.proposeDouble();
   state.history = [];          // ダブルを出したら戻せない
   render();
-  await pause();               // AI が考えているように見せる
+  try {
+    await pause();               // AI が考えているように見せる
+    if (state.runId !== runId || state.game !== game) return;
 
-  const accepted = await askCube(game, 'accept');
-  if (accepted) {
-    game.acceptDouble();
-    render();
-    await pause();
-  } else {
-    game.declineDouble();
-    render();
-    return;
+    const accepted = await askCube(game, 'accept');
+    if (state.runId !== runId || state.game !== game) return;
+    if (accepted) {
+      game.acceptDouble();
+      state.busy = false;
+      render();
+      await pause();
+      if (state.runId !== runId || state.game !== game) return;
+      await afterChange();
+    } else {
+      game.declineDouble();
+      state.busy = false;
+      render();
+    }
+  } catch (error) {
+    if (state.runId === runId && state.game === game) {
+      state.runtimeError = error instanceof Error ? error.message : String(error);
+      state.thinking = false;
+      state.busy = false;
+      render();
+    }
   }
-  await afterChange();
 });
 
 $('take').addEventListener('click', async () => {
+  state.runtimeError = null;
   state.game.acceptDouble();
   state.history = [];
   render();
@@ -578,6 +647,7 @@ $('take').addEventListener('click', async () => {
 });
 
 $('pass').addEventListener('click', () => {
+  state.runtimeError = null;
   state.game.declineDouble();
   state.history = [];
   render();
@@ -604,6 +674,9 @@ $('dice').addEventListener('click', flipDice);
 async function rankMoves(board, player, roll, moves, level, limit = 3) {
   const context = checkerContextFor(state.game, state.match, player);
   if (thinker.available) {
+    if (EXPLICIT_BACKEND === 'wasm' && !thinker.backendStatus.allWasm) {
+      throw requireWasmThinking('ヒント計算', 'Worker の WASM 稼働を確認できませんでした');
+    }
     try {
       const reply = await thinker.rankMoves({
         boardDto: {
@@ -622,19 +695,28 @@ async function rankMoves(board, player, roll, moves, level, limit = 3) {
       });
       // 着手のときと同じく、**鍵で照合**してからメイン側の Move に結び直す
       const entries = reply.entries.map((entry) => {
-        const at = entry.index < moves.length
+        const at = entry.index >= 0 && entry.index < moves.length
           && boardKey(moves[entry.index].resultingBoard) === entry.key
           ? entry.index
           : moves.findIndex((m) => boardKey(m.resultingBoard) === entry.key);
         return at >= 0 ? { ...entry, index: at, move: moves[at] } : null;
       });
       if (entries.length && entries.every(Boolean)) {
+        state.runtimeError = null;
         return { entries, unit: reply.unit, evaluation: reply.evaluation };
+      }
+      if (EXPLICIT_BACKEND === 'wasm') {
+        throw requireWasmThinking('ヒント計算', 'Worker のヒントがメイン側の合法手に見つかりません');
       }
       console.warn('Worker のヒントがメイン側の合法手に見つかりません。こちらで計算します');
     } catch (error) {
+      if (EXPLICIT_BACKEND === 'wasm') {
+        throw isWasmFailClosedError(error) ? error : requireWasmThinking('ヒント計算', error);
+      }
       console.warn('Worker でのヒント計算に失敗しました。こちらで計算します', error);
     }
+  } else if (EXPLICIT_BACKEND === 'wasm' && !canRunMainWasmThinking()) {
+    throw requireWasmThinking('ヒント計算', 'WASM Worker が停止しています');
   }
   return rankCheckerMoves(state.adviceAgent, context, moves, player, limit);
 }
@@ -647,6 +729,7 @@ $('advice-button').addEventListener('click', async () => {
   const root = game.legalMoves;
   const runId = state.runId;
 
+  state.runtimeError = null;
   state.advising = true;
   render();                       // ボタンを「考えています…」に
   try {
@@ -655,6 +738,11 @@ $('advice-button').addEventListener('click', async () => {
     // **待っている間に局面が動いていたら捨てる。** 深い段では数秒あるので起きる。
     if (state.runId === runId && state.game === game && game.legalMoves === root) {
       state.advice = { root, ...entries };
+    }
+  } catch (error) {
+    if (state.runId === runId && state.game === game) {
+      state.advice = null;
+      state.runtimeError = error instanceof Error ? error.message : String(error);
     }
   } finally {
     state.advising = false;
@@ -704,6 +792,9 @@ function nextGame() {
   state.anim = null;
   state.danceShow = null;
   state.busy = false;
+  state.thinking = false;
+  state.advising = false;
+  state.runtimeError = null;
   state.autoRolling = false;
   state.autoForcing = false;
   clearCompoundLock();
@@ -1067,6 +1158,7 @@ function flipDice() {
 
 function finalizeTurn(move) {
   const game = state.game;
+  state.runtimeError = null;
   clearCompoundLock();
   state.history.push(snapshot());
   const index = game.legalMoves.indexOf(move);
@@ -1309,6 +1401,7 @@ function renderDiceTray(el, shown) {
 function renderStatus() {
   const game = state.game;
   $('hint').classList.toggle('is-thinking', Boolean(state.thinking));
+  $('hint').classList.toggle('error', Boolean(state.runtimeError));
   const mine = game.currentPlayer === state.humanSide;
   const midTurn = Boolean(state.turn && state.turn.applied.length > 0);
 
@@ -1357,12 +1450,18 @@ function renderStatus() {
   if (game.state === DOUBLING_PROPOSED) {
     const toMe = game.doublingProposer !== state.humanSide;
     $('turn').textContent = toMe ? 'AI がダブルしました' : 'ダブルを提案中';
-    $('hint').textContent = toMe
-      ? `受ければキューブは ${game.cube.value * 2}。断れば ${game.cube.value} 点の負け。`
-      : 'AI が考えています…';
+    $('hint').textContent = state.runtimeError
+      ? state.runtimeError
+      : toMe
+        ? `受ければキューブは ${game.cube.value * 2}。断れば ${game.cube.value} 点の負け。`
+        : 'AI が考えています…';
     renderDiceTray($('dice'), null);
     renderDiceTray($('dice-ai'), null);
-    for (const id of ['roll', 'undo', 'again', 'double', 'advice-button']) $(id).hidden = true;
+    for (const id of ['roll', 'undo', 'double', 'advice-button']) $(id).hidden = true;
+    $('again').hidden = !state.runtimeError;
+    if (state.runtimeError) {
+      $('again').textContent = state.match.isMoney ? 'もう一局' : '次の局';
+    }
     $('take').hidden = !toMe;
     $('pass').hidden = !toMe;
     return;
@@ -1394,11 +1493,17 @@ function renderStatus() {
   adviceButton.hidden = !canAdvise();
   adviceButton.disabled = state.advising;
   adviceButton.textContent = state.advising ? '考えています…' : 'ヒント';
-  $('again').hidden = true;
+  const abortedAiTurn = Boolean(state.runtimeError && !mine && !state.busy);
+  $('again').hidden = !abortedAiTurn;
+  if (abortedAiTurn) {
+    $('again').textContent = state.match.isMoney ? 'もう一局' : '次の局';
+  }
   // ダブルはロール前だけ。キューブを相手が持っていたら出せない
   $('double').hidden = !canHumanDouble();
 
-  if (state.busy) {
+  if (state.runtimeError) {
+    $('hint').textContent = state.runtimeError;
+  } else if (state.busy) {
     if (mine) {
       if (state.autoRolling) $('hint').textContent = '自動でダイスを振っています…';
       else if (state.autoForcing) $('hint').textContent = '自動で着手しています…';
@@ -1745,85 +1850,103 @@ async function runAiTurns() {
   const alive = () => state.runId === runId && state.game === game;
 
   state.busy = true;
+  state.runtimeError = null;
   render();
-  // **ここで 1 フレーム待つ。** 直後のキューブ判断（`shouldDouble`）は
-  // メインスレッドで同期に走り、2 段の展開だと 1 秒を超えることがある。
-  // 待たないと**人が指した手が盤に出ないまま固まる。**
-  await nextFrame();
-  if (!alive()) return;
-
-  while (alive() && game.state !== GAME_OVER && game.currentPlayer !== state.humanSide) {
-    const ai = game.currentPlayer;
-
-    // ── ダブルの提案（ロール前だけ）────────────────
-    if (state.match.useCube && game.state === ROLLING && game.canDouble()
-        && await askCube(game, 'double')) {
-      game.proposeDouble();
-      render();
-      await pause();
-      if (!alive()) return;
-      // ここで人間の返事を待つ。テイク / パスのボタンが出る
-      state.busy = false;
-      render();
-      return;
-    }
-
-    if (game.state === ROLLING) {
-      game.rollDice();          // 動かせない目なら内部で手番が飛ぶ
-      if (game.currentPlayer !== ai) state.danceShow = ai;
-    }
-    render();
-
-    // **Worker が使えないときは `chooseMove` が同期で走る。** 出目を見せる
-    // 描画を挟んでから考え始めないと、出目が出ないまま固まる。
+  try {
+    // **ここで 1 フレーム待つ。** 直後のキューブ判断（`shouldDouble`）は
+    // メインスレッドで同期に走り、2 段の展開だと 1 秒を超えることがある。
+    // 待たないと**人が指した手が盤に出ないまま固まる。**
     await nextFrame();
     if (!alive()) return;
 
-    // **出目を見せている間に裏で考えさせる。** 深い読みの思考時間のうち
-    // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
-    const danced = game.currentPlayer !== ai;
-    const thinking = danced
-      ? null
-      : chooseMove(game.board, ai, game.roll, game.legalMoves, state.level);
+    while (alive() && game.state !== GAME_OVER && game.currentPlayer !== state.humanSide) {
+      const ai = game.currentPlayer;
 
-    await pause();
-    state.danceShow = null;
-    if (!alive()) return;
-    if (danced) { render(); continue; }
-
-    // 出目の間合いで終わっていなければ「考え中」を出して待つ
-    let index;
-    if (thinking) {
-      let settled = false;
-      thinking.then(() => { settled = true; });
-      await Promise.race([thinking, sleep(0)]);
-      if (!settled) {
-        state.thinking = true;
+      // ── ダブルの提案（ロール前だけ）────────────────
+      if (state.match.useCube && game.state === ROLLING && game.canDouble()
+          && await askCube(game, 'double')) {
+        if (!alive()) return;
+        game.proposeDouble();
         render();
+        await pause();
+        if (!alive()) return;
+        // ここで人間の返事を待つ。テイク / パスのボタンが出る
+        state.busy = false;
+        render();
+        return;
       }
-      index = await thinking;
-      state.thinking = false;
       if (!alive()) return;
-    }
-    const move = game.legalMoves[index];
 
-    state.anim = { base: game.board.clone(), player: ai, applied: [] };
-    for (const single of move.singles) {
-      state.anim.applied.push(single);
+      if (game.state === ROLLING) {
+        game.rollDice();          // 動かせない目なら内部で手番が飛ぶ
+        if (game.currentPlayer !== ai) state.danceShow = ai;
+      }
       render();
-      await pause();
+
+      // **Worker が使えないときは `chooseMove` が同期で走る。** 出目を見せる
+      // 描画を挟んでから考え始めないと、出目が出ないまま固まる。
+      await nextFrame();
       if (!alive()) return;
+
+      // **出目を見せている間に裏で考えさせる。** 深い読みの思考時間のうち
+      // 間合いのぶんはこれで隠れる。ダンスしたときは考える必要が無い。
+      // pause() 中に reject しても unhandledrejection を出さないよう即座に結果へ包む。
+      const danced = game.currentPlayer !== ai;
+      let thinkingSettled = false;
+      const thinkingOutcome = danced
+        ? null
+        : chooseMove(game.board, ai, game.roll, game.legalMoves, state.level).then(
+          (value) => { thinkingSettled = true; return { ok: true, value }; },
+          (error) => { thinkingSettled = true; return { ok: false, error }; },
+        );
+
+      await pause();
+      state.danceShow = null;
+      if (!alive()) return;
+      if (danced) { render(); continue; }
+
+      // 出目の間合いで終わっていなければ「考え中」を出して待つ
+      let index;
+      if (thinkingOutcome) {
+        await Promise.race([thinkingOutcome, sleep(0)]);
+        if (!thinkingSettled) {
+          state.thinking = true;
+          render();
+        }
+        const outcome = await thinkingOutcome;
+        state.thinking = false;
+        if (!alive()) return;
+        if (!outcome.ok) throw outcome.error;
+        index = outcome.value;
+      }
+      const move = game.legalMoves[index];
+
+      state.anim = { base: game.board.clone(), player: ai, applied: [] };
+      for (const single of move.singles) {
+        state.anim.applied.push(single);
+        render();
+        await pause();
+        if (!alive()) return;
+      }
+      state.anim = null;
+      game.applyMove(index);
+      render();
     }
+
+    if (!alive()) return;
     state.anim = null;
-    game.applyMove(index);
+    state.busy = false;
+    state.history = [];   // AI が指したら戻せない
+    await afterChange();
+  } catch (error) {
+    if (!alive()) return;
+    state.anim = null;
+    state.danceShow = null;
+    state.thinking = false;
+    state.busy = false;
+    state.runtimeError = error instanceof Error ? error.message : String(error);
     render();
   }
-
-  if (!alive()) return;
-  state.anim = null;
-  state.busy = false;
-  state.history = [];   // AI が指したら戻せない
-  await afterChange();
 }
 
-export { state, render, afterChange };
+export { state, render, afterChange, thinker };
