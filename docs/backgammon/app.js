@@ -74,6 +74,8 @@ const state = {
   engineMetadata: null, // assets/metadata.json（同梱エンジン版・SHA 確認用）
   moneyBearoffLoadPromise: null,
   thinking: false,     // 思考中の表示を出すか
+  advisingGen: 0,      // 古いヒント要求の finally が新しい要求の advising を潰さないための世代番号
+  recovering: false,   // 障害後の同一局面 WASM 再初期化中か
   runtimeError: null,  // 明示 ?backend=wasm の対局中思考エラー（fail-closed 表示用）
 };
 
@@ -139,11 +141,9 @@ async function ensureMainMoneyBearoff(match) {
 }
 
 
-function requireWasmThinking(contextLabel, error) {
+function makeWasmFailClosedError(contextLabel, error) {
   const detail = error instanceof Error ? error.message : String(error);
-  const message = `WASM 思考を継続できませんでした（${contextLabel} / ?backend=wasm）: ${detail}`;
-  state.runtimeError = message;
-  return new Error(message);
+  return new Error(`WASM 思考を継続できませんでした（${contextLabel} / ?backend=wasm）: ${detail}`);
 }
 
 function canRunMainWasmThinking() {
@@ -153,6 +153,25 @@ function canRunMainWasmThinking() {
 
 function isWasmFailClosedError(error) {
   return error instanceof Error && error.message.startsWith('WASM 思考を継続できませんでした');
+}
+
+async function initializeExplicitWasmBackend() {
+  state.threaded = await startThinker('./src/model.json');
+  if (state.threaded) {
+    if (!thinker.backendStatus.allWasm) {
+      thinker.terminate();
+      state.threaded = false;
+      throw new Error('明示指定 backend=wasm で Worker の WASM 初期化を確認できませんでした');
+    }
+    // Worker 側で WASM 思考が稼働しているため、メインスレッドはメモリ節約のため WASM を別途ロードしない。
+    setEngineBackend('js');
+  } else {
+    setEngineBackend('wasm');
+    await initWasmEngine({
+      variant: 'auto',
+      backend: 'wasm',
+    });
+  }
 }
 
 /**
@@ -169,10 +188,10 @@ async function askCube(game, kind) {
   const match = state.match.cubeContext();
   if (thinker.available) {
     if (EXPLICIT_BACKEND === 'wasm' && !thinker.backendStatus.allWasm) {
-      throw requireWasmThinking('キューブ判断', 'Worker の WASM 稼働を確認できませんでした');
+      throw makeWasmFailClosedError('キューブ判断', 'Worker の WASM 稼働を確認できませんでした');
     }
     try {
-      const answer = await thinker.decideCube({
+      return await thinker.decideCube({
         ask: kind,
         boardDto: {
           points: game.board.points,
@@ -188,16 +207,14 @@ async function askCube(game, kind) {
         match,
         game,
       });
-      state.runtimeError = null;
-      return answer;
     } catch (error) {
       if (EXPLICIT_BACKEND === 'wasm') {
-        throw isWasmFailClosedError(error) ? error : requireWasmThinking('キューブ判断', error);
+        throw isWasmFailClosedError(error) ? error : makeWasmFailClosedError('キューブ判断', error);
       }
       console.warn('Worker でのキューブ判断に失敗しました。こちらで決めます', error);
     }
   } else if (EXPLICIT_BACKEND === 'wasm' && !canRunMainWasmThinking()) {
-    throw requireWasmThinking('キューブ判断', 'WASM Worker が停止しています');
+    throw makeWasmFailClosedError('キューブ判断', 'WASM Worker が停止しています');
   }
   await ensureMainMoneyBearoff(match);
   return kind === 'accept'
@@ -214,7 +231,7 @@ async function chooseMove(board, player, roll, moves, level) {
   const context = checkerContextFor(state.game, state.match, player);
   if (thinker.available) {
     if (EXPLICIT_BACKEND === 'wasm' && !thinker.backendStatus.allWasm) {
-      throw requireWasmThinking('AI 着手', 'Worker の WASM 稼働を確認できませんでした');
+      throw makeWasmFailClosedError('AI 着手', 'Worker の WASM 稼働を確認できませんでした');
     }
     try {
       const reply = await thinker.chooseMove({
@@ -228,26 +245,24 @@ async function chooseMove(board, player, roll, moves, level) {
       // 合法手の並びは generateMoves が純関数なので一致するはずだが、
       // 念のため鍵で照合する。ずれていたら鍵で引き直す。
       if (moves[reply.index] && boardKey(moves[reply.index].resultingBoard) === reply.key) {
-        state.runtimeError = null;
         return reply.index;
       }
       const found = moves.findIndex((m) => boardKey(m.resultingBoard) === reply.key);
       if (found >= 0) {
-        state.runtimeError = null;
         return found;
       }
       if (EXPLICIT_BACKEND === 'wasm') {
-        throw requireWasmThinking('AI 着手', 'Worker の手がメイン側の合法手に見つかりません');
+        throw makeWasmFailClosedError('AI 着手', 'Worker の手がメイン側の合法手に見つかりません');
       }
       console.warn('Worker の手がメイン側の合法手に見つかりません。こちらで選び直します');
     } catch (error) {
       if (EXPLICIT_BACKEND === 'wasm') {
-        throw isWasmFailClosedError(error) ? error : requireWasmThinking('AI 着手', error);
+        throw isWasmFailClosedError(error) ? error : makeWasmFailClosedError('AI 着手', error);
       }
       console.warn('Worker での思考に失敗しました。こちらで選びます', error);
     }
   } else if (EXPLICIT_BACKEND === 'wasm' && !canRunMainWasmThinking()) {
-    throw requireWasmThinking('AI 着手', 'WASM Worker が停止しています');
+    throw makeWasmFailClosedError('AI 着手', 'WASM Worker が停止しています');
   }
   return selectCheckerMove(state.agent, context, moves, player);
 }
@@ -367,43 +382,30 @@ NeuralNet.load('./src/model.json')
     // - 未指定 / `?backend=auto`: Worker は `'auto'`（WASM 優先・失敗時 JS 自動フォールバック）。
     //   Worker 稼働中はメモリ節約のためメインスレッドで WASM を別途ロードせず `'auto'`（未初期化 JS）で
     //   UI 合法手生成を行い、Worker 非稼働時のみメインスレッド WASM 初期化（失敗時 JS 継続）を試みる。
-    // - `?backend=wasm`: 思考エンジンとして WASM 稼働を必須（fail-closed）とする。
-    //   Worker 起動成功時はメモリ節約方針を維持してメインスレッド UI 合法手生成は `'js'` とし、
-    //   Worker の WASM 稼働を検証する。Worker 起動失敗時はメインスレッドで明示 `'wasm'` 初期化を試み、
-    //   失敗した場合は start を有効化せずエラー表示で停止する。
-    //   対局中に Worker 停止・RPC 失敗・合法手不一致が起きた場合もメイン JS 思考へフォールバックせず、
-    //   UI（`#hint`）と診断（`__BG_BACKEND_DIAG__.runtimeError`）へ明示して安全に中断する
-    //   （合法手 1 件の非探索処理と UI 合法手生成は対象外）。
-    state.threaded = await startThinker('./src/model.json');
-    if (EXPLICIT_BACKEND === 'js') {
-      setEngineBackend('js');
-    } else if (EXPLICIT_BACKEND === 'wasm') {
-      if (state.threaded) {
-        if (!thinker.backendStatus.allWasm) {
-          thinker.terminate();
-          state.threaded = false;
-          throw new Error('明示指定 backend=wasm で Worker の WASM 初期化を確認できませんでした');
-        }
-        // Worker 側で WASM 思考が稼働しているため、メインスレッドはメモリ節約のため WASM を別途ロードしない。
+    // - `?backend=wasm`: 思考エンジン（探索本体）として WASM 稼働を必須（fail-closed）とする。
+    //   Worker 起動成功時はメモリ節約方針を維持してメインスレッドは `'js'` とし、Worker の WASM 稼働を検証する
+    //   （合法手 1 件の非探索処理・UI 合法手生成・並列ヒント結果の 0-ply 参考確率表示は対象外）。
+    //   Worker 起動失敗時はメインスレッドで明示 `'wasm'` 初期化を試み、失敗した場合は start を有効化せず停止する。
+    //   対局中に Worker 停止・RPC 失敗・合法手不一致が起きた場合もメイン JS 探索へフォールバックせず、
+    //   UI（`#hint.error`・同一局面を保持した「WASM を再初期化して再試行」ボタン）と診断へ明示して安全に中断する。
+    if (EXPLICIT_BACKEND === 'wasm') {
+      await initializeExplicitWasmBackend();
+    } else {
+      state.threaded = await startThinker('./src/model.json');
+      if (EXPLICIT_BACKEND === 'js') {
         setEngineBackend('js');
       } else {
-        setEngineBackend('wasm');
-        await initWasmEngine({
-          variant: 'auto',
-          backend: 'wasm',
-        });
-      }
-    } else {
-      setEngineBackend('auto');
-      // Worker が使えない環境のみ、メインスレッドで WASM 初期化を試みる（通常は Worker 側のみでメモリ節約）。
-      if (!state.threaded) {
-        try {
-          await initWasmEngine({
-            variant: 'auto',
-            backend: 'auto',
-          });
-        } catch (error) {
-          console.warn('メインスレッド WASM 初期化に失敗しました。JS へフォールバックします', error);
+        setEngineBackend('auto');
+        // Worker が使えない環境のみ、メインスレッドで WASM 初期化を試みる（通常は Worker 側のみでメモリ節約）。
+        if (!state.threaded) {
+          try {
+            await initWasmEngine({
+              variant: 'auto',
+              backend: 'auto',
+            });
+          } catch (error) {
+            console.warn('メインスレッド WASM 初期化に失敗しました。JS へフォールバックします', error);
+          }
         }
       }
     }
@@ -567,9 +569,86 @@ function syncLevelNote() {
 }
 syncLevelNote();
 
+async function resolveAiDoubleResponse(game, runId) {
+  state.busy = true;
+  state.runtimeError = null;
+  render();
+  try {
+    await pause();               // AI が考えているように見せる
+    if (state.runId !== runId || state.game !== game) return;
+
+    const accepted = await askCube(game, 'accept');
+    if (state.runId !== runId || state.game !== game) return;
+    state.runtimeError = null;
+    if (accepted) {
+      game.acceptDouble();
+      state.busy = false;
+      render();
+      await pause();
+      if (state.runId !== runId || state.game !== game) return;
+      await afterChange();
+    } else {
+      game.declineDouble();
+      state.busy = false;
+      render();
+    }
+  } catch (error) {
+    if (state.runId === runId && state.game === game) {
+      state.runtimeError = error instanceof Error ? error.message : String(error);
+      state.thinking = false;
+      state.busy = false;
+      render();
+    }
+  }
+}
+
+/**
+ * 対局中の `?backend=wasm` 思考障害から、同一局面・マッチ状態（クロフォード局を含む）を
+ * 保持したまま WASM バックエンドを再初期化して中断したフェーズを再開する。
+ */
+async function retryWasmRecovery() {
+  const game = state.game;
+  if (!game || game.state === GAME_OVER || state.busy || state.recovering) return;
+  const runId = state.runId;
+  state.recovering = true;
+  state.busy = true;
+  render();
+  try {
+    await initializeExplicitWasmBackend();
+    if (state.runId !== runId || state.game !== game) return;
+    state.recovering = false;
+    state.runtimeError = null;
+    updateBackendDiagnostics();
+    if (game.state === DOUBLING_PROPOSED && game.doublingProposer === state.humanSide) {
+      await resolveAiDoubleResponse(game, runId);
+      return;
+    }
+    state.busy = false;
+    if (game.currentPlayer !== state.humanSide) {
+      await afterChange();
+      return;
+    }
+    render();
+  } catch (error) {
+    if (state.runId === runId && state.game === game) {
+      const detail = error instanceof Error ? error.message : String(error);
+      state.runtimeError = `WASM 再初期化に失敗しました（?backend=wasm）: ${detail}`;
+      state.recovering = false;
+      state.thinking = false;
+      state.busy = false;
+      render();
+    }
+  }
+}
+
 $('start').addEventListener('click', startMatch);
-// マッチが続いていれば次の局へ、終わっていれば同じ設定で新しいマッチへ。
+// 局中障害からの復旧ボタン（WASM 再初期化・同一局面再試行）と、
+// 終局後の次局／新マッチ遷移を明示的に分離する（未完了のクロフォード局を飛ばさない）。
 $('again').addEventListener('click', () => {
+  if (state.game && state.game.state !== GAME_OVER && (state.runtimeError || state.recovering)) {
+    retryWasmRecovery();
+    return;
+  }
   if (state.match && !state.match.isOver) nextGame();
   else startMatch();
 });
@@ -605,37 +684,9 @@ $('double').addEventListener('click', async () => {
   const game = state.game;
   if (state.busy || !state.match.useCube || !game.canDouble()) return;
   const runId = state.runId;
-  state.busy = true;
-  state.runtimeError = null;
   game.proposeDouble();
   state.history = [];          // ダブルを出したら戻せない
-  render();
-  try {
-    await pause();               // AI が考えているように見せる
-    if (state.runId !== runId || state.game !== game) return;
-
-    const accepted = await askCube(game, 'accept');
-    if (state.runId !== runId || state.game !== game) return;
-    if (accepted) {
-      game.acceptDouble();
-      state.busy = false;
-      render();
-      await pause();
-      if (state.runId !== runId || state.game !== game) return;
-      await afterChange();
-    } else {
-      game.declineDouble();
-      state.busy = false;
-      render();
-    }
-  } catch (error) {
-    if (state.runId === runId && state.game === game) {
-      state.runtimeError = error instanceof Error ? error.message : String(error);
-      state.thinking = false;
-      state.busy = false;
-      render();
-    }
-  }
+  await resolveAiDoubleResponse(game, runId);
 });
 
 $('take').addEventListener('click', async () => {
@@ -675,7 +726,7 @@ async function rankMoves(board, player, roll, moves, level, limit = 3) {
   const context = checkerContextFor(state.game, state.match, player);
   if (thinker.available) {
     if (EXPLICIT_BACKEND === 'wasm' && !thinker.backendStatus.allWasm) {
-      throw requireWasmThinking('ヒント計算', 'Worker の WASM 稼働を確認できませんでした');
+      throw makeWasmFailClosedError('ヒント計算', 'Worker の WASM 稼働を確認できませんでした');
     }
     try {
       const reply = await thinker.rankMoves({
@@ -702,21 +753,20 @@ async function rankMoves(board, player, roll, moves, level, limit = 3) {
         return at >= 0 ? { ...entry, index: at, move: moves[at] } : null;
       });
       if (entries.length && entries.every(Boolean)) {
-        state.runtimeError = null;
         return { entries, unit: reply.unit, evaluation: reply.evaluation };
       }
       if (EXPLICIT_BACKEND === 'wasm') {
-        throw requireWasmThinking('ヒント計算', 'Worker のヒントがメイン側の合法手に見つかりません');
+        throw makeWasmFailClosedError('ヒント計算', 'Worker のヒントがメイン側の合法手に見つかりません');
       }
       console.warn('Worker のヒントがメイン側の合法手に見つかりません。こちらで計算します');
     } catch (error) {
       if (EXPLICIT_BACKEND === 'wasm') {
-        throw isWasmFailClosedError(error) ? error : requireWasmThinking('ヒント計算', error);
+        throw isWasmFailClosedError(error) ? error : makeWasmFailClosedError('ヒント計算', error);
       }
       console.warn('Worker でのヒント計算に失敗しました。こちらで計算します', error);
     }
   } else if (EXPLICIT_BACKEND === 'wasm' && !canRunMainWasmThinking()) {
-    throw requireWasmThinking('ヒント計算', 'WASM Worker が停止しています');
+    throw makeWasmFailClosedError('ヒント計算', 'WASM Worker が停止しています');
   }
   return rankCheckerMoves(state.adviceAgent, context, moves, player, limit);
 }
@@ -728,6 +778,7 @@ $('advice-button').addEventListener('click', async () => {
   // 「消し忘れて古い助言が残る」が起こらない（消して回る必要がない）。
   const root = game.legalMoves;
   const runId = state.runId;
+  const adviceGen = ++state.advisingGen;
 
   state.runtimeError = null;
   state.advising = true;
@@ -738,15 +789,18 @@ $('advice-button').addEventListener('click', async () => {
     // **待っている間に局面が動いていたら捨てる。** 深い段では数秒あるので起きる。
     if (state.runId === runId && state.game === game && game.legalMoves === root) {
       state.advice = { root, ...entries };
+      state.runtimeError = null;
     }
   } catch (error) {
-    if (state.runId === runId && state.game === game) {
+    if (state.runId === runId && state.game === game && game.legalMoves === root) {
       state.advice = null;
       state.runtimeError = error instanceof Error ? error.message : String(error);
     }
   } finally {
-    state.advising = false;
-    render();
+    if (state.advisingGen === adviceGen) {
+      state.advising = false;
+      render();
+    }
   }
 });
 
@@ -793,13 +847,16 @@ function nextGame() {
   state.danceShow = null;
   state.busy = false;
   state.thinking = false;
+  state.advisingGen += 1;
   state.advising = false;
+  state.recovering = false;
   state.runtimeError = null;
   state.autoRolling = false;
   state.autoForcing = false;
   clearCompoundLock();
   state.runId += 1;         // 進行中のアニメーションを打ち切る
   $('again').hidden = true;
+  $('again').disabled = false;
   afterChange();
 }
 
@@ -1401,7 +1458,7 @@ function renderDiceTray(el, shown) {
 function renderStatus() {
   const game = state.game;
   $('hint').classList.toggle('is-thinking', Boolean(state.thinking));
-  $('hint').classList.toggle('error', Boolean(state.runtimeError));
+  $('hint').classList.toggle('error', Boolean(state.runtimeError && !state.recovering));
   const mine = game.currentPlayer === state.humanSide;
   const midTurn = Boolean(state.turn && state.turn.applied.length > 0);
 
@@ -1428,6 +1485,7 @@ function renderStatus() {
     }
     renderDiceTray($('dice'), null);
     renderDiceTray($('dice-ai'), null);
+    $('hint').classList.remove('error');
     if (result.jacobyApplied) {
       // なぜ点が伸びなかったのかを説明する。黙って 1 点だと理不尽に見える
       $('hint').textContent =
@@ -1440,6 +1498,7 @@ function renderStatus() {
     for (const id of ['roll', 'undo', 'double', 'take', 'pass', 'advice-button']) {
       $(id).hidden = true;
     }
+    $('again').disabled = false;
     $('again').textContent = match.isOver ? '新しいマッチ'
       : (match.isMoney ? 'もう一局' : '次の局');
     $('again').hidden = false;
@@ -1450,17 +1509,23 @@ function renderStatus() {
   if (game.state === DOUBLING_PROPOSED) {
     const toMe = game.doublingProposer !== state.humanSide;
     $('turn').textContent = toMe ? 'AI がダブルしました' : 'ダブルを提案中';
-    $('hint').textContent = state.runtimeError
-      ? state.runtimeError
-      : toMe
-        ? `受ければキューブは ${game.cube.value * 2}。断れば ${game.cube.value} 点の負け。`
-        : 'AI が考えています…';
+    $('hint').textContent = state.recovering
+      ? 'WASM を再初期化しています…'
+      : state.runtimeError
+        ? state.runtimeError
+        : toMe
+          ? `受ければキューブは ${game.cube.value * 2}。断れば ${game.cube.value} 点の負け。`
+          : 'AI が考えています…';
     renderDiceTray($('dice'), null);
     renderDiceTray($('dice-ai'), null);
     for (const id of ['roll', 'undo', 'double', 'advice-button']) $(id).hidden = true;
-    $('again').hidden = !state.runtimeError;
-    if (state.runtimeError) {
-      $('again').textContent = state.match.isMoney ? 'もう一局' : '次の局';
+    const canRetryDouble = Boolean(!toMe && (state.runtimeError || state.recovering));
+    $('again').hidden = !canRetryDouble;
+    $('again').disabled = state.recovering;
+    if (canRetryDouble) {
+      $('again').textContent = state.recovering
+        ? 'WASM を再初期化しています…'
+        : 'WASM を再初期化して再試行';
     }
     $('take').hidden = !toMe;
     $('pass').hidden = !toMe;
@@ -1493,15 +1558,20 @@ function renderStatus() {
   adviceButton.hidden = !canAdvise();
   adviceButton.disabled = state.advising;
   adviceButton.textContent = state.advising ? '考えています…' : 'ヒント';
-  const abortedAiTurn = Boolean(state.runtimeError && !mine && !state.busy);
-  $('again').hidden = !abortedAiTurn;
-  if (abortedAiTurn) {
-    $('again').textContent = state.match.isMoney ? 'もう一局' : '次の局';
+  const canRetryInPlace = Boolean(state.recovering || (state.runtimeError && !state.busy));
+  $('again').hidden = !canRetryInPlace;
+  $('again').disabled = state.recovering;
+  if (canRetryInPlace) {
+    $('again').textContent = state.recovering
+      ? 'WASM を再初期化しています…'
+      : 'WASM を再初期化して再試行';
   }
   // ダブルはロール前だけ。キューブを相手が持っていたら出せない
   $('double').hidden = !canHumanDouble();
 
-  if (state.runtimeError) {
+  if (state.recovering) {
+    $('hint').textContent = 'WASM を再初期化しています…';
+  } else if (state.runtimeError) {
     $('hint').textContent = state.runtimeError;
   } else if (state.busy) {
     if (mine) {

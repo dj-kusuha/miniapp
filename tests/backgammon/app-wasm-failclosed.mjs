@@ -7,8 +7,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { Board, WHITE, BLACK } from '../../docs/backgammon/src/board.js';
-import { ROLLING, MOVING, DOUBLING_PROPOSED, Game } from '../../docs/backgammon/src/game.js';
-import { generateMoves } from '../../docs/backgammon/src/rules.js';
+import { ROLLING, MOVING, DOUBLING_PROPOSED } from '../../docs/backgammon/src/game.js';
+import { Match } from '../../docs/backgammon/src/match.js';
+import { boardKey, generateMoves } from '../../docs/backgammon/src/rules.js';
 
 const unhandledRejections = [];
 process.on('unhandledRejection', (reason) => {
@@ -153,6 +154,12 @@ function createDomEnv(search, workerController) {
       queueMicrotask(() => {
         const { id, kind } = data;
         if (kind === 'load') {
+          if (workerController.failLoad) {
+            this.onmessage?.({
+              data: { id, ok: false, error: 'simulated worker load failure' },
+            });
+            return;
+          }
           this.onmessage?.({
             data: {
               id,
@@ -199,6 +206,39 @@ function createDomEnv(search, workerController) {
         if (kind === 'dispose') {
           this.onmessage?.({ data: { id, ok: true } });
           return;
+        }
+        if (workerController.mode === 'defer-reject') {
+          workerController.deferred.push(() => {
+            this.onmessage?.({
+              data: { id, ok: false, error: `deferred ${kind} rpc failure` },
+            });
+          });
+          return;
+        }
+        if (workerController.mode === 'ok') {
+          if (kind === 'select') {
+            const moves = generateMoves(Board.fromJson(data.board), data.player, data.die1, data.die2, 'js');
+            this.onmessage?.({
+              data: { id, ok: true, index: 0, key: boardKey(moves[0].resultingBoard) },
+            });
+            return;
+          }
+          if (kind === 'prepare-cube-parallel') {
+            this.onmessage?.({
+              data: { id, ok: true, prepared: { kind: 'complete', answer: true } },
+            });
+            return;
+          }
+          if (kind === 'cube') {
+            this.onmessage?.({ data: { id, ok: true, answer: true } });
+            return;
+          }
+          if (kind === 'eval-checker-subset') {
+            this.onmessage?.({
+              data: { id, ok: true, entries: data.moveIndices.map((idx) => ({ index: idx, equity: 0 })) },
+            });
+            return;
+          }
         }
         if (workerController.mode === 'reject') {
           this.onmessage?.({
@@ -380,8 +420,128 @@ function makeForcedSingleMoveBoardForBlack() {
   await waitFor(() => !state.advising && state.runtimeError !== null, 'wasm hint terminated');
   assert.equal(state.advice, null);
   assert.match(state.runtimeError, /WASM Worker が停止しています/);
+  assert.equal(elements.get('again').hidden, false);
+  assert.equal(elements.get('again').textContent, 'WASM を再初期化して再試行');
 
-  console.log('1. ?backend=wasm mid-game fail-closed (checker/cube/hint RPC reject, mismatch, terminated + forced-move): PASS');
+  // 1f. In-place WASM recovery via #again click: preserves incomplete Crawford game (does NOT skip/consume it)
+  {
+    const crawfordMatch = new Match({ length: 5, jacoby: false, useCube: true, rng: Math.random });
+    crawfordMatch.scores[WHITE] = 4; // 1-away -> next startGame() is Crawford!
+    crawfordMatch.scores[BLACK] = 2;
+    const crawfordGame = crawfordMatch.startGame();
+    assert.equal(crawfordGame.crawford, true, 'must be a genuine Crawford game');
+    assert.equal(crawfordMatch.crawfordDone, true);
+    state.match = crawfordMatch;
+    state.game = crawfordGame;
+    state.runId += 1;
+    state.busy = false;
+    state.runtimeError = null;
+    const entriesBefore = crawfordMatch.entries.length;
+
+    // All Workers dead -> AI turn in Crawford game aborts fail-closed
+    thinker.terminate();
+    setupPosition(crawfordGame, { player: BLACK, phase: MOVING, die1: 3, die2: 1 });
+    await afterChange();
+    assert.equal(state.busy, false);
+    assert.equal(crawfordGame.currentPlayer, BLACK);
+    assert.match(state.runtimeError, /WASM Worker が停止しています/);
+    assert.equal(elements.get('again').hidden, false);
+    assert.equal(elements.get('again').textContent, 'WASM を再初期化して再試行');
+
+    // 1f-i. Click #again while BOTH Worker re-init and main-thread WASM init fail:
+    // must fail-closed without creating a new game or leaving busy/recovering stuck
+    ctrl.failLoad = true;
+    const origInstantiate = WebAssembly.instantiate;
+    WebAssembly.instantiate = async () => { throw new Error('simulated wasm instantiate failure'); };
+    try {
+      elements.get('again').click();
+      await waitFor(() => !state.recovering && !state.busy && /再初期化に失敗/.test(state.runtimeError ?? ''), 'failed wasm recovery');
+    } finally {
+      WebAssembly.instantiate = origInstantiate;
+    }
+    assert.equal(state.game, crawfordGame, 'failed recovery must not replace Crawford game');
+    assert.equal(crawfordMatch.entries.length, entriesBefore, 'failed recovery must not push a new match entry');
+    assert.equal(crawfordGame.crawford, true);
+    assert.equal(elements.get('again').hidden, false);
+    assert.equal(elements.get('again').disabled, false);
+
+    // 1f-ii. Restore Worker availability and click #again:
+    // must re-init WASM Worker, preserve the exact Crawford game, and resume AI move via WASM
+    ctrl.failLoad = false;
+    ctrl.mode = 'ok';
+    elements.get('again').click();
+    await waitFor(() => !state.recovering && !state.busy && crawfordGame.currentPlayer === WHITE, 'successful Crawford wasm recovery');
+    assert.equal(state.game, crawfordGame, 'recovery must keep the exact same Crawford Game instance');
+    assert.equal(crawfordMatch.entries.length, entriesBefore, 'recovery must not skip or consume the Crawford game');
+    assert.equal(crawfordGame.crawford, true);
+    assert.equal(thinker.available, true);
+    assert.equal(globalThis.__BG_BACKEND_DIAG__.workerPool.allWasm, true);
+    assert.equal(state.runtimeError, null);
+    assert.equal(elements.get('again').hidden, true);
+  }
+
+  // 1g. In-place WASM recovery on DOUBLING_PROPOSED (human double -> AI accept)
+  {
+    const moneyMatch = new Match({ length: 0, jacoby: true, useCube: true, rng: Math.random });
+    const moneyGame = moneyMatch.startGame();
+    state.match = moneyMatch;
+    state.game = moneyGame;
+    state.runId += 1;
+    state.busy = false;
+    state.runtimeError = null;
+    const entriesBefore = moneyMatch.entries.length;
+
+    thinker.terminate();
+    setupPosition(moneyGame, { player: WHITE, phase: ROLLING });
+    moneyGame.cube.owner = null;
+    render();
+    elements.get('double').click();
+    await waitFor(() => !state.busy && state.runtimeError !== null, 'double fail-closed before recovery');
+    assert.equal(moneyGame.state, DOUBLING_PROPOSED);
+    assert.equal(elements.get('again').hidden, false);
+    assert.equal(elements.get('again').textContent, 'WASM を再初期化して再試行');
+
+    // Restore Worker and click #again -> AI accepts double on the same game
+    ctrl.failLoad = false;
+    ctrl.mode = 'ok';
+    elements.get('again').click();
+    await waitFor(() => !state.recovering && !state.busy && moneyGame.state === ROLLING, 'double recovery accept');
+    assert.equal(state.game, moneyGame);
+    assert.equal(moneyMatch.entries.length, entriesBefore);
+    assert.equal(moneyGame.cube.value, 2);
+    assert.equal(state.runtimeError, null);
+    assert.equal(elements.get('again').hidden, true);
+  }
+
+  // 1h. Generation guard: stale failed hint RPC from superseded game must not pollute new game's runtimeError or advising
+  {
+    ctrl.deferred = [];
+    ctrl.mode = 'defer-reject';
+    setupPosition(state.game, { player: WHITE, phase: MOVING, die1: 3, die2: 1 });
+    state.turn = null;
+    state.advice = null;
+    state.runtimeError = null;
+    render();
+    elements.get('advice-button').click();
+    await waitFor(() => ctrl.deferred.length > 0, 'deferred hint rpc sent');
+    assert.equal(state.advising, true);
+
+    // Move to a new game generation (simulating user starting next game while old hint RPC is still in-flight)
+    const oldFlush = [...ctrl.deferred];
+    ctrl.deferred = [];
+    state.runId += 1;
+    state.advisingGen += 1;
+    state.advising = true; // pretend a newer hint request is active in the new generation
+    state.runtimeError = null;
+
+    for (const fn of oldFlush) fn();
+    await sleep(30);
+    assert.equal(state.runtimeError, null, 'stale RPC failure must not pollute new game runtimeError');
+    assert.equal(state.advising, true, 'stale RPC finally must not clear newer advising generation');
+    state.advising = false;
+  }
+
+  console.log('1. ?backend=wasm mid-game fail-closed, Crawford in-place recovery & generation guard: PASS');
 }
 
 // ── 2. ?backend=auto: mid-game Worker failure / termination MUST continue on main JS fallback ──
