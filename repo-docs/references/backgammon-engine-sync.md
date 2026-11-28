@@ -100,3 +100,17 @@ node tests/backgammon/run.mjs
   - `docs/backgammon/src/worker.js` / `thinker-pool.js`: `loadGeneration` / `moneyBearoffGeneration` による非同期 `load`・Money DB ロードの stale 完了抑止、`pruneNetUrl` 読込＋`validatePruneNet()` 検証（省略 / `null` / 失敗 / 構成不適合時は `null` へ安全フォールバック）、`pruneNetStatus` 公開、および同一解析内で pruning ON/OFF を混在させない `_consistentWorkers()` 揃え。
   - `docs/backgammon/app.js`: 起動時に `src/prune_net.json` を読み込み、全 4 Worker（`ThinkerPool`）およびメインスレッドフォールバックへ適用。
   - `tests/backgammon/prune-net.mjs` / `tests/backgammon/prune-parity.json` / `tests/backgammon/parallel-pool.mjs`: SHA-256・`pruneNet === net` 不変条件・Rust 24 局面（White 12 / Black 12）パリティ・`mover` 視点・1/2/4 worker & roll-chunk 閾値またぎ parity・部分的読込失敗時の統一・Worker 非同期 `load` / Money DB 世代競合を検証。
+
+## Engine 0.2.8（Issue #578 Phase 4c）WASM エンジン本番移行（2026-11-28）
+
+`backgammon_engine` Phase 4b マージ済み `main`（`a1ec1da`, PR #586 / ADR-0183 / `@dj-kusuha/backgammon-engine@0.2.8`）の Rust `bg-wasm` バックエンドを `miniapp` 本番へ適用した。Issue #587 隔離 HTTPS プレビュー（PR #72）にて実機 iPhone Safari（iOS 18.7 / Safari 27.2・通常＆プライベート双方）で自動スイート・`ThinkerPool` 4-Worker 実経路・4w BG2N 持続セッション（24〜48 秒バックグラウンド復帰 4 点生存確認含む）の全 PASS を確認済み。
+
+- 参照 engine SHA: `a1ec1daed55c2bee291bdcea6c136599491a4868`（PR #586 マージ済み `main` / `0.2.8`）
+- WASM バイナリ SHA-256:
+  - `bg_engine_scalar.wasm` (272,727 bytes): `2e0a4e5a249ee3d1d4d26ec4045d3dcf6d83f0285aa594521359e7e7edbabfb1`
+  - `bg_engine_simd.wasm` (282,779 bytes): `9b6a43b0bfa1e5ecd22c626277eccdd721ef4b7929251395ce4f895f485929b9`
+- 本体モデル / Pruning Net / Bearoff / Money BG2N v4 SHA-256: `0.2.7` と完全一致（変更なし）
+- 適用内容:
+  - `docs/backgammon/assets/`: `bg_engine_scalar.wasm`, `bg_engine_simd.wasm`, `metadata.json` を配置（検証専用 `docs/wasm-verify/` は本番へ含めない）。
+  - `docs/backgammon/src/`: `wasm-backend.js`, `bearoff.js`, `money-bearoff.js`, `rules.js`, `match.js`, `cube.js`, `game.js`, `agent.js`（`miniapp` 固有の初心者 `blotPenalty` / `doubleMargin` / `takeMargin` 維持）を同期。`worker.js` / `thinker-pool.js` / `app.js` で既定 `'auto'`（WASM 優先・SIMD128 → Scalar → 純 JS 自動フォールバック）、`?backend=js|wasm|auto` 明示切り戻し、`backendStatus` / `window.__BG_BACKEND_DIAG__` 診断を追加。純 JS 実装は Phase 4d まで維持する。
+

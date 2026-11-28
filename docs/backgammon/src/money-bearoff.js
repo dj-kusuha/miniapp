@@ -4,7 +4,7 @@
 // float16, while BG2N stores normalized Money equity in little-endian uint16.
 
 import { WHITE, BLACK, opponent } from './board.js';
-import { boardKey, generateMoves } from './rules.js';
+import { boardKey, generateMovesJs } from './rules.js';
 
 const MAGIC = 'BG2N';
 const VERSION = 4;
@@ -222,7 +222,7 @@ function evaluateRollBranch(board, turn, cube, owner, database) {
   const nextOwner = flipOwner(owner);
   let weightedPoints = 0;
   for (const { die1, die2, weight } of MONEY_ROLLS) {
-    const moves = generateMoves(board, turn, die1, die2);
+    const moves = generateMovesJs(board, turn, die1, die2);
     const successors = new Map();
     if (moves.length === 0) successors.set(boardKey(board), board);
     else for (const move of moves) successors.set(boardKey(move.resultingBoard), move.resultingBoard);

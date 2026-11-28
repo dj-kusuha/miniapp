@@ -58,6 +58,7 @@ export class BearoffDatabase {
     const version = header.getUint8(4);
     if (version !== 1) throw new Error(`未知の版です: ${version}`);
 
+    this.buffer = buffer;
     this.points = header.getUint8(5);
     this.window = header.getUint8(7);
     this.rolls = header.getUint16(8, true);
