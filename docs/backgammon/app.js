@@ -249,20 +249,38 @@ function formatBackendSummary() {
     : 'JS (main)';
 }
 
-function updateBackendDiagnostics() {
+function updateBackendDiagnostics(initError = null) {
   const diag = {
     app: 'miniapp-backgammon',
     url: globalThis.location?.href ?? null,
     isSecureContext: Boolean(globalThis.isSecureContext),
     hasSubtleCrypto: Boolean(globalThis.crypto?.subtle),
-    threaded: state.threaded,
     explicitBackend: EXPLICIT_BACKEND,
     explicitCheckerSearchMode: EXPLICIT_CHECKER_SEARCH_MODE,
-    engineMetadata: state.engineMetadata,
-    workerPool: thinker.backendStatus,
-    pruneNetStatus: thinker.pruneNetStatus,
-    mainThreadBackend: getEngineBackendStatus(),
-    refreshWorkerStatuses: () => thinker.refreshBackendStatuses(),
+    initError,
+    get threaded() {
+      return state.threaded;
+    },
+    get engineMetadata() {
+      return state.engineMetadata;
+    },
+    get workerPool() {
+      return thinker.backendStatus;
+    },
+    get pruneNetStatus() {
+      return thinker.pruneNetStatus;
+    },
+    get mainThreadBackend() {
+      return getEngineBackendStatus();
+    },
+    async refreshWorkerStatuses() {
+      const latest = await thinker.refreshBackendStatuses();
+      return {
+        workerPool: latest,
+        pruneNetStatus: thinker.pruneNetStatus,
+        mainThreadBackend: getEngineBackendStatus(),
+      };
+    },
   };
   globalThis.__BG_BACKEND_DIAG__ = diag;
   return diag;
@@ -295,21 +313,50 @@ NeuralNet.load('./src/model.json')
       setPruneNet(null);
       console.warn('Pruning Net を読めませんでした', error);
     }
-    if (EXPLICIT_BACKEND !== null) {
-      setEngineBackend(EXPLICIT_BACKEND);
-    }
+
+    // バックエンド契約:
+    // - `?backend=js`: Worker・メインスレッド双方を純 JS に固定する。
+    // - 未指定 / `?backend=auto`: Worker は `'auto'`（WASM 優先・失敗時 JS 自動フォールバック）。
+    //   Worker 稼働中はメモリ節約のためメインスレッドで WASM を別途ロードせず `'auto'`（未初期化 JS）で
+    //   UI 合法手生成を行い、Worker 非稼働時のみメインスレッド WASM 初期化（失敗時 JS 継続）を試みる。
+    // - `?backend=wasm`: 思考エンジンとして WASM 稼働を必須（fail-closed）とする。
+    //   Worker 起動成功時はメモリ節約方針を維持してメインスレッド UI 合法手生成は `'js'` とし、
+    //   Worker の WASM 稼働を検証する。Worker 起動失敗時はメインスレッドで明示 `'wasm'` 初期化を試み、
+    //   失敗した場合は start を有効化せずエラー表示で停止する。
     state.threaded = await startThinker('./src/model.json');
-    // Worker が使えない環境のみ、メインスレッドで WASM 初期化を試みる（通常は Worker 側のみでメモリ節約）。
-    if (!state.threaded && EXPLICIT_BACKEND !== 'js') {
-      try {
+    if (EXPLICIT_BACKEND === 'js') {
+      setEngineBackend('js');
+    } else if (EXPLICIT_BACKEND === 'wasm') {
+      if (state.threaded) {
+        if (!thinker.backendStatus.allWasm) {
+          thinker.terminate();
+          state.threaded = false;
+          throw new Error('明示指定 backend=wasm で Worker の WASM 初期化を確認できませんでした');
+        }
+        // Worker 側で WASM 思考が稼働しているため、メインスレッドはメモリ節約のため WASM を別途ロードしない。
+        setEngineBackend('js');
+      } else {
+        setEngineBackend('wasm');
         await initWasmEngine({
           variant: 'auto',
-          backend: EXPLICIT_BACKEND ?? 'auto',
+          backend: 'wasm',
         });
-      } catch (error) {
-        console.warn('メインスレッド WASM 初期化に失敗しました。JS へフォールバックします', error);
+      }
+    } else {
+      setEngineBackend('auto');
+      // Worker が使えない環境のみ、メインスレッドで WASM 初期化を試みる（通常は Worker 側のみでメモリ節約）。
+      if (!state.threaded) {
+        try {
+          await initWasmEngine({
+            variant: 'auto',
+            backend: 'auto',
+          });
+        } catch (error) {
+          console.warn('メインスレッド WASM 初期化に失敗しました。JS へフォールバックします', error);
+        }
       }
     }
+
     const backendLabel = formatBackendSummary();
     const versionSuffix = state.engineMetadata?.enginePackageVersion
       ? ` · ${state.engineMetadata.enginePackageVersion}`
@@ -322,9 +369,14 @@ NeuralNet.load('./src/model.json')
     $('start').disabled = false;
   })
   .catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    $('start').disabled = true;
     $('model-info').textContent = '—';
-    $('loading').textContent = `モデルを読み込めませんでした: ${error.message}`;
+    $('loading').textContent = EXPLICIT_BACKEND === 'wasm'
+      ? `WASM バックエンドを初期化できませんでした（?backend=wasm）: ${message}`
+      : `モデルを読み込めませんでした: ${message}`;
     $('loading').classList.add('error');
+    updateBackendDiagnostics(message);
   });
 
 for (const button of document.querySelectorAll('[data-level]')) {
