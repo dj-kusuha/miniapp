@@ -56,6 +56,7 @@ class WorkerSlot {
     this.readyPromise = null;
     this.pruneNetLoaded = false;
     this.pruneNetStatus = 'disabled';
+    this.backendStatus = null;
 
     worker.onmessage = (event) => {
       const { id } = event.data;
@@ -97,17 +98,70 @@ export class ThinkerPool {
     maxWorkers = Math.min(4, Math.max(1, globalThis.navigator?.hardwareConcurrency || 4)),
     createWorker = () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }),
     explicitCheckerSearchMode = null,
+    explicitBackend = null,
   } = {}) {
     this.maxWorkers = Math.max(1, maxWorkers);
     this.createWorker = createWorker;
     this.explicitCheckerSearchMode = ['legacy', 'staged3ply', 'full-root']
       .includes(explicitCheckerSearchMode) ? explicitCheckerSearchMode : null;
+    this.explicitBackend = ['auto', 'wasm', 'js'].includes(explicitBackend)
+      ? explicitBackend
+      : null;
     this.loadPayload = null;
     this.slots = [];
   }
 
   get available() {
     return this.slots.some((slot) => slot.alive);
+  }
+
+  /**
+   * プール内 Worker の実効バックエンド状態（WASM / JS・variant・runtimeId・fallbackReason）を集約して返す。
+   */
+  get backendStatus() {
+    const alive = this.slots.filter((slot) => slot.alive);
+    const workers = alive.map((slot, index) => ({
+      workerIndex: index,
+      ...(slot.backendStatus ?? {
+        configuredBackend: this.explicitBackend ?? 'auto',
+        activeBackend: 'unknown',
+        wasmReady: false,
+        wasmVariant: null,
+        simdActive: false,
+        runtimeId: null,
+        fallbackReason: null,
+      }),
+    }));
+    const activeBackends = [...new Set(workers.map((w) => w.activeBackend))];
+    const activeBackend = workers.length === 0
+      ? 'none'
+      : activeBackends.length === 1 ? activeBackends[0] : 'mixed';
+    const wasmVariants = [...new Set(workers.map((w) => w.wasmVariant).filter(Boolean))];
+    const fallbackReasons = [...new Set(workers.map((w) => w.fallbackReason).filter(Boolean))];
+    return {
+      configuredBackend: this.explicitBackend ?? 'auto',
+      activeBackend,
+      allWasm: workers.length > 0 && workers.every((w) => w.activeBackend === 'wasm' && w.wasmReady),
+      workerCount: workers.length,
+      wasmVariants,
+      runtimeIds: workers.map((w) => w.runtimeId ?? null),
+      fallbackReasons,
+      workers,
+    };
+  }
+
+  /** 各生存 Worker へ status RPC を問い合わせ、最新の線形メモリ・ハンドル・runtimeId を取得する。 */
+  async refreshBackendStatuses() {
+    const alive = this.slots.filter((slot) => slot.alive);
+    await Promise.all(alive.map(async (slot) => {
+      try {
+        const reply = await slot.ask({ kind: 'status' });
+        if (reply?.backendStatus) slot.backendStatus = reply.backendStatus;
+      } catch {
+        // 終了済み Worker は無視
+      }
+    }));
+    return this.backendStatus;
   }
 
   /**
@@ -139,6 +193,7 @@ export class ThinkerPool {
       .then((reply) => {
         slot.pruneNetLoaded = Boolean(reply?.pruneNetLoaded);
         slot.pruneNetStatus = reply?.pruneNetStatus ?? (slot.pruneNetLoaded ? 'loaded' : 'disabled');
+        slot.backendStatus = reply?.backendStatus ?? null;
         return slot;
       })
       .catch((error) => {
@@ -156,6 +211,7 @@ export class ThinkerPool {
     this.loadPayload = {
       ...loadPayload,
       checkerSearchMode: this.explicitCheckerSearchMode ?? 'legacy',
+      ...(this.explicitBackend !== null ? { backend: this.explicitBackend } : {}),
     };
     const slot = this._createSlot();
     if (!slot) return false;
@@ -447,6 +503,12 @@ export class ThinkerPool {
       chunkReplies.map((reply) => reply.chunk),
       prepared.context,
     );
+  }
+
+  async dispose() {
+    const alive = this.slots.filter((slot) => slot.alive);
+    await Promise.all(alive.map((slot) => slot.ask({ kind: 'dispose' }).catch(() => null)));
+    this.terminate();
   }
 
   terminate() {

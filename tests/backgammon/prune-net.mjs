@@ -323,7 +323,7 @@ setBearoffDatabase(bearoff);
 
         // 1) load A（URL A）を確定し、cube 要求で遅延ロード A を開始
         await workerScope.onmessage({
-          data: { id: `m-loadA-${outcome}`, kind: 'load', url: 'https://test.invalid/modelA.json', moneyBearoffUrl: urlA },
+          data: { id: `m-loadA-${outcome}`, kind: 'load', url: 'https://test.invalid/modelA.json', moneyBearoffUrl: urlA, backend: 'js' },
         });
         assert.equal(byId(`m-loadA-${outcome}`)?.ok, true);
         const cubeA = workerScope.onmessage({ data: { id: `m-cubeA-${outcome}`, ...bg2nCubePayload } });
@@ -331,7 +331,7 @@ setBearoffDatabase(bearoff);
 
         // 2) A のロード完了前に load B（URL B）を確定し、cube B で DB B をロード完了させる
         await workerScope.onmessage({
-          data: { id: `m-loadB-${outcome}`, kind: 'load', url: 'https://test.invalid/modelA.json', moneyBearoffUrl: urlB },
+          data: { id: `m-loadB-${outcome}`, kind: 'load', url: 'https://test.invalid/modelA.json', moneyBearoffUrl: urlB, backend: 'js' },
         });
         assert.equal(byId(`m-loadB-${outcome}`)?.ok, true);
         await workerScope.onmessage({ data: { id: `m-cubeB1-${outcome}`, ...bg2nCubePayload } });

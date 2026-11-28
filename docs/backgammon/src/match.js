@@ -32,13 +32,15 @@ export class Match {
    * @param {number} options.length マッチの長さ。`MONEY`(0) でアンリミテッド
    * @param {boolean} options.jacoby ジャコビールール。**マッチでは無視して常に false**
    * @param {boolean} options.useCube キューブを使うか
+   * @param {boolean} options.unboundedMoneyCube Money gameでcubeの64倍上限を外すか
    * @param {function} options.rng
    */
-  constructor({ length = MONEY, jacoby = true, useCube = true, rng = Math.random } = {}) {
+  constructor({ length = MONEY, jacoby = true, useCube = true, unboundedMoneyCube = true, rng = Math.random } = {}) {
     this.length = length;
     this.useCube = useCube;
     // ジャコビーはアンリミテッド専用
     this.jacoby = length === MONEY ? jacoby : false;
+    this.unboundedMoneyCube = length === MONEY ? Boolean(unboundedMoneyCube) : false;
     this.rng = rng;
     this.scores = { [WHITE]: 0, [BLACK]: 0 };
     /** 局の記録。`{ game, scores(局の開始時), crawford }` を古い順に持つ。 */
@@ -102,7 +104,7 @@ export class Match {
     const game = new Game(null, this.rng, {
       jacoby: this.jacoby,
       crawford,
-      unboundedMoneyCube: this.isMoney,
+      unboundedMoneyCube: this.isMoney && this.unboundedMoneyCube,
     });
     this.entries.push({ game, scores: { ...this.scores }, crawford });
     this.game = game;

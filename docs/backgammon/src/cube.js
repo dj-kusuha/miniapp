@@ -12,7 +12,7 @@ export class DoublingCube {
   constructor(value = 1, owner = null, unboundedMoney = false) {
     this.value = value;
     this.owner = owner;   // null = センター
-    this.unboundedMoney = unboundedMoney;
+    this.unboundedMoney = Boolean(unboundedMoney);
   }
 
   /** Money gameだけ通常の64倍上限を外す。Matchのキューブには使わない。 */
